@@ -1,0 +1,51 @@
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { parse } from '../../core/validate.js';
+import { serializeUser } from './user.serializer.js';
+import { snapshot } from '../../core/hearts.js';
+import { isPremiumActive } from '../../core/premium.js';
+import { meService, syncUserState } from './me.service.js';
+import { userRepository } from './user.repository.js';
+import { updateMeSchema } from './me.schemas.js';
+
+export const meController = {
+  async get(req: FastifyRequest, reply: FastifyReply) {
+    const user = await meService.get(req.auth!.sub);
+    return reply.send({ user: serializeUser(user) });
+  },
+
+  async update(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(updateMeSchema, req.body);
+    const user = await meService.update(req.auth!.sub, input);
+    return reply.send({ user: serializeUser(user) });
+  },
+
+  /** POST /me/hearts/sync: recompute regen, persist, return the hearts block. */
+  async syncHearts(req: FastifyRequest, reply: FastifyReply) {
+    const now = new Date();
+    const raw = await userRepository.getOrThrow(req.auth!.sub);
+    const user = await syncUserState(raw, now);
+    const premium = isPremiumActive(user, now);
+    const snap = snapshot(
+      { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
+      premium,
+      now,
+    );
+    return reply.send({
+      hearts: snap.hearts,
+      unlimited: snap.unlimited,
+      outOfHearts: snap.outOfHearts,
+      msUntilNextHeart: snap.msUntilNextHeart,
+    });
+  },
+
+  /** POST /me/streak/refresh: recompute freeze/break, return streak fields. */
+  async refreshStreak(req: FastifyRequest, reply: FastifyReply) {
+    const raw = await userRepository.getOrThrow(req.auth!.sub);
+    const user = await syncUserState(raw);
+    return reply.send({
+      streak: user.streak,
+      streakFrozen: user.streakFrozen,
+      lastStreakValue: user.lastStreakValue,
+    });
+  },
+};

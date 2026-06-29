@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+prisma/.cache/
+.quran-cache/
+.claude/
+server.log

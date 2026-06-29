@@ -1,0 +1,397 @@
+// Tarteel backend — Prisma schema
+// =============================================================================
+// Design notes (the two trickiest mechanics):
+//
+//  HEARTS (lives). We do NOT store a running timer. We store `hearts` and a
+//  single anchor `lastHeartLossAt`. Regeneration is derived on read:
+//      regenerated = floor((now - lastHeartLossAt) / HEART_REGEN_MS)
+//  capped at MAX_HEARTS; when hearts reach MAX we reset `lastHeartLossAt = null`.
+//  This makes the rule fully server-authoritative and timezone-independent
+//  (pure UTC duration), and survives the client being offline. It mirrors the
+//  front store (`computeHearts`) so the contract is identical.
+//
+//  STREAK. `streak` is the current flame. `streakFrozen` marks "missed one
+//  day, not broken yet". `lastStreakValue` snapshots the streak right before a
+//  break so a paid `repair-streak` can restore it. `lastActivityDate` (a date
+//  in the user's timezone) is the source of truth for recomputation on app
+//  open — we never trust a client-sent date.
+//
+//  i18n. A verse's meaning is shown in the USER's language. So translations
+//  live in `VersetTraduction` keyed by `langue`, not as a single column on
+//  `Verset`. Transliteration is treated the same way (it can differ per script
+//  convention / language).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  user
+  admin
+}
+
+enum UserLevel {
+  debutant
+  alphabet
+  lent
+  fluent
+}
+
+enum Objectif {
+  lire
+  hifz
+  tafsir
+  complet
+}
+
+enum LessonState {
+  locked
+  active
+  completed
+}
+
+enum StepType {
+  discovery
+  written
+  voice
+}
+
+enum RevisionState {
+  maitrise
+  revoir
+  difficile
+}
+
+enum TransactionType {
+  premium_subscription
+  streak_repair
+}
+
+enum TransactionStatus {
+  pending
+  success
+  failed
+  refunded
+}
+
+// ─── User & session ──────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String? // null when the account is OAuth-only
+  displayName    String
+  avatarInitials String    @default("")
+  role           Role      @default(user)
+
+  // Profile / onboarding
+  level          UserLevel @default(debutant)
+  objectif       Objectif  @default(lire)
+  dailyMinutes   Int       @default(10)
+  onboardingDone Boolean   @default(false)
+  timezone       String    @default("UTC") // e.g. "Africa/Dakar" — local day/midnight
+  language       String    @default("en") // preferred translation language
+
+  // Premium
+  isPremium    Boolean   @default(false)
+  premiumUntil DateTime?
+
+  // Stats / hearts / streak (kept on User for atomic 1-1 updates)
+  xp        Int @default(0)
+  weeklyXp  Int @default(0)
+  hearts    Int @default(5)
+  // Anchor for heart regeneration; null when hearts are full.
+  lastHeartLossAt DateTime?
+
+  streak          Int      @default(0)
+  streakFrozen    Boolean  @default(false)
+  // Snapshot of the streak just before a break, for paid restoration.
+  lastStreakValue Int      @default(0)
+  // Local-day date of the last completed activity (source of truth for streak).
+  lastActivityDate DateTime?
+
+  // Notification preferences (push). Defaults on; user can opt out per type.
+  notifDailyReminder Boolean @default(true)
+  notifStreakAlert   Boolean @default(true)
+  // Optional preferred local hour (0–23) for the daily learning reminder.
+  reminderHour       Int     @default(19)
+  // Marks the last local-day a daily reminder was sent, to avoid duplicates.
+  lastDailyReminderOn String?
+  lastStreakAlertOn   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  refreshTokens     RefreshToken[]
+  lessonProgress    LessonProgress[]
+  sourateRevisions  SourateRevision[]
+  leagueMemberships LeagueMembership[]
+  transactions      Transaction[]
+  deviceTokens      DeviceToken[]
+
+  @@index([weeklyXp])
+}
+
+/// One Expo push token per device/installation, for sending notifications.
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Expo push token, e.g. "ExponentPushToken[xxxxxxxx]".
+  token     String   @unique
+  deviceId  String // installation id (same notion as RefreshToken.deviceId)
+  platform  String? // "ios" | "android" | "web"
+  // Cleared/disabled when Expo reports the token as no longer valid.
+  disabledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+/// Persistent session: long-lived, hashed, per-device refresh tokens.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // We store only a hash of the token (never the token itself).
+  tokenHash String    @unique
+  deviceId  String // identifies the installation/device
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([userId, deviceId])
+  // Supports session listing/cleanup filtered by expiry.
+  @@index([expiresAt])
+}
+
+// ─── Content (admin-managed) ─────────────────────────────────────────────────
+
+model Section {
+  id          String  @id @default(cuid())
+  ordre       Int     @unique
+  hizb        Int? // null for the alphabet section
+  kicker      String
+  titre       String
+  sousTitre   String
+  couleur     String
+  degradeStart String
+  degradeEnd   String
+  headerIcon  String
+
+  lessons      Lesson[]
+  // Surahs shown as context badges on the section.
+  sourateLinks SectionSourate[]
+
+  @@index([hizb])
+}
+
+/// Join table: which surahs belong (contextually) to a section, in order.
+model SectionSourate {
+  id        String  @id @default(cuid())
+  sectionId String
+  section   Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  sourateId String
+  sourate   Sourate @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  ordre     Int
+
+  @@unique([sectionId, sourateId])
+  @@index([sectionId])
+}
+
+model Lesson {
+  id        String  @id @default(cuid())
+  sectionId String
+  section   Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  ordre     Int
+  titre     String
+  iconType  String  @default("star")
+
+  steps    LessonStep[]
+  progress LessonProgress[]
+
+  @@unique([sectionId, ordre])
+  @@index([sectionId])
+}
+
+model LessonStep {
+  id       String   @id @default(cuid())
+  lessonId String
+  lesson   Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  ordre    Int
+  type     StepType
+  // Shape depends on `type` (see src/modules/lessons/lesson.types.ts):
+  //  discovery: { arabe, translitteration, traduction, audioUrl }
+  //  written:   { consigne, arabe, translitteration?, options:[{id,text}], bonneReponse }
+  //  voice:     { arabe, translitteration, traduction, audioUrl, seuilReussite }
+  payload  Json
+
+  @@unique([lessonId, ordre])
+  @@index([lessonId])
+}
+
+// ─── Quran reference data ────────────────────────────────────────────────────
+
+model Sourate {
+  id            String  @id @default(cuid())
+  numero        Int     @unique // 1–114
+  nom           String // Latin / common name, e.g. "Al-Fatiha"
+  nomArabe      String
+  nombreVersets Int
+  hizb          Int // hizb the surah starts in (used to build sections)
+  // Revelation place, useful metadata from quran.com (makkah/madinah).
+  revelation    String?
+
+  versets      Verset[]
+  sectionLinks SectionSourate[]
+  revisions    SourateRevision[]
+
+  @@index([hizb])
+}
+
+model Verset {
+  id         String  @id @default(cuid())
+  sourateId  String
+  sourate    Sourate @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  numero     Int // ayah number within the surah
+  texteArabe String
+  audioUrl   String?
+
+  traductions      VersetTraduction[]
+  translitterations VersetTranslitteration[]
+
+  @@unique([sourateId, numero])
+  @@index([sourateId])
+}
+
+/// Per-language meaning shown under a verse (the user's language decides which).
+model VersetTraduction {
+  id       String @id @default(cuid())
+  versetId String
+  verset   Verset @relation(fields: [versetId], references: [id], onDelete: Cascade)
+  langue   String // ISO code: "fr", "en", "ar", …
+  texte    String
+  source   String // edition name, e.g. "Hamidullah", "Saheeh International"
+
+  @@unique([versetId, langue])
+  @@index([langue])
+}
+
+/// Per-language Latin transliteration (may differ by language convention).
+model VersetTranslitteration {
+  id       String @id @default(cuid())
+  versetId String
+  verset   Verset @relation(fields: [versetId], references: [id], onDelete: Cascade)
+  langue   String
+  texte    String
+  source   String
+
+  @@unique([versetId, langue])
+  @@index([langue])
+}
+
+// ─── Progression ─────────────────────────────────────────────────────────────
+
+model LessonProgress {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson      @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  etat        LessonState @default(locked)
+  score       Int         @default(0)
+  completedAt DateTime?
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+}
+
+/// SRS data — feature coming later; model exists, endpoints are secondary.
+model SourateRevision {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourateId        String
+  sourate          Sourate       @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  score            Int           @default(0)
+  etat             RevisionState @default(revoir)
+  prochaineRevision DateTime?
+  derniereRevision  DateTime?
+  intervalleJours   Int          @default(1)
+
+  @@unique([userId, sourateId])
+  @@index([userId])
+}
+
+// ─── Leagues ─────────────────────────────────────────────────────────────────
+
+model League {
+  id     String @id @default(cuid())
+  nom    String // Bronze, Argent, Or, Émeraude …
+  niveau Int // rank tier (1 = lowest)
+  ordre  Int    @unique
+
+  weeks LeagueWeek[]
+}
+
+model LeagueWeek {
+  id            String    @id @default(cuid())
+  leagueId      String
+  league        League    @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  numeroSemaine Int
+  dateDebut     DateTime
+  dateFin       DateTime
+  // Set when the weekly rollover has processed this week. Makes the rollover
+  // idempotent: a re-run (retry/double scheduler) skips already-closed weeks.
+  closedAt      DateTime?
+
+  memberships LeagueMembership[]
+
+  @@unique([leagueId, numeroSemaine])
+  @@index([leagueId])
+  // Finding the active week ("now between dateDebut and dateFin") and ended
+  // weeks for the rollover.
+  @@index([dateDebut, dateFin])
+  @@index([dateFin, closedAt])
+}
+
+model LeagueMembership {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leagueWeekId String
+  leagueWeek   LeagueWeek @relation(fields: [leagueWeekId], references: [id], onDelete: Cascade)
+  weeklyXp     Int        @default(0)
+  rang         Int? // computed snapshot; recomputed on XP changes
+  joinedAt     DateTime   @default(now())
+
+  @@unique([userId, leagueWeekId])
+  @@index([leagueWeekId, weeklyXp])
+}
+
+// ─── Billing ─────────────────────────────────────────────────────────────────
+
+model Transaction {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        TransactionType
+  montant     Decimal           @db.Decimal(10, 2)
+  devise      String            @default("EUR")
+  statut      TransactionStatus @default(pending)
+  providerRef String? // mock provider reference
+  createdAt   DateTime          @default(now())
+
+  // billing.status() filters by userId and orders by createdAt desc.
+  @@index([userId, createdAt])
+}

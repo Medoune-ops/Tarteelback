@@ -1,0 +1,70 @@
+import type { User } from '@prisma/client';
+import { computeHearts } from '../../core/hearts.js';
+import { isPremiumActive } from '../../core/premium.js';
+import { refreshStreak } from '../../core/streak.js';
+import { userRepository } from './user.repository.js';
+import type { UpdateMeInput } from './me.schemas.js';
+import { initialsFrom } from '../../core/tokens.js';
+
+/**
+ * Recompute the time-sensitive parts of a user's state (hearts regen, streak
+ * freeze/break, premium expiry) and persist any change. Centralised so GET /me
+ * and every "sync" endpoint stay consistent. Returns the up-to-date user.
+ */
+export async function syncUserState(user: User, now: Date = new Date()): Promise<User> {
+  const premium = isPremiumActive(user, now);
+
+  const data: Record<string, unknown> = {};
+
+  // Premium expiry: silently downgrade.
+  if (user.isPremium && !premium) {
+    data.isPremium = false;
+  }
+
+  // Hearts.
+  const hearts = computeHearts(
+    { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
+    premium,
+    now,
+  );
+  if (hearts.hearts !== user.hearts) data.hearts = hearts.hearts;
+  if (hearts.lastHeartLossAt?.getTime() !== user.lastHeartLossAt?.getTime()) {
+    data.lastHeartLossAt = hearts.lastHeartLossAt;
+  }
+
+  // Streak.
+  const streak = refreshStreak(
+    {
+      streak: user.streak,
+      streakFrozen: user.streakFrozen,
+      lastStreakValue: user.lastStreakValue,
+      lastActivityDate: user.lastActivityDate,
+    },
+    user.timezone,
+    now,
+  );
+  if (streak.streak !== user.streak) data.streak = streak.streak;
+  if (streak.streakFrozen !== user.streakFrozen) data.streakFrozen = streak.streakFrozen;
+  if (streak.lastStreakValue !== user.lastStreakValue) {
+    data.lastStreakValue = streak.lastStreakValue;
+  }
+
+  if (Object.keys(data).length === 0) return user;
+  return userRepository.update(user.id, data);
+}
+
+export const meService = {
+  /** GET /me: load, sync, return. */
+  async get(userId: string): Promise<User> {
+    const user = await userRepository.getOrThrow(userId);
+    return syncUserState(user);
+  },
+
+  /** PATCH /me: update profile fields. */
+  async update(userId: string, input: UpdateMeInput): Promise<User> {
+    const data: Record<string, unknown> = { ...input };
+    if (input.displayName) data.avatarInitials = initialsFrom(input.displayName);
+    const user = await userRepository.update(userId, data);
+    return syncUserState(user);
+  },
+};
