@@ -10,3 +10,4 @@ prisma/.cache/
 .quran-cache/
 .claude/
 server.log
+*.bak
