@@ -1,6 +1,7 @@
 import type { User } from '@prisma/client';
 import { isPremiumActive } from '../../core/premium.js';
 import { snapshot, MAX_HEARTS } from '../../core/hearts.js';
+import { localDayKey } from '../../core/streak.js';
 
 /**
  * Public shape of the current user, matching what the RN store needs
@@ -46,5 +47,9 @@ export function serializeUser(user: User, now: Date = new Date()) {
     streak: user.streak,
     streakFrozen: user.streakFrozen,
     lastStreakValue: user.lastStreakValue,
+    streakGoal: user.streakGoal,
+
+    // Daily chest availability (per the user's local day).
+    dailyChestAvailable: user.lastChestDay !== localDayKey(now, user.timezone),
   };
 }

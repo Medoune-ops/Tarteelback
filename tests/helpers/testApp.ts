@@ -30,6 +30,7 @@ export async function resetDb() {
     'Verset',
     'Sourate',
     'DeviceToken',
+    'PodiumReward',
     'RefreshToken',
     'User',
   ];

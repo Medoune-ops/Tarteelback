@@ -18,7 +18,9 @@
  */
 import { prisma } from '../../config/prisma.js';
 import { withLock } from '../../core/lock.js';
+import { PODIUM_REWARD } from '../../core/rewards.js';
 
+const PODIUM_XP = PODIUM_REWARD;
 const PROMOTION = 3;
 const RELEGATION = 5;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -58,7 +60,7 @@ interface WeekWithLeague {
   dateDebut: Date;
   dateFin: Date;
   closedAt: Date | null;
-  league: { id: string; ordre: number };
+  league: { id: string; ordre: number; nom: string };
 }
 
 type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
@@ -107,7 +109,7 @@ async function closeWeek(
         orderBy: [{ weeklyXp: 'desc' }, { joinedAt: 'asc' }],
         skip: processed,
         take: BATCH,
-        select: { userId: true },
+        select: { userId: true, weeklyXp: true },
       });
       if (batch.length === 0) break;
 
@@ -128,6 +130,23 @@ async function closeWeek(
           update: { weeklyXp: 0 },
         });
         await tx.user.update({ where: { id: batch[i]!.userId }, data: { weeklyXp: 0 } });
+
+        // Top-3 finish → record a claimable podium reward (idempotent per week).
+        if (rank <= 3) {
+          await tx.podiumReward.upsert({
+            where: { userId_ref: { userId: batch[i]!.userId, ref: `w${week.numeroSemaine}` } },
+            create: {
+              userId: batch[i]!.userId,
+              ref: `w${week.numeroSemaine}`,
+              semaine: week.numeroSemaine,
+              ligue: week.league.nom,
+              rang: rank,
+              xp: batch[i]!.weeklyXp,
+              reward: PODIUM_XP[rank as 1 | 2 | 3],
+            },
+            update: {},
+          });
+        }
       }
       processed += batch.length;
     }

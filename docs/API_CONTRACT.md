@@ -90,7 +90,8 @@ POST  /me/streak/refresh    # recompute freeze/break, returns streak block
   "isPremium": false, "premiumUntil": null,
   "xp": 1240, "weeklyXp": 1250,
   "hearts": { "count": 5, "max": 5, "unlimited": false, "outOfHearts": false, "msUntilNextHeart": 0 },
-  "streak": 15, "streakFrozen": false, "lastStreakValue": 15
+  "streak": 15, "streakFrozen": false, "lastStreakValue": 15,
+  "streakGoal": 30, "dailyChestAvailable": true
 }}
 ```
 > Store mapping: `hearts.count` → `hearts`, `hearts.msUntilNextHeart` →
@@ -231,6 +232,34 @@ PATCH  /me/notifications/preferences { notifDailyReminder?, notifStreakAlert?, r
 > Note: in-app feedback **sounds & animations** (the "ding"/confetti when you
 > answer correctly) are played by the app itself — they are not push
 > notifications and are not handled by the backend.
+
+## 7c. Récompenses — `streak-goal.tsx`, `podiums.tsx`, coffre quotidien
+
+All server-authoritative (XP/hearts credited by the server, ×2 premium for XP).
+
+```
+PUT  /me/streak-goal            { days }                 # set/replace the goal
+POST /me/streak-goal/claim                               # claim if streak >= goal
+GET  /me/podiums                                         # top-3 history
+POST /me/podiums/:ref/claim                              # claim once
+GET  /me/daily-chest                                     # { available: bool }
+POST /me/daily-chest/claim                               # open (1/local day)
+```
+
+- `streak-goal/claim` → `{ xpGained, totalXp, streakGoal: null }` (clears the
+  goal). XP barème = front's `streakReward(days)` (7d→100 … 365d→10000).
+  Returns 409 if the goal isn't reached.
+- `GET /me/podiums` → `{ podiums: [{ id, semaine, ligue, rang, xp, reward, claimed }] }`.
+  `podiums/:ref/claim` → `{ xpGained, totalXp }`; reward = 500/300/150 for rank
+  1/2/3; 409 if already claimed, 404 if not yours. Podium rows are created by the
+  weekly league rollover for top-3 finishers.
+- `daily-chest/claim` → `{ reward: { type:"xp"|"hearts", amount }, totalXp, hearts }`.
+  One open per local day; 409 otherwise. The reward is rolled server-side.
+
+> Maps to the front store: `setStreakGoal`/`claimStreakReward`,
+> `claimPodiumReward`/`isPodiumClaimed`, `canClaimDailyChest`/`claimDailyChest`.
+> The store no longer needs to compute reward amounts — the server is the source
+> of truth (anti-cheat).
 
 ## 8. Billing (mock) — `subscription.tsx`
 

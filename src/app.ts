@@ -85,6 +85,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'leagues', description: 'Leagues & ranking' },
         { name: 'billing', description: 'Premium & streak repair (mock)' },
         { name: 'notifications', description: 'Push tokens & preferences' },
+        { name: 'rewards', description: 'Streak goal, podiums, daily chest' },
       ],
     },
   });

@@ -7,6 +7,7 @@ import { lessonRoutes } from './modules/lessons/lesson.routes.js';
 import { leagueRoutes } from './modules/leagues/league.routes.js';
 import { billingRoutes } from './modules/billing/billing.routes.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
+import { rewardRoutes } from './modules/rewards/reward.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -18,4 +19,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(leagueRoutes, { prefix: '/leagues' });
   await app.register(billingRoutes, { prefix: '/billing' });
   await app.register(notificationRoutes, { prefix: '/me/notifications' });
+  // Rewards mounted under /me so the front's GET /me/podiums etc. line up.
+  await app.register(rewardRoutes, { prefix: '/me' });
 }

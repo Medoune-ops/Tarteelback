@@ -301,12 +301,36 @@ async function seedLeagues(demoUserId: string) {
   console.log('  ✓ leagues: Bronze→Émeraude, Or week 23 with participants');
 }
 
+/** Podium history for the demo user (mirrors constants/ligues.ts). */
+async function seedPodiums(demoUserId: string) {
+  const PODIUM_XP: Record<number, number> = { 1: 500, 2: 300, 3: 150 };
+  const history = [
+    { ref: 'w23', semaine: 23, ligue: 'Or', rang: 2, xp: 1250 },
+    { ref: 'w21', semaine: 21, ligue: 'Or', rang: 3, xp: 1080 },
+    { ref: 'w19', semaine: 19, ligue: 'Argent', rang: 1, xp: 1420 },
+    { ref: 'w17', semaine: 17, ligue: 'Argent', rang: 1, xp: 1510 },
+    { ref: 'w15', semaine: 15, ligue: 'Argent', rang: 3, xp: 990 },
+    { ref: 'w12', semaine: 12, ligue: 'Bronze', rang: 1, xp: 1340 },
+    { ref: 'w10', semaine: 10, ligue: 'Bronze', rang: 2, xp: 1120 },
+    { ref: 'w08', semaine: 8, ligue: 'Bronze', rang: 1, xp: 1280 },
+  ];
+  for (const p of history) {
+    await prisma.podiumReward.upsert({
+      where: { userId_ref: { userId: demoUserId, ref: p.ref } },
+      update: {},
+      create: { userId: demoUserId, ...p, reward: PODIUM_XP[p.rang]! },
+    });
+  }
+  console.log('  ✓ podiums: 8 historical top-3 finishes for the demo user');
+}
+
 async function main() {
   console.log('🌱 Seeding Tarteel…');
   const { demo } = await seedUsers();
   await seedSections();
   await seedDemoLesson();
   await seedLeagues(demo.id);
+  await seedPodiums(demo.id);
   console.log('✅ Seed complete.');
 }
 

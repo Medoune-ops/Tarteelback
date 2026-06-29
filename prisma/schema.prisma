@@ -127,6 +127,12 @@ model User {
   lastDailyReminderOn String?
   lastStreakAlertOn   String?
 
+  // Rewards / engagement (server-authoritative; front mirrors store fields).
+  // User-set streak goal (null = none). Reward credited once on reach.
+  streakGoal     Int?
+  // Local-day (YYYY-MM-DD) of the last claimed daily chest (1 per local day).
+  lastChestDay   String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -136,8 +142,29 @@ model User {
   leagueMemberships LeagueMembership[]
   transactions      Transaction[]
   deviceTokens      DeviceToken[]
+  podiumRewards     PodiumReward[]
 
   @@index([weeklyXp])
+}
+
+/// A weekly top-3 finish whose XP reward can be claimed once.
+/// Created by the league rollover; mirrors the front `PodiumEntry`.
+model PodiumReward {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Stable id shown to the client (e.g. "w23"); unique per user.
+  ref       String
+  semaine   Int
+  ligue     String // bronze | argent | or | emeraude | diamant
+  rang      Int // 1 | 2 | 3
+  xp        Int // XP accumulated that week
+  reward    Int // XP reward for this rank (500/300/150)
+  claimedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, ref])
+  @@index([userId])
 }
 
 /// One Expo push token per device/installation, for sending notifications.
