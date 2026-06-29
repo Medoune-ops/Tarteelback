@@ -1,22 +1,32 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
-import { serializeUser } from './user.serializer.js';
 import { snapshot } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { meService, syncUserState } from './me.service.js';
 import { userRepository } from './user.repository.js';
-import { updateMeSchema } from './me.schemas.js';
+import { updateMeSchema, updateSettingsSchema } from './me.schemas.js';
 
 export const meController = {
+  /** GET /me — flat shape the RN store hydrates from directly (BACKEND.md). */
   async get(req: FastifyRequest, reply: FastifyReply) {
-    const user = await meService.get(req.auth!.sub);
-    return reply.send({ user: serializeUser(user) });
+    const flat = await meService.getFlat(req.auth!.sub);
+    return reply.send(flat);
   },
 
   async update(req: FastifyRequest, reply: FastifyReply) {
     const input = parse(updateMeSchema, req.body);
-    const user = await meService.update(req.auth!.sub, input);
-    return reply.send({ user: serializeUser(user) });
+    await meService.update(req.auth!.sub, input);
+    // Return the same flat shape so the front can re-hydrate after a PATCH.
+    const flat = await meService.getFlat(req.auth!.sub);
+    return reply.send(flat);
+  },
+
+  /** PATCH /me/settings — voice toggle / language; returns the flat /me shape. */
+  async updateSettings(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(updateSettingsSchema, req.body);
+    await meService.updateSettings(req.auth!.sub, input);
+    const flat = await meService.getFlat(req.auth!.sub);
+    return reply.send(flat);
   },
 
   /** POST /me/hearts/sync: recompute regen, persist, return the hearts block. */

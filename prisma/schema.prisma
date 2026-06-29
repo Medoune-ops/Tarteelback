@@ -99,6 +99,8 @@ model User {
   onboardingDone Boolean   @default(false)
   timezone       String    @default("UTC") // e.g. "Africa/Dakar" — local day/midnight
   language       String    @default("en") // preferred translation language
+  // Voice exercises & recordings toggle (Settings → Voix & enregistrements).
+  voiceEnabled   Boolean   @default(true)
 
   // Premium
   isPremium    Boolean   @default(false)
@@ -143,8 +145,25 @@ model User {
   transactions      Transaction[]
   deviceTokens      DeviceToken[]
   podiumRewards     PodiumReward[]
+  passwordResets    PasswordResetToken[]
 
   @@index([weeklyXp])
+}
+
+/// Single-use, short-lived password-reset token. We store only a SHA-256 hash
+/// of the token (the plaintext goes out in the email link, never persisted),
+/// mirroring the RefreshToken approach so a leaked DB can't be replayed.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 /// A weekly top-3 finish whose XP reward can be claimed once.

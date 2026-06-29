@@ -29,3 +29,18 @@ export const updateMeSchema = z
   .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });
 
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
+/**
+ * PATCH /me/settings — app preferences (Settings screen). Separate from the
+ * profile update so the front can hit a dedicated endpoint per BACKEND.md.
+ * Also `.strict()` against mass-assignment.
+ */
+export const updateSettingsSchema = z
+  .object({
+    voiceEnabled: z.boolean().optional(),
+    language: z.enum(['fr', 'en', 'ar']).optional(),
+  })
+  .strict()
+  .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });
+
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

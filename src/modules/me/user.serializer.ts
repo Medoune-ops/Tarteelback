@@ -2,6 +2,7 @@ import type { User } from '@prisma/client';
 import { isPremiumActive } from '../../core/premium.js';
 import { snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { localDayKey } from '../../core/streak.js';
+import type { UserStats } from './user.stats.js';
 
 /**
  * Public shape of the current user, matching what the RN store needs
@@ -51,5 +52,34 @@ export function serializeUser(user: User, now: Date = new Date()) {
 
     // Daily chest availability (per the user's local day).
     dailyChestAvailable: user.lastChestDay !== localDayKey(now, user.timezone),
+  };
+}
+
+/**
+ * FLAT shape consumed directly by the RN store's `hydrateFromBackend`
+ * (store/userStore.ts + BACKEND.md). The store expects a plain object — no
+ * `user` wrapper, hearts as a number, and `lastHeartLossAt` as an epoch-ms
+ * timestamp (null when full). `currentLesson`, `sourates` and `precision` are
+ * derived stats (see computeUserStats). This is the contract for GET /me and
+ * POST /lesson/complete; the richer serializeUser stays for auth responses.
+ */
+export function serializeUserFlat(user: User, stats: UserStats, now: Date = new Date()) {
+  const premium = isPremiumActive(user, now);
+  const hearts = snapshot(
+    { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
+    premium,
+    now,
+  );
+
+  return {
+    streak: user.streak,
+    xp: user.xp,
+    hearts: hearts.hearts,
+    isPremium: premium,
+    currentLesson: stats.currentLesson,
+    // Front uses this as the regen anchor; null when hearts are full.
+    lastHeartLossAt: hearts.lastHeartLossAt ? hearts.lastHeartLossAt.getTime() : null,
+    sourates: stats.sourates,
+    precision: stats.precision,
   };
 }

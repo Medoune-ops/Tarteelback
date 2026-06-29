@@ -31,6 +31,7 @@ export async function resetDb() {
     'Sourate',
     'DeviceToken',
     'PodiumReward',
+    'PasswordResetToken',
     'RefreshToken',
     'User',
   ];
@@ -52,6 +53,7 @@ export async function registerUser(
   overrides: Partial<{ email: string; password: string; displayName: string; deviceId: string }> = {},
 ) {
   const email = overrides.email ?? `user${counter++}_${Date.now()}@test.app`;
+  const deviceId = overrides.deviceId ?? 'device-1';
   const res = await app.inject({
     method: 'POST',
     url: '/auth/register',
@@ -59,12 +61,13 @@ export async function registerUser(
       email,
       password: overrides.password ?? 'password123',
       displayName: overrides.displayName ?? 'Test User',
-      deviceId: overrides.deviceId ?? 'device-1',
+      deviceId,
     },
   });
   const body = res.json();
   return {
     email,
+    deviceId,
     userId: body.user?.id as string,
     accessToken: body.accessToken as string,
     refreshToken: body.refreshToken as string,

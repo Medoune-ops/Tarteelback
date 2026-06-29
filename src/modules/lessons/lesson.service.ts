@@ -7,6 +7,8 @@ import { judgeStep, type AnswerInput, type StepType } from '../../core/lessonJud
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
 import { lessonRepository } from './lesson.repository.js';
+import { computeUserStats } from '../me/user.stats.js';
+import { serializeUserFlat } from '../me/user.serializer.js';
 
 /**
  * Lesson XP formula — mirrors the front (`play.tsx`): a flat base plus a bonus
@@ -189,5 +191,18 @@ export const lessonService = {
       streakFrozen: result.u.streakFrozen,
       premium: result.premium,
     };
+  },
+
+  /**
+   * Same as `complete`, but returns the FLAT /me shape the RN store hydrates
+   * from (BACKEND.md: POST /lesson/complete → full user state). `complete`
+   * already credited XP/streak/league; here we just re-read and serialize.
+   */
+  async completeFlat(userId: string, lessonId: string, correctCount?: number, score?: number) {
+    await this.complete(userId, lessonId, correctCount, score);
+    const now = new Date();
+    const user = await userRepository.getOrThrow(userId);
+    const stats = await computeUserStats(userId);
+    return serializeUserFlat(user, stats, now);
   },
 };

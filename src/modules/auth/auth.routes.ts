@@ -44,4 +44,25 @@ export async function authRoutes(app: FastifyInstance) {
     },
     authController.sessions,
   );
+
+  app.post(
+    '/change-password',
+    {
+      preHandler: app.authenticate,
+      schema: { tags: ['auth'], summary: 'Change password (revokes other sessions)', security: [{ bearerAuth: [] }] },
+    },
+    authController.changePassword,
+  );
+
+  app.post(
+    '/reset-password/request',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Request a password-reset email' } },
+    authController.requestPasswordReset,
+  );
+
+  app.post(
+    '/reset-password/confirm',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Confirm a password reset with the emailed token' } },
+    authController.confirmPasswordReset,
+  );
 }

@@ -22,3 +22,22 @@ export async function lessonRoutes(app: FastifyInstance) {
     lessonController.complete,
   );
 }
+
+/**
+ * Flat completion route mounted at /lesson/complete (singular) — the RN store's
+ * contract (BACKEND.md): lessonId in the body, returns the flat /me shape.
+ */
+export async function lessonFlatRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', app.authenticate);
+  app.post(
+    '/complete',
+    {
+      schema: {
+        tags: ['lessons'],
+        summary: 'Complete a lesson, return flat user state (RN store)',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    lessonController.completeFlat,
+  );
+}

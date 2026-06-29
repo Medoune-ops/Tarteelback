@@ -3,8 +3,10 @@ import { computeHearts } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { refreshStreak } from '../../core/streak.js';
 import { userRepository } from './user.repository.js';
-import type { UpdateMeInput } from './me.schemas.js';
+import type { UpdateMeInput, UpdateSettingsInput } from './me.schemas.js';
 import { initialsFrom } from '../../core/tokens.js';
+import { computeUserStats } from './user.stats.js';
+import { serializeUserFlat } from './user.serializer.js';
 
 /**
  * Recompute the time-sensitive parts of a user's state (hearts regen, streak
@@ -60,11 +62,27 @@ export const meService = {
     return syncUserState(user);
   },
 
+  /**
+   * Flat /me payload for the RN store (hydrateFromBackend). Syncs time-based
+   * state, then merges in the derived progression stats.
+   */
+  async getFlat(userId: string, now: Date = new Date()) {
+    const user = await syncUserState(await userRepository.getOrThrow(userId), now);
+    const stats = await computeUserStats(userId);
+    return serializeUserFlat(user, stats, now);
+  },
+
   /** PATCH /me: update profile fields. */
   async update(userId: string, input: UpdateMeInput): Promise<User> {
     const data: Record<string, unknown> = { ...input };
     if (input.displayName) data.avatarInitials = initialsFrom(input.displayName);
     const user = await userRepository.update(userId, data);
+    return syncUserState(user);
+  },
+
+  /** PATCH /me/settings: app preferences (voice toggle, language). */
+  async updateSettings(userId: string, input: UpdateSettingsInput): Promise<User> {
+    const user = await userRepository.update(userId, { ...input });
     return syncUserState(user);
   },
 };

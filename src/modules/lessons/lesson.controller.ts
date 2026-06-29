@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
 import { lessonService } from './lesson.service.js';
-import { answerSchema, completeSchema } from './lesson.schemas.js';
+import { answerSchema, completeSchema, completeFlatSchema } from './lesson.schemas.js';
 
 export const lessonController = {
   async answer(req: FastifyRequest, reply: FastifyReply) {
@@ -21,5 +21,26 @@ export const lessonController = {
         : undefined;
     const result = await lessonService.complete(req.auth!.sub, id, body.correctCount, score);
     return reply.send(result);
+  },
+
+  /**
+   * POST /lesson/complete (flat contract for the RN store). Takes lessonId in
+   * the body, returns the full flat /me shape for hydrateFromBackend.
+   */
+  async completeFlat(req: FastifyRequest, reply: FastifyReply) {
+    const body = parse(completeFlatSchema, req.body ?? {});
+    const score =
+      typeof body.correctAnswers === 'number' &&
+      typeof body.totalAnswers === 'number' &&
+      body.totalAnswers > 0
+        ? Math.round((body.correctAnswers / body.totalAnswers) * 100)
+        : undefined;
+    const flat = await lessonService.completeFlat(
+      req.auth!.sub,
+      body.lessonId,
+      body.correctAnswers,
+      score,
+    );
+    return reply.send(flat);
   },
 };

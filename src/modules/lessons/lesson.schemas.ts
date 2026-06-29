@@ -21,5 +21,20 @@ export const completeSchema = z
   .strict()
   .default({});
 
+/**
+ * Body for the flat POST /lesson/complete (RN store contract, BACKEND.md).
+ * `lessonId` is the content lesson's id (cuid). `correctAnswers`/`totalAnswers`
+ * mirror the front's tally; `durationMs` is accepted but currently advisory.
+ */
+export const completeFlatSchema = z
+  .object({
+    lessonId: z.string().min(1),
+    correctAnswers: z.number().int().min(0).optional(),
+    totalAnswers: z.number().int().min(0).optional(),
+    durationMs: z.number().int().min(0).optional(),
+  })
+  .strict();
+
 export type AnswerBody = z.infer<typeof answerSchema>;
 export type CompleteBody = z.infer<typeof completeSchema>;
+export type CompleteFlatBody = z.infer<typeof completeFlatSchema>;

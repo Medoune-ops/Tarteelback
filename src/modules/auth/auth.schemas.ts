@@ -42,7 +42,33 @@ export const logoutSchema = z
   })
   .strict();
 
+/** POST /auth/change-password — authenticated; requires the current password. */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(128),
+    newPassword: z.string().min(8).max(128),
+  })
+  .strict();
+
+/** POST /auth/reset-password/request — start a reset by email. */
+export const resetRequestSchema = z
+  .object({
+    email: z.string().email().toLowerCase(),
+  })
+  .strict();
+
+/** POST /auth/reset-password/confirm — finish a reset with the emailed token. */
+export const resetConfirmSchema = z
+  .object({
+    token: z.string().min(1),
+    newPassword: z.string().min(8).max(128),
+  })
+  .strict();
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type ResetRequestInput = z.infer<typeof resetRequestSchema>;
+export type ResetConfirmInput = z.infer<typeof resetConfirmSchema>;

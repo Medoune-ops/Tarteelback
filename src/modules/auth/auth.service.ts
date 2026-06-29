@@ -7,9 +7,18 @@ import {
   refreshExpiry,
   initialsFrom,
 } from '../../core/tokens.js';
+import { env } from '../../config/env.js';
+import { sendMail, passwordResetEmail } from '../../core/mailer.js';
 import type { AccessClaims } from '../../plugins/auth.js';
 import { authRepository } from './auth.repository.js';
-import type { RegisterInput, LoginInput, RefreshInput } from './auth.schemas.js';
+import type {
+  RegisterInput,
+  LoginInput,
+  RefreshInput,
+  ChangePasswordInput,
+  ResetRequestInput,
+  ResetConfirmInput,
+} from './auth.schemas.js';
 
 /** Signs a short-lived access token (delegated to @fastify/jwt). */
 export type AccessSigner = (claims: AccessClaims) => string;
@@ -122,5 +131,62 @@ export const authService = {
 
   listSessions(userId: string) {
     return authRepository.listActiveSessions(userId);
+  },
+
+  /**
+   * Change password for an authenticated user. Requires the current password
+   * (defence against a stolen access token silently locking the owner out),
+   * then revokes all other sessions so a compromised device is logged out.
+   */
+  async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+    const user = await authRepository.findUserById(userId);
+    if (!user || !user.passwordHash) {
+      throw new AppError('UNAUTHENTICATED', 'User not found');
+    }
+    const ok = await verifyPassword(user.passwordHash, input.currentPassword);
+    if (!ok) throw new AppError('INVALID_CREDENTIALS', 'Current password is incorrect');
+
+    await authRepository.updatePassword(userId, await hashPassword(input.newPassword));
+    // Invalidate every session: the user re-authenticates everywhere.
+    await authRepository.revokeAll(userId, new Date());
+  },
+
+  /**
+   * Start a password reset. ALWAYS resolves the same way (no user enumeration):
+   * if the email exists we generate a single-use token, email the link, and
+   * invalidate any previous outstanding token. If not, we do nothing.
+   */
+  async requestPasswordReset(input: ResetRequestInput): Promise<void> {
+    const user = await authRepository.findUserByEmail(input.email);
+    if (!user) return; // silent — don't reveal whether the email exists
+
+    const now = new Date();
+    await authRepository.invalidateUserResets(user.id, now);
+
+    const token = generateRefreshToken(); // opaque, high-entropy
+    const expiresAt = new Date(now.getTime() + env.PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
+    await authRepository.createPasswordReset({
+      userId: user.id,
+      tokenHash: hashToken(token),
+      expiresAt,
+    });
+
+    const sep = env.APP_RESET_URL.includes('?') ? '&' : '?';
+    const resetUrl = `${env.APP_RESET_URL}${sep}token=${token}`;
+    await sendMail(passwordResetEmail(user.email, resetUrl));
+  },
+
+  /** Confirm a reset: validate the token, set the new password, burn the token. */
+  async confirmPasswordReset(input: ResetConfirmInput): Promise<void> {
+    const record = await authRepository.findPasswordReset(hashToken(input.token));
+    if (!record || record.usedAt || record.expiresAt.getTime() <= Date.now()) {
+      throw new AppError('TOKEN_EXPIRED', 'Invalid or expired reset link');
+    }
+
+    const now = new Date();
+    await authRepository.updatePassword(record.userId, await hashPassword(input.newPassword));
+    await authRepository.markPasswordResetUsed(record.id, now);
+    // Log out everywhere — a reset implies the old credentials are compromised.
+    await authRepository.revokeAll(record.userId, now);
   },
 };

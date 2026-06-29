@@ -69,7 +69,7 @@ d('rewards: podiums (integration)', () => {
     expect(again.statusCode).toBe(409);
 
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
-    expect(me.json().user.xp).toBe(300);
+    expect(me.json().xp).toBe(300);
   });
 
   it("cannot claim another user's podium", async () => {

@@ -21,6 +21,8 @@ d('security: per-user data isolation (integration)', () => {
   it('GET /me returns the token owner, even with a forged body/query userId', async () => {
     const a = await registerUser(app, { email: 'a@iso.app', displayName: 'Alice A.' });
     const b = await registerUser(app, { email: 'b@iso.app', displayName: 'Bob B.' });
+    // Give B distinct state so identity confusion would be observable.
+    await prisma.user.update({ where: { id: b.userId }, data: { xp: 777, streak: 9 } });
 
     // A asks for /me while trying to pass B's id in body and query.
     const res = await app.inject({
@@ -30,8 +32,10 @@ d('security: per-user data isolation (integration)', () => {
       payload: { userId: b.userId, id: b.userId },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().user.id).toBe(a.userId); // A, never B
-    expect(res.json().user.email).toBe('a@iso.app');
+    // The flat /me has no id; identity is proven by A's own (default) state,
+    // never B's forged xp/streak.
+    expect(res.json().xp).toBe(0); // A, never B's 777
+    expect(res.json().streak).toBe(0); // A, never B's 9
   });
 
   it("A's XP/streak changes never touch B", async () => {
@@ -46,9 +50,9 @@ d('security: per-user data isolation (integration)', () => {
     await app.inject({ method: 'POST', url: `/lessons/${lesson.id}/complete`, headers: authHeader(a.accessToken), payload: {} });
 
     const bMe = await app.inject({ method: 'GET', url: '/me', headers: authHeader(b.accessToken) });
-    expect(bMe.json().user.xp).toBe(0); // B untouched
+    expect(bMe.json().xp).toBe(0); // B untouched
     const aMe = await app.inject({ method: 'GET', url: '/me', headers: authHeader(a.accessToken) });
-    expect(aMe.json().user.xp).toBe(15); // 15 base (no test steps)
+    expect(aMe.json().xp).toBe(15); // 15 base (no test steps)
 
     // Progress rows are per-user.
     const aProg = await prisma.lessonProgress.findUnique({ where: { userId_lessonId: { userId: a.userId, lessonId: lesson.id } } });
@@ -133,10 +137,13 @@ d('security: per-user data isolation (integration)', () => {
 
     // And nothing leaked through: the user is still a free, non-admin account.
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(a.accessToken) });
-    expect(me.json().user.isPremium).toBe(false);
-    expect(me.json().user.role).toBe('user');
-    expect(me.json().user.xp).toBe(0);
-    expect(me.json().user.hearts.count).toBe(5);
+    expect(me.json().isPremium).toBe(false);
+    expect(me.json().xp).toBe(0);
+    expect(me.json().hearts).toBe(5);
+    // role isn't exposed in the flat /me; verify it stayed `user` in the DB.
+    const fresh = await prisma.user.findUniqueOrThrow({ where: { id: a.userId } });
+    expect(fresh.role).toBe('user');
+    expect(fresh.isPremium).toBe(false);
   });
 
   it('a token signed with the wrong secret is rejected', async () => {

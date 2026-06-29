@@ -39,8 +39,8 @@ d('hardening: anti-farm & idempotence (integration)', () => {
       expect(again.json().alreadyCompleted).toBe(true);
     }
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
-    expect(me.json().user.xp).toBe(17); // never farmed past the first completion
-    expect(me.json().user.streak).toBe(1);
+    expect(me.json().xp).toBe(17); // never farmed past the first completion
+    expect(me.json().streak).toBe(1);
   });
 
   it('concurrent wrong answers each remove exactly one heart (no lost update)', async () => {
@@ -76,7 +76,9 @@ d('hardening: timezone & repair-streak (integration)', () => {
     // The account still works (GET /me does not 500).
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
     expect(me.statusCode).toBe(200);
-    expect(me.json().user.timezone).toBe('UTC'); // unchanged default
+    // timezone isn't part of the flat /me payload; assert it's unchanged in DB.
+    const fresh = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(fresh.timezone).toBe('UTC'); // unchanged default
   });
 
   it('repair-streak restores the streak and does not re-break on next /me', async () => {
@@ -92,7 +94,7 @@ d('hardening: timezone & repair-streak (integration)', () => {
 
     // Next app-open must NOT re-break the streak the user just paid for.
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
-    expect(me.json().user.streak).toBe(12);
+    expect(me.json().streak).toBe(12);
   });
 });
 

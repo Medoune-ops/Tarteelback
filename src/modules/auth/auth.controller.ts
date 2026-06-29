@@ -8,6 +8,9 @@ import {
   loginSchema,
   refreshSchema,
   logoutSchema,
+  changePasswordSchema,
+  resetRequestSchema,
+  resetConfirmSchema,
 } from './auth.schemas.js';
 
 /** Build the JSON returned by register/login/refresh. */
@@ -54,5 +57,24 @@ export const authController = {
   async sessions(req: FastifyRequest, reply: FastifyReply) {
     const sessions = await authService.listSessions(req.auth!.sub);
     return reply.send({ sessions });
+  },
+
+  async changePassword(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(changePasswordSchema, req.body);
+    await authService.changePassword(req.auth!.sub, input);
+    return reply.send({ ok: true });
+  },
+
+  async requestPasswordReset(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(resetRequestSchema, req.body);
+    await authService.requestPasswordReset(input);
+    // Always 200 {ok:true} regardless of whether the email exists.
+    return reply.send({ ok: true });
+  },
+
+  async confirmPasswordReset(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(resetConfirmSchema, req.body);
+    await authService.confirmPasswordReset(input);
+    return reply.send({ ok: true });
   },
 };

@@ -49,6 +49,19 @@ const EnvSchema = z.object({
     .transform((v) => (v ? Number(v) : undefined))
     .pipe(z.number().int().positive().optional()),
 
+  // Password reset email (Resend). When RESEND_API_KEY is unset, the reset link
+  // is logged instead of emailed (dev-friendly; never silently fails).
+  RESEND_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+  MAIL_FROM: z.string().default('Tarteel <onboarding@resend.dev>'),
+  // Base URL of the app for building the reset link (deep link or web).
+  APP_RESET_URL: z.string().default('tarteel://reset-password'),
+  // Reset-token lifetime.
+  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+
   PREMIUM_PRICE_MONTHLY: z.coerce.number().default(1.52),
   PREMIUM_PRICE_YEARLY: z.coerce.number().default(15.24),
   STREAK_REPAIR_PRICE: z.coerce.number().default(0.87),

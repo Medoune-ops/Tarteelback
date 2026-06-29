@@ -86,7 +86,7 @@ d('auth & persistent session (integration)', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('GET /me requires a valid token and returns the hearts snapshot', async () => {
+  it('GET /me requires a valid token and returns the flat store shape', async () => {
     const u = await registerUser(app);
     const anon = await app.inject({ method: 'GET', url: '/me' });
     expect(anon.statusCode).toBe(401);
@@ -94,7 +94,16 @@ d('auth & persistent session (integration)', () => {
     const me = await app.inject({ method: 'GET', url: '/me', headers: { authorization: `Bearer ${u.accessToken}` } });
     expect(me.statusCode).toBe(200);
     const body = me.json();
-    expect(body.user.hearts.count).toBe(5);
-    expect(body.user.hearts.max).toBe(5);
+    // Flat contract consumed by the RN store's hydrateFromBackend (BACKEND.md).
+    expect(body.hearts).toBe(5);
+    expect(body.lastHeartLossAt).toBeNull();
+    expect(body.currentLesson).toBe(1);
+    expect(body).toMatchObject({
+      streak: expect.any(Number),
+      xp: expect.any(Number),
+      isPremium: expect.any(Boolean),
+      sourates: expect.any(Number),
+      precision: expect.any(Number),
+    });
   });
 });

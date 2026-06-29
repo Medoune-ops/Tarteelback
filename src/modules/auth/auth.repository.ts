@@ -56,4 +56,30 @@ export const authRepository = {
       select: { id: true, deviceId: true, createdAt: true, expiresAt: true },
     });
   },
+
+  updatePassword(userId: string, passwordHash: string) {
+    return prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  },
+
+  // ── Password reset tokens ──────────────────────────────────────────────────
+
+  createPasswordReset(data: { userId: string; tokenHash: string; expiresAt: Date }) {
+    return prisma.passwordResetToken.create({ data });
+  },
+
+  findPasswordReset(tokenHash: string) {
+    return prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+  },
+
+  markPasswordResetUsed(id: string, when: Date) {
+    return prisma.passwordResetToken.update({ where: { id }, data: { usedAt: when } });
+  },
+
+  /** Invalidate any outstanding reset tokens for a user (one active link at a time). */
+  invalidateUserResets(userId: string, when: Date) {
+    return prisma.passwordResetToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: when },
+    });
+  },
 };
