@@ -13,6 +13,7 @@
 import { prisma } from '../../config/prisma.js';
 import { localDayKey } from '../../core/streak.js';
 import { notificationService } from './notification.service.js';
+import { dailyReminder } from './reminderMessages.js';
 
 const REMINDER_BATCH = 500;
 
@@ -55,9 +56,11 @@ export async function sendDueDailyReminders(now: Date = new Date()) {
       const activeToday = u.lastActivityDate && localDayKey(u.lastActivityDate, u.timezone) === todayKey;
       if (activeToday) continue;
 
+      // Tire au hasard l'un des messages fournis (verbatim).
+      const msg = dailyReminder();
       const res = await notificationService.sendToUser(u.id, {
-        title: 'Tarteel',
-        body: "C'est l'heure de ta leçon du jour 📖",
+        title: msg.title,
+        body: msg.body,
         data: { type: 'daily_reminder' },
       });
       if (res.sent > 0) sentTotal++;
@@ -96,10 +99,12 @@ export async function sendDueStreakAlerts(now: Date = new Date()) {
       const todayKey = localDayKey(now, u.timezone);
       if (u.lastStreakAlertOn === todayKey) continue;
 
+      // Même bibliothèque de messages (verbatim), tirés au hasard.
+      const msg = dailyReminder();
       const res = await notificationService.sendToUser(u.id, {
-        title: 'Ta flamme est en danger 🔥',
-        body: `Fais une leçon aujourd'hui pour sauver ta série de ${u.streak} jours !`,
-        data: { type: 'streak_alert' },
+        title: msg.title,
+        body: msg.body,
+        data: { type: 'streak_alert', streak: u.streak },
       });
       if (res.sent > 0) sentTotal++;
       await prisma.user.update({ where: { id: u.id }, data: { lastStreakAlertOn: todayKey } });

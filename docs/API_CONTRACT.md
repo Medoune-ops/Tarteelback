@@ -228,6 +228,10 @@ PATCH  /me/notifications/preferences { notifDailyReminder?, notifStreakAlert?, r
   practised today, at your preferred local hour) and a **streak alert** (when
   your streak is frozen / about to break). Both are timezone-aware and sent at
   most once per local day. Invalid tokens are auto-disabled.
+- The daily reminder uses a fixed library of **spiritual/heartfelt messages**
+  (`reminderMessages.ts`), one picked at random per send (verbatim, never edited),
+  so reminders don't feel repetitive. The notification `data` carries
+  `{ type: 'daily_reminder' }` / `{ type: 'streak_alert', streak }`.
 
 > Note: in-app feedback **sounds & animations** (the "ding"/confetti when you
 > answer correctly) are played by the app itself — they are not push
