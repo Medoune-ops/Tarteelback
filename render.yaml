@@ -1,0 +1,81 @@
+# =============================================================================
+# Render Blueprint — Tarteel backend
+# -----------------------------------------------------------------------------
+# Ce fichier décrit TOUTE ton infrastructure de prod en un seul endroit :
+#   - une base PostgreSQL (où vivent tes données),
+#   - un cache Redis (Key Value),
+#   - un service web (ton API Fastify).
+#
+# Render lit ce fichier quand tu fais "New > Blueprint" et branches ce repo.
+# À chaque push Git, Render rebuild, applique les migrations Prisma (crée/maj
+# les tables), puis redémarre l'API. Tes DONNÉES, elles, restent dans Postgres.
+#
+# IMPORTANT : ce fichier ne remplit PAS le contenu du Coran. Les tables
+# Sourate/Verset seront créées (vides) par les migrations. Pour les remplir,
+# lance UNE SEULE FOIS le seed depuis le Shell Render (voir DEPLOY-RENDER.md).
+# =============================================================================
+
+databases:
+  - name: tarteel-postgres
+    databaseName: tarteel
+    user: tarteel
+    plan: free # passe à "basic"/"standard" pour la prod réelle (le free expire après 30j)
+
+services:
+  # ─── Redis (Key Value) ─────────────────────────────────────────────────────
+  # Optionnel mais recommandé : rate-limit distribué, cache de contenu,
+  # classements de ligue. L'app marche sans, mais mieux avec.
+  - type: keyvalue
+    name: tarteel-redis
+    plan: free
+    ipAllowList: [] # accessible uniquement depuis tes services Render (réseau privé)
+    maxmemoryPolicy: noeviction
+
+  # ─── API Fastify ───────────────────────────────────────────────────────────
+  - type: web
+    name: tarteel-api
+    runtime: node
+    plan: free
+    # 1) installe les deps, 2) génère le client Prisma, 3) compile le TS -> dist/
+    buildCommand: npm ci && npx prisma generate && npm run build
+    # preDeploy s'exécute AVANT de basculer le trafic : applique les migrations.
+    # C'est ça qui crée/met à jour tes tables sans jamais toucher aux données.
+    preDeployCommand: npx prisma migrate deploy
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # DATABASE_URL et REDIS_URL sont injectées automatiquement par Render
+      # à partir des deux services ci-dessus. Tu n'as rien à copier-coller.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tarteel-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tarteel-redis
+          property: connectionString
+
+      # Secrets JWT générés une fois par Render (forts, distincts, jamais des
+      # placeholders -> satisfait le contrôle anti-démarrage de src/config/env.ts).
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # CORS : "*" est INTERDIT en prod (le serveur refuse de booter). Mets ici
+      # l'origine de ton app web, ou les schémas de deep-link de l'app mobile.
+      # Pour une app mobile Expo pure (pas de front web), une valeur factice non
+      # vide suffit à passer le contrôle. Remplace par ton vrai domaine.
+      - key: CORS_ORIGINS
+        value: https://tarteel.example.com
+
+      # Email de reset (Resend). Laisse vide pour logguer le lien au lieu de
+      # l'envoyer ; renseigne RESEND_API_KEY dans le dashboard pour l'activer.
+      - key: RESEND_API_KEY
+        sync: false # à saisir manuellement (secret) dans le dashboard Render
+      - key: APP_RESET_URL
+        value: tarteel://reset-password
