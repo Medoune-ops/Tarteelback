@@ -88,10 +88,6 @@ model User {
   id             String    @id @default(cuid())
   email          String    @unique
   passwordHash   String? // null when the account is OAuth-only
-  // Google account subject id (the stable `sub` claim). Set when the user has
-  // linked Sign in with Google; null otherwise. Unique so two accounts can't
-  // claim the same Google identity.
-  googleId       String?   @unique
   displayName    String
   avatarInitials String    @default("")
   role           Role      @default(user)

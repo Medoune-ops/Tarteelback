@@ -36,20 +36,6 @@ const EnvSchema = z.object({
 
   DEFAULT_LANG: z.string().default('en'),
 
-  // Sign in with Google. Comma-separated list of accepted Client IDs (an id_token
-  // from a mobile app is audienced to the iOS/Android/Web client id, so we accept
-  // several). Empty → the OAuth endpoint is disabled (returns SERVICE_UNAVAILABLE).
-  GOOGLE_CLIENT_IDS: z
-    .string()
-    .trim()
-    .default('')
-    .transform((v) =>
-      v
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
-
   QURAN_API_BASE: z.string().default('https://api.quran.com/api/v4'),
   QURAN_TRANSLATION_IDS: z.string().default('131,136'),
   QURAN_TRANSLATION_LANGS: z.string().default('131:en,136:fr'),
