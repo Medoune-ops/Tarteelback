@@ -51,6 +51,18 @@ async function main() {
   console.log(`📖 Importing ${selected.length} surah(s)…`);
 
   for (const ch of selected) {
+    // Skip surahs already fully imported (resume after a network timeout without
+    // re-uploading everything). A surah is "complete" when its verse count in the
+    // DB already matches the expected count from the API.
+    const existing = await prisma.sourate.findUnique({
+      where: { numero: ch.id },
+      select: { id: true, _count: { select: { versets: true } } },
+    });
+    if (existing && existing._count.versets >= ch.verses_count) {
+      console.log(`  ↷ ${ch.id.toString().padStart(3)} ${ch.name_simple} (déjà importée, ${ch.verses_count} versets)`);
+      continue;
+    }
+
     const verses = await client.chapterVerses(ch.id, allTextResources, recitationId);
     const hizb = verses[0]?.hizb_number ?? 0;
 
@@ -108,7 +120,7 @@ async function main() {
           await tx.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
         }
       }
-    }, { timeout: 120_000 });
+    }, { timeout: 300_000, maxWait: 30_000 });
 
     console.log(`  ✓ ${ch.id.toString().padStart(3)} ${ch.name_simple} (hizb ${hizb}, ${verses.length} verses)`);
   }
