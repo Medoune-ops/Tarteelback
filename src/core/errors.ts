@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'EMAIL_TAKEN'
+  | 'OAUTH_INVALID'
   | 'OUT_OF_HEARTS'
   | 'LESSON_LOCKED'
   | 'ALREADY_PREMIUM'
@@ -33,6 +34,7 @@ const STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   EMAIL_TAKEN: 409,
+  OAUTH_INVALID: 401,
   OUT_OF_HEARTS: 403,
   LESSON_LOCKED: 403,
   ALREADY_PREMIUM: 409,

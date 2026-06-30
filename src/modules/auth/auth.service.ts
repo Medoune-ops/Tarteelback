@@ -9,6 +9,7 @@ import {
 } from '../../core/tokens.js';
 import { env } from '../../config/env.js';
 import { sendMail, passwordResetEmail } from '../../core/mailer.js';
+import { verifyGoogleIdToken } from '../../core/oauth.js';
 import type { AccessClaims } from '../../plugins/auth.js';
 import { authRepository } from './auth.repository.js';
 import type {
@@ -78,6 +79,48 @@ export const authService = {
     }
     const ok = await verifyPassword(user.passwordHash, input.password);
     if (!ok) throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password');
+
+    const tokens = await issueTokens(user, input.deviceId, sign);
+    return { user, tokens };
+  },
+
+  /**
+   * Sign in with Google (native id_token flow). Verifies the token, then
+   * create-or-links the account:
+   *   1. Known googleId         → sign in.
+   *   2. Email already exists   → link Google to that account (then sign in).
+   *   3. New user               → create an OAuth-only account (no password).
+   * Emits our own access+refresh pair, exactly like login/register.
+   */
+  async oauthLogin(
+    input: { provider: 'google'; idToken: string; deviceId: string },
+    sign: AccessSigner,
+  ): Promise<AuthResult> {
+    const identity = await verifyGoogleIdToken(input.idToken);
+    // We rely on the email to link existing accounts, so require it verified.
+    if (!identity.emailVerified) {
+      throw new AppError('OAUTH_INVALID', 'Google email is not verified');
+    }
+
+    // 1) Already linked → straight sign-in.
+    let user = await authRepository.findUserByGoogleId(identity.googleId);
+
+    if (!user) {
+      const byEmail = await authRepository.findUserByEmail(identity.email);
+      if (byEmail) {
+        // 2) Existing email/password account → attach the Google identity.
+        user = await authRepository.linkGoogleId(byEmail.id, identity.googleId);
+      } else {
+        // 3) Brand-new OAuth-only account (passwordHash stays null).
+        const displayName = identity.name?.trim() || identity.email.split('@')[0]!;
+        user = await authRepository.createUser({
+          email: identity.email,
+          googleId: identity.googleId,
+          displayName,
+          avatarInitials: initialsFrom(displayName),
+        });
+      }
+    }
 
     const tokens = await issueTokens(user, input.deviceId, sign);
     return { user, tokens };

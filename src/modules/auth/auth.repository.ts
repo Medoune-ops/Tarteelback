@@ -11,6 +11,15 @@ export const authRepository = {
     return prisma.user.findUnique({ where: { id } });
   },
 
+  findUserByGoogleId(googleId: string): Promise<User | null> {
+    return prisma.user.findUnique({ where: { googleId } });
+  },
+
+  /** Link a Google identity to an existing (email/password) account. */
+  linkGoogleId(userId: string, googleId: string): Promise<User> {
+    return prisma.user.update({ where: { id: userId }, data: { googleId } });
+  },
+
   createUser(data: Prisma.UserCreateInput): Promise<User> {
     return prisma.user.create({ data });
   },

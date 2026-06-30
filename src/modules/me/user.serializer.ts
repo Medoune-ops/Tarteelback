@@ -81,5 +81,12 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     lastHeartLossAt: hearts.lastHeartLossAt ? hearts.lastHeartLossAt.getTime() : null,
     sourates: stats.sourates,
     precision: stats.precision,
+    // Profile fields the front's Settings screen needs (optional on the front,
+    // but without them it shows "Mon profil / —"). `avatar` is a URL or null;
+    // we don't store uploaded avatars yet, so it's null (the front falls back to
+    // `avatarInitials`-style initials from `name`).
+    name: user.displayName,
+    email: user.email,
+    avatar: null as string | null,
   };
 }

@@ -31,6 +31,12 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   app.post(
+    '/oauth',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Sign in with Google (native id_token flow)' } },
+    authController.oauth,
+  );
+
+  app.post(
     '/logout',
     { schema: { tags: ['auth'], summary: 'Revoke the current session (or all)' } },
     authController.logout,

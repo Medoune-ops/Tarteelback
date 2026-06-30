@@ -7,6 +7,7 @@ import {
   registerSchema,
   loginSchema,
   refreshSchema,
+  oauthSchema,
   logoutSchema,
   changePasswordSchema,
   resetRequestSchema,
@@ -42,6 +43,14 @@ export const authController = {
     const input = parse(refreshSchema, req.body);
     const sign = (c: AccessClaims) => req.server.jwt.sign(c);
     const result = await authService.refresh(input, sign);
+    return reply.send(authResponse(result));
+  },
+
+  /** POST /auth/oauth — social sign-in (Google). Same response as login. */
+  async oauth(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(oauthSchema, req.body);
+    const sign = (c: AccessClaims) => req.server.jwt.sign(c);
+    const result = await authService.oauthLogin(input, sign);
     return reply.send(authResponse(result));
   },
 

@@ -33,6 +33,15 @@ export const refreshSchema = z
   })
   .strict();
 
+/** POST /auth/oauth — social sign-in via a provider id_token (native flow). */
+export const oauthSchema = z
+  .object({
+    provider: z.literal('google'),
+    idToken: z.string().min(1),
+    deviceId,
+  })
+  .strict();
+
 export const logoutSchema = z
   .object({
     refreshToken: z.string().min(1).optional(),
@@ -68,6 +77,7 @@ export const resetConfirmSchema = z
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
+export type OAuthInput = z.infer<typeof oauthSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type ResetRequestInput = z.infer<typeof resetRequestSchema>;
