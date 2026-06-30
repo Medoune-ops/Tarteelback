@@ -1,0 +1,11 @@
+{
+  // Config de BUILD pour la prod (Render). Étend le tsconfig de base mais fixe
+  // rootDir sur "src" pour que la sortie soit dist/server.js (et non
+  // dist/src/server.js), et exclut prisma/tests qui n'ont pas à être déployés.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "tests", "prisma"]
+}
