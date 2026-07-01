@@ -92,6 +92,12 @@ export const contentService = {
         audioUrl: v.audioUrl,
         traduction: pick(v.traductions),
         translitteration: pick(v.translitterations),
+        // Word-by-word: each word with its own recitation audio (tappable reader).
+        mots: v.mots.map((m) => ({
+          position: m.position,
+          texteArabe: m.texteArabe,
+          audioUrl: m.audioUrl,
+        })),
       })),
     };
   },

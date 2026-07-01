@@ -1,6 +1,7 @@
 import { buildApp } from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './config/prisma.js';
+import { bumpContentVersion } from './core/cache.js';
 
 /** Connect to the DB with a short retry/backoff so a brief DB unavailability at
  *  boot doesn't crash the process (it does fail eventually if truly down). */
@@ -25,6 +26,11 @@ async function main() {
   // Fail fast if the DB is unreachable at boot — don't serve a "healthy" server
   // that 500s on every request.
   await connectWithRetry();
+
+  // Invalidate the content cache on boot so a fresh deploy serves the latest
+  // content shape (e.g. verses now carrying word-by-word audio) without waiting
+  // for the TTL to expire. Best-effort: a no-op when Redis is absent.
+  await bumpContentVersion().catch((err) => app.log.warn({ err }, 'content cache bump failed'));
 
   let shuttingDown = false;
   const shutdown = async (signal: string) => {

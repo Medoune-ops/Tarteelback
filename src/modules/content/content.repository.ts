@@ -64,6 +64,7 @@ export const contentRepository = {
       include: {
         traductions: { where: { langue: { in: langs } } },
         translitterations: { where: { langue: { in: langs } } },
+        mots: { orderBy: { position: 'asc' } },
       },
     });
   },

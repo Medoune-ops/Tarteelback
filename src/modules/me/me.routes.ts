@@ -14,6 +14,12 @@ export async function meRoutes(app: FastifyInstance) {
     { schema: { tags: ['me'], summary: 'Update app settings (voice, language)', ...sec } },
     meController.updateSettings,
   );
+  app.get(
+    '/activity',
+    { schema: { tags: ['me'], summary: 'Active days for a month (calendar)', ...sec } },
+    meController.activity,
+  );
+
   app.post(
     '/hearts/sync',
     { schema: { tags: ['me'], summary: 'Recompute & return hearts', ...sec } },

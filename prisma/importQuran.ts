@@ -60,10 +60,12 @@ async function main() {
       select: { id: true, _count: { select: { versets: true } } },
     });
     if (existing && existing._count.versets >= ch.verses_count) {
-      const wordCount = await prisma.versetMot.count({
-        where: { verset: { sourateId: existing.id } },
+      // Complete only if NO verse is still missing its words (handles a surah
+      // that was half-imported before an interruption).
+      const versetsSansMots = await prisma.verset.count({
+        where: { sourateId: existing.id, mots: { none: {} } },
       });
-      if (wordCount > 0) {
+      if (versetsSansMots === 0) {
         console.log(`  ↷ ${ch.id.toString().padStart(3)} ${ch.name_simple} (déjà importée + mots, ${ch.verses_count} versets)`);
         continue;
       }
@@ -91,55 +93,55 @@ async function main() {
       },
     });
 
-    // One transaction PER SURAH (114 transactions instead of 6236) — far fewer
-    // BEGIN/COMMIT round-trips, still atomic per surah and idempotent.
-    await prisma.$transaction(async (tx) => {
-      for (const v of verses) {
-        const traductions: { langue: string; texte: string; source: string }[] = [];
-        const translitterations: { langue: string; texte: string; source: string }[] = [];
-        for (const t of v.translations ?? []) {
-          const text = stripHtml(t.text);
-          if (t.resource_id === translitId) {
-            translitterations.push({ langue: 'la', texte: text, source: `quran.com#${translitId}` });
-          } else {
-            const lang = translationLang.get(t.resource_id);
-            if (lang) traductions.push({ langue: lang, texte: text, source: `quran.com#${t.resource_id}` });
-          }
-        }
-
-        const verset = await tx.verset.upsert({
-          where: { sourateId_numero: { sourateId: sourate.id, numero: v.verse_number } },
-          create: {
-            sourateId: sourate.id,
-            numero: v.verse_number,
-            texteArabe: v.text_uthmani,
-            audioUrl: v.audio?.url ?? null,
-          },
-          update: { texteArabe: v.text_uthmani, audioUrl: v.audio?.url ?? null },
-        });
-        await tx.versetTraduction.deleteMany({ where: { versetId: verset.id } });
-        await tx.versetTranslitteration.deleteMany({ where: { versetId: verset.id } });
-        if (traductions.length) {
-          await tx.versetTraduction.createMany({ data: traductions.map((t) => ({ versetId: verset.id, ...t })) });
-        }
-        if (translitterations.length) {
-          await tx.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
-        }
-
-        // Word-by-word audio (so the UI plays exactly the word shown).
-        await tx.versetMot.deleteMany({ where: { versetId: verset.id } });
-        if (v.words.length) {
-          await tx.versetMot.createMany({
-            data: v.words.map((w) => ({
-              versetId: verset.id,
-              position: w.position,
-              texteArabe: w.text_uthmani,
-              audioUrl: w.audioUrl,
-            })),
-          });
+    // Write PER VERSE (no giant per-surah transaction). Even the largest surah
+    // (Al-Baqarah, 286 verses) never hits a transaction timeout on a
+    // high-latency remote DB, since each verse is an independent, small,
+    // idempotent set of writes — the import stays fully resumable.
+    for (const v of verses) {
+      const traductions: { langue: string; texte: string; source: string }[] = [];
+      const translitterations: { langue: string; texte: string; source: string }[] = [];
+      for (const t of v.translations ?? []) {
+        const text = stripHtml(t.text);
+        if (t.resource_id === translitId) {
+          translitterations.push({ langue: 'la', texte: text, source: `quran.com#${translitId}` });
+        } else {
+          const lang = translationLang.get(t.resource_id);
+          if (lang) traductions.push({ langue: lang, texte: text, source: `quran.com#${t.resource_id}` });
         }
       }
-    }, { timeout: 300_000, maxWait: 30_000 });
+
+      const verset = await prisma.verset.upsert({
+        where: { sourateId_numero: { sourateId: sourate.id, numero: v.verse_number } },
+        create: {
+          sourateId: sourate.id,
+          numero: v.verse_number,
+          texteArabe: v.text_uthmani,
+          audioUrl: v.audio?.url ?? null,
+        },
+        update: { texteArabe: v.text_uthmani, audioUrl: v.audio?.url ?? null },
+      });
+      await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id } });
+      await prisma.versetTranslitteration.deleteMany({ where: { versetId: verset.id } });
+      if (traductions.length) {
+        await prisma.versetTraduction.createMany({ data: traductions.map((t) => ({ versetId: verset.id, ...t })) });
+      }
+      if (translitterations.length) {
+        await prisma.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
+      }
+
+      // Word-by-word audio (so the UI plays exactly the word shown).
+      await prisma.versetMot.deleteMany({ where: { versetId: verset.id } });
+      if (v.words.length) {
+        await prisma.versetMot.createMany({
+          data: v.words.map((w) => ({
+            versetId: verset.id,
+            position: w.position,
+            texteArabe: w.text_uthmani,
+            audioUrl: w.audioUrl,
+          })),
+        });
+      }
+    }
 
     console.log(`  ✓ ${ch.id.toString().padStart(3)} ${ch.name_simple} (hizb ${hizb}, ${verses.length} verses)`);
   }

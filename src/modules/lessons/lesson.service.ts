@@ -2,7 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { computeHearts, snapshot, MAX_HEARTS } from '../../core/hearts.js';
-import { applyActivity } from '../../core/streak.js';
+import { applyActivity, localDayKey } from '../../core/streak.js';
 import { judgeStep, type AnswerInput, type StepType } from '../../core/lessonJudge.js';
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
@@ -171,6 +171,16 @@ export const lessonService = {
         // League weekly XP, in the SAME transaction (no divergence with the DB).
         league = await leagueService.addXpIfMemberTx(tx, userId, gained);
       }
+
+      // Record today's LOCAL day as active (idempotent per day) so the profile
+      // calendar can mark exactly the days studied. Done on every completion,
+      // not only the first, since replaying still means the user studied today.
+      const dayKey = localDayKey(now, user.timezone);
+      await tx.activityDay.upsert({
+        where: { userId_day: { userId, day: dayKey } },
+        create: { userId, day: dayKey },
+        update: {},
+      });
 
       return { u, gained, premium, firstCompletion, league };
     });

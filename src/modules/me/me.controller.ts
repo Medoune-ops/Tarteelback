@@ -29,6 +29,17 @@ export const meController = {
     return reply.send(flat);
   },
 
+  /**
+   * GET /me/activity?month=YYYY-MM — exact active days that month (calendar).
+   * Defaults to the current UTC month when `month` is missing/invalid.
+   */
+  async activity(req: FastifyRequest, reply: FastifyReply) {
+    const raw = (req.query as { month?: string } | undefined)?.month;
+    const month = raw && /^\d{4}-\d{2}$/.test(raw) ? raw : new Date().toISOString().slice(0, 7);
+    const days = await meService.getActivityDays(req.auth!.sub, month);
+    return reply.send({ month, days });
+  },
+
   /** POST /me/hearts/sync: recompute regen, persist, return the hearts block. */
   async syncHearts(req: FastifyRequest, reply: FastifyReply) {
     const now = new Date();

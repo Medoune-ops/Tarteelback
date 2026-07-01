@@ -1,4 +1,5 @@
 import type { User } from '@prisma/client';
+import { prisma } from '../../config/prisma.js';
 import { computeHearts } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { refreshStreak } from '../../core/streak.js';
@@ -84,5 +85,20 @@ export const meService = {
   async updateSettings(userId: string, input: UpdateSettingsInput): Promise<User> {
     const user = await userRepository.update(userId, { ...input });
     return syncUserState(user);
+  },
+
+  /**
+   * GET /me/activity?month=YYYY-MM — the exact local days the user was active
+   * (completed ≥1 lesson) in that month. Powers the profile calendar. `month`
+   * is validated as "YYYY-MM"; we match days by string prefix (days are stored
+   * as "YYYY-MM-DD" in the user's timezone).
+   */
+  async getActivityDays(userId: string, month: string): Promise<string[]> {
+    const rows = await prisma.activityDay.findMany({
+      where: { userId, day: { startsWith: `${month}-` } },
+      select: { day: true },
+      orderBy: { day: 'asc' },
+    });
+    return rows.map((r) => r.day);
   },
 };

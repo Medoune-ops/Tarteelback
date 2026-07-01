@@ -146,8 +146,26 @@ model User {
   deviceTokens      DeviceToken[]
   podiumRewards     PodiumReward[]
   passwordResets    PasswordResetToken[]
+  activityDays      ActivityDay[]
 
   @@index([weeklyXp])
+}
+
+/// One row per LOCAL day the user was active (completed at least one lesson).
+/// `day` is the user's local calendar day as "YYYY-MM-DD" (same notion as the
+/// streak's local-day key), so the profile calendar can highlight EXACTLY the
+/// days studied — including isolated days and past months. Idempotent per day
+/// via the unique (userId, day).
+model ActivityDay {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day    String // "YYYY-MM-DD" in the user's timezone
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day])
+  @@index([userId, day])
 }
 
 /// Single-use, short-lived password-reset token. We store only a SHA-256 hash
