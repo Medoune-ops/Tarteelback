@@ -53,6 +53,13 @@ export interface QVerseTranslation {
   text: string;
 }
 
+/** One word of a verse (word-by-word), with its own recitation audio. */
+export interface QWord {
+  position: number;
+  text_uthmani: string;
+  audioUrl: string | null;
+}
+
 export interface QVerse {
   verse_number: number;
   verse_key: string; // "1:1"
@@ -60,6 +67,7 @@ export interface QVerse {
   text_uthmani: string;
   audio?: { url: string } | null;
   translations?: QVerseTranslation[];
+  words: QWord[];
 }
 
 export class QuranClient {
@@ -92,12 +100,16 @@ export class QuranClient {
       if (++guard > 1000) throw new Error(`Quran API: pagination did not terminate for chapter ${chapterId}`);
       const url =
         `${this.base}/verses/by_chapter/${chapterId}` +
-        `?words=false&fields=text_uthmani,hizb_number` +
+        `?words=true&fields=text_uthmani,hizb_number` +
+        `&word_fields=text_uthmani,audio_url` +
         `&translations=${tids}` +
         `&audio=${recitationId}` +
         `&per_page=50&page=${page}`;
       const data = await getJson<{
-        verses: (QVerse & { audio?: { url: string } })[];
+        verses: (QVerse & {
+          audio?: { url: string };
+          words?: { char_type_name?: string; text_uthmani?: string; audio_url?: string | null }[];
+        })[];
         pagination: { next_page: number | null };
       }>(url);
       if (!Array.isArray(data.verses)) {
@@ -106,6 +118,25 @@ export class QuranClient {
       for (const v of data.verses) {
         // Skip malformed verses rather than crashing the whole import.
         if (typeof v.text_uthmani !== 'string' || typeof v.verse_number !== 'number') continue;
+
+        // Word-by-word: keep only real words (drop the "end" ayah-number glyph),
+        // resolve each word's audio to an absolute URL, and number them 1-based.
+        const words: QWord[] = [];
+        if (Array.isArray(v.words)) {
+          let pos = 0;
+          for (const w of v.words) {
+            if (w.char_type_name !== 'word' || typeof w.text_uthmani !== 'string') continue;
+            pos += 1;
+            words.push({
+              position: pos,
+              text_uthmani: w.text_uthmani,
+              audioUrl: w.audio_url
+                ? (w.audio_url.startsWith('http') ? w.audio_url : `https://verses.quran.com/${w.audio_url}`)
+                : null,
+            });
+          }
+        }
+
         out.push({
           verse_number: v.verse_number,
           verse_key: v.verse_key,
@@ -115,6 +146,7 @@ export class QuranClient {
             ? { url: v.audio.url.startsWith('http') ? v.audio.url : `https://verses.quran.com/${v.audio.url}` }
             : null,
           translations: Array.isArray(v.translations) ? v.translations : [],
+          words,
         });
       }
       if (!data.pagination?.next_page || data.pagination.next_page <= page) break;

@@ -315,9 +315,25 @@ model Verset {
 
   traductions      VersetTraduction[]
   translitterations VersetTranslitteration[]
+  mots             VersetMot[]
 
   @@unique([sourateId, numero])
   @@index([sourateId])
+}
+
+/// One word of a verse, with its own recitation audio (word-by-word). Lets the
+/// UI play EXACTLY the word shown (not the whole verse). `position` is 1-based
+/// and follows the Mushaf order. Filled from quran.com (`words[].audio_url`).
+model VersetMot {
+  id        String  @id @default(cuid())
+  versetId  String
+  verset    Verset  @relation(fields: [versetId], references: [id], onDelete: Cascade)
+  position  Int // 1-based index of the word within the verse
+  texteArabe String
+  audioUrl  String?
+
+  @@unique([versetId, position])
+  @@index([versetId])
 }
 
 /// Per-language meaning shown under a verse (the user's language decides which).

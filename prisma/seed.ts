@@ -188,14 +188,31 @@ async function seedDemoLesson() {
     { arabe: 'الرَّحِيمِ', translit: 'Ar-Raḥīm', sens: 'Le Très Miséricordieux' },
   ];
 
+  // La Basmala = verset 1 de Al-Fatiha (sourate 1). Si le Coran a été importé
+  // (npm run seed:quran), on réutilise son audio réel : l'audio PAR MOT pour les
+  // étapes découverte (son = mot affiché) et l'audio du verset complet pour la
+  // récitation finale.
+  const fatiha = await prisma.sourate.findUnique({ where: { numero: 1 } });
+  const verset1 = fatiha
+    ? await prisma.verset.findUnique({
+        where: { sourateId_numero: { sourateId: fatiha.id, numero: 1 } },
+        include: { mots: { orderBy: { position: 'asc' } } },
+      })
+    : null;
+  const basmalaAudio = verset1?.audioUrl ?? null;
+  // Audio par position de mot (1-based) : position 1 → بِسْمِ, etc.
+  const motAudio = (position: number): string | null =>
+    verset1?.mots.find((m) => m.position === position)?.audioUrl ?? basmalaAudio;
+
   await prisma.lessonStep.deleteMany({ where: { lessonId: lesson1.id } });
 
   let ordre = 1;
   const steps: { type: StepType; payload: unknown }[] = [];
-  for (const mot of mots) {
+  mots.forEach((mot, i) => {
     steps.push({
       type: 'discovery',
-      payload: { arabe: mot.arabe, translitteration: mot.translit, traduction: mot.sens, audioUrl: null },
+      // Audio du MOT correspondant (son = mot affiché). Repli sur le verset entier.
+      payload: { arabe: mot.arabe, translitteration: mot.translit, traduction: mot.sens, audioUrl: motAudio(i + 1) },
     });
     const autres = mots.filter((m) => m.arabe !== mot.arabe).map((m) => m.sens);
     steps.push({
@@ -213,14 +230,14 @@ async function seedDemoLesson() {
         bonneReponse: 'A',
       },
     });
-  }
+  });
   steps.push({
     type: 'voice',
     payload: {
       arabe: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
       translitteration: 'Bismi-llāhi r-raḥmāni r-raḥīm',
       traduction: "Au nom d'Allah, le Tout Miséricordieux, le Très Miséricordieux",
-      audioUrl: null,
+      audioUrl: basmalaAudio,
       seuilReussite: 70,
     },
   });
@@ -243,62 +260,48 @@ async function seedLeagues(demoUserId: string) {
     await prisma.league.upsert({ where: { ordre: t.ordre }, update: {}, create: t });
   }
 
-  const or = await prisma.league.findUnique({ where: { ordre: 3 } });
-  if (!or) return;
+  // New users start at the LOWEST league (Bronze). Real leagues fill up with
+  // real users over time — no fictional participants.
+  const bronze = await prisma.league.findUnique({ where: { ordre: 1 } });
+  if (!bronze) return;
 
-  // Current week (Mon→Sun around now).
+  // Clean up any fictional participants inserted by an earlier seed
+  // (emails like "sb@league.demo"). Cascades to their memberships.
+  await prisma.user.deleteMany({ where: { email: { endsWith: '@league.demo' } } });
+
+  // Current week (Mon→Sun around now), with the REAL ISO week number.
   const now = new Date();
   const start = new Date(now);
   start.setUTCHours(0, 0, 0, 0);
   start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7)); // Monday
   const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const numeroSemaine = isoWeekNumber(now);
 
   const week = await prisma.leagueWeek.upsert({
-    where: { leagueId_numeroSemaine: { leagueId: or.id, numeroSemaine: 23 } },
+    where: { leagueId_numeroSemaine: { leagueId: bronze.id, numeroSemaine } },
     update: { dateDebut: start, dateFin: end },
-    create: { leagueId: or.id, numeroSemaine: 23, dateDebut: start, dateFin: end },
+    create: { leagueId: bronze.id, numeroSemaine, dateDebut: start, dateFin: end },
   });
 
-  // Fictional participants (mirrors the front mock) + the demo user.
-  const fakes = [
-    { name: 'Idriss M.', initials: 'IM', xp: 1620 },
-    { name: 'Sarah B.', initials: 'SB', xp: 1480 },
-    { name: 'Khadija N.', initials: 'KN', xp: 1320 },
-    { name: 'Amine R.', initials: 'AR', xp: 1180 },
-    { name: 'Leïla D.', initials: 'LD', xp: 1050 },
-    { name: 'Oussama K.', initials: 'OK', xp: 990 },
-    { name: 'Maryam T.', initials: 'MT', xp: 870 },
-    { name: 'Hicham B.', initials: 'HB', xp: 720 },
-  ];
-
-  for (const f of fakes) {
-    const email = `${f.initials.toLowerCase()}@league.demo`;
-    const u = await prisma.user.upsert({
-      where: { email },
-      update: { weeklyXp: f.xp },
-      create: {
-        email,
-        displayName: f.name,
-        avatarInitials: f.initials,
-        weeklyXp: f.xp,
-        onboardingDone: true,
-      },
-    });
-    await prisma.leagueMembership.upsert({
-      where: { userId_leagueWeekId: { userId: u.id, leagueWeekId: week.id } },
-      update: { weeklyXp: f.xp },
-      create: { userId: u.id, leagueWeekId: week.id, weeklyXp: f.xp },
-    });
-  }
-
-  // Enrol the demo user too.
+  // Enrol the demo user (starts with 0 weekly XP — earns it by learning).
   await prisma.leagueMembership.upsert({
     where: { userId_leagueWeekId: { userId: demoUserId, leagueWeekId: week.id } },
-    update: { weeklyXp: 1250 },
-    create: { userId: demoUserId, leagueWeekId: week.id, weeklyXp: 1250 },
+    update: {},
+    create: { userId: demoUserId, leagueWeekId: week.id, weeklyXp: 0 },
   });
 
-  console.log('  ✓ leagues: Bronze→Émeraude, Or week 23 with participants');
+  console.log(`  ✓ leagues: Bronze→Émeraude, real week ${numeroSemaine} (no fictional participants)`);
+}
+
+/** ISO 8601 week number (1–53) for a date. */
+function isoWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7; // Monday = 0
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // Thursday of this week
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  return 1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 24 * 3600 * 1000));
 }
 
 /** Podium history for the demo user (mirrors constants/ligues.ts). */

@@ -53,14 +53,20 @@ async function main() {
   for (const ch of selected) {
     // Skip surahs already fully imported (resume after a network timeout without
     // re-uploading everything). A surah is "complete" when its verse count in the
-    // DB already matches the expected count from the API.
+    // DB matches the API AND its verses already carry word-by-word rows (so a
+    // re-import that ADDS words isn't skipped by an older verse-only import).
     const existing = await prisma.sourate.findUnique({
       where: { numero: ch.id },
       select: { id: true, _count: { select: { versets: true } } },
     });
     if (existing && existing._count.versets >= ch.verses_count) {
-      console.log(`  ↷ ${ch.id.toString().padStart(3)} ${ch.name_simple} (déjà importée, ${ch.verses_count} versets)`);
-      continue;
+      const wordCount = await prisma.versetMot.count({
+        where: { verset: { sourateId: existing.id } },
+      });
+      if (wordCount > 0) {
+        console.log(`  ↷ ${ch.id.toString().padStart(3)} ${ch.name_simple} (déjà importée + mots, ${ch.verses_count} versets)`);
+        continue;
+      }
     }
 
     const verses = await client.chapterVerses(ch.id, allTextResources, recitationId);
@@ -118,6 +124,19 @@ async function main() {
         }
         if (translitterations.length) {
           await tx.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
+        }
+
+        // Word-by-word audio (so the UI plays exactly the word shown).
+        await tx.versetMot.deleteMany({ where: { versetId: verset.id } });
+        if (v.words.length) {
+          await tx.versetMot.createMany({
+            data: v.words.map((w) => ({
+              versetId: verset.id,
+              position: w.position,
+              texteArabe: w.text_uthmani,
+              audioUrl: w.audioUrl,
+            })),
+          });
         }
       }
     }, { timeout: 300_000, maxWait: 30_000 });
