@@ -22,6 +22,7 @@
     "seed:quran": "tsx prisma/importQuran.ts",
     "seed:lessons": "tsx prisma/generateLessons.ts",
     "seed:alphabet": "tsx prisma/generateAlphabet.ts",
+    "seed:letter-audio": "tsx prisma/generateLetterAudio.ts",
     "cache:bump": "tsx prisma/bumpCache.ts",
     "jobs:maintenance": "tsx src/jobs/maintenance.ts",
     "jobs:rollover": "tsx src/jobs/maintenance.ts rollover",

@@ -92,8 +92,9 @@ async function seedSections() {
     arr.push(s);
     byHizb.set(s.hizb, arr);
   }
-  // Within a hizb, Mushaf order (ascending surah number).
-  for (const arr of byHizb.values()) arr.sort((a, b) => a.numero - b.numero);
+  // Within a hizb, REVERSE Mushaf order (descending surah number):
+  // An-Nas (114) first → … → Al-Fatiha (1) last, so short/familiar surahs come first.
+  for (const arr of byHizb.values()) arr.sort((a, b) => b.numero - a.numero);
 
   // Section 1 — Alphabet.
   const alphabet = await prisma.section.upsert({

@@ -16,36 +16,42 @@ import { PrismaClient, Prisma, type StepType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Les 28 lettres de l'alphabet arabe, dans l'ordre, avec nom et indication de son.
+/** Google TTS endpoint (public, no key needed). */
+function ttsUrl(texteArabe: string): string {
+  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encodeURIComponent(texteArabe)}`;
+}
+
+// Les 28 lettres de l'alphabet arabe, dans l'ordre, avec nom, son et audio TTS.
+// `tts` = forme longue vocalisée prononcée par le lecteur arabe Google.
 const LETTERS = [
-  { g: 'ا', nom: 'Alif',  son: 'a / â long' },
-  { g: 'ب', nom: 'Bā',    son: 'b' },
-  { g: 'ت', nom: 'Tā',    son: 't' },
-  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)' },
-  { g: 'ج', nom: 'Jīm',   son: 'dj' },
-  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort' },
-  { g: 'خ', nom: 'Khā',   son: 'kh (jota)' },
-  { g: 'د', nom: 'Dāl',   son: 'd' },
-  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)' },
-  { g: 'ر', nom: 'Rā',    son: 'r roulé' },
-  { g: 'ز', nom: 'Zāy',   son: 'z' },
-  { g: 'س', nom: 'Sīn',   son: 's' },
-  { g: 'ش', nom: 'Shīn',  son: 'ch' },
-  { g: 'ص', nom: 'Ṣād',   son: 's emphatique' },
-  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique' },
-  { g: 'ط', nom: 'Ṭā',    son: 't emphatique' },
-  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique' },
-  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »' },
-  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)' },
-  { g: 'ف', nom: 'Fā',    son: 'f' },
-  { g: 'ق', nom: 'Qāf',   son: 'q guttural' },
-  { g: 'ك', nom: 'Kāf',   son: 'k' },
-  { g: 'ل', nom: 'Lām',   son: 'l' },
-  { g: 'م', nom: 'Mīm',   son: 'm' },
-  { g: 'ن', nom: 'Nūn',   son: 'n' },
-  { g: 'ه', nom: 'Hā',    son: 'h léger' },
-  { g: 'و', nom: 'Wāw',   son: 'w / ou' },
-  { g: 'ي', nom: 'Yā',    son: 'y / î' },
+  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  audioUrl: ttsUrl('أَلِف') },
+  { g: 'ب', nom: 'Bā',    son: 'b',                            audioUrl: ttsUrl('بَاء') },
+  { g: 'ت', nom: 'Tā',    son: 't',                            audioUrl: ttsUrl('تَاء') },
+  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       audioUrl: ttsUrl('ثَاء') },
+  { g: 'ج', nom: 'Jīm',   son: 'dj',                           audioUrl: ttsUrl('جِيم') },
+  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                audioUrl: ttsUrl('حَاء') },
+  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    audioUrl: ttsUrl('خَاء') },
+  { g: 'د', nom: 'Dāl',   son: 'd',                            audioUrl: ttsUrl('دَال') },
+  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        audioUrl: ttsUrl('ذَال') },
+  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      audioUrl: ttsUrl('رَاء') },
+  { g: 'ز', nom: 'Zāy',   son: 'z',                            audioUrl: ttsUrl('زَاي') },
+  { g: 'س', nom: 'Sīn',   son: 's',                            audioUrl: ttsUrl('سِين') },
+  { g: 'ش', nom: 'Shīn',  son: 'ch',                           audioUrl: ttsUrl('شِين') },
+  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 audioUrl: ttsUrl('صَاد') },
+  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 audioUrl: ttsUrl('ضَاد') },
+  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 audioUrl: ttsUrl('طَاء') },
+  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 audioUrl: ttsUrl('ظَاء') },
+  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         audioUrl: ttsUrl('عَيْن') },
+  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              audioUrl: ttsUrl('غَيْن') },
+  { g: 'ف', nom: 'Fā',    son: 'f',                            audioUrl: ttsUrl('فَاء') },
+  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   audioUrl: ttsUrl('قَاف') },
+  { g: 'ك', nom: 'Kāf',   son: 'k',                            audioUrl: ttsUrl('كَاف') },
+  { g: 'ل', nom: 'Lām',   son: 'l',                            audioUrl: ttsUrl('لَام') },
+  { g: 'م', nom: 'Mīm',   son: 'm',                            audioUrl: ttsUrl('مِيم') },
+  { g: 'ن', nom: 'Nūn',   son: 'n',                            audioUrl: ttsUrl('نُون') },
+  { g: 'ه', nom: 'Hā',    son: 'h léger',                      audioUrl: ttsUrl('هَاء') },
+  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       audioUrl: ttsUrl('وَاو') },
+  { g: 'ي', nom: 'Yā',    son: 'y / î',                        audioUrl: ttsUrl('يَاء') },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -101,11 +107,11 @@ async function main() {
     let ordre = 1;
 
     for (const L of group) {
-      // 1) Découverte de la lettre (visuelle, sans audio).
+      // 1) Découverte de la lettre (glyphe + nom + son + audio TTS Google).
       steps.push({
         ordre: ordre++,
         type: 'discovery',
-        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: null },
+        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: L.audioUrl },
       });
       // 2) Test : reconnaître la lettre par son nom.
       const distract = pickDistinct(allNames, L.nom, 3);
