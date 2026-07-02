@@ -16,42 +16,37 @@ import { PrismaClient, Prisma, type StepType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-/** Google TTS endpoint (public, no key needed). */
-function ttsUrl(texteArabe: string): string {
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encodeURIComponent(texteArabe)}`;
-}
-
-// Les 28 lettres de l'alphabet arabe, dans l'ordre, avec nom, son et audio TTS.
-// `tts` = forme longue vocalisée prononcée par le lecteur arabe Google.
+// Les 28 lettres de l'alphabet arabe, dans l'ordre, avec nom, son et texte TTS.
+// `ttsText` = forme longue vocalisée pour expo-speech (prononciation native arabe).
 const LETTERS = [
-  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  audioUrl: ttsUrl('أَلِف') },
-  { g: 'ب', nom: 'Bā',    son: 'b',                            audioUrl: ttsUrl('بَاء') },
-  { g: 'ت', nom: 'Tā',    son: 't',                            audioUrl: ttsUrl('تَاء') },
-  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       audioUrl: ttsUrl('ثَاء') },
-  { g: 'ج', nom: 'Jīm',   son: 'dj',                           audioUrl: ttsUrl('جِيم') },
-  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                audioUrl: ttsUrl('حَاء') },
-  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    audioUrl: ttsUrl('خَاء') },
-  { g: 'د', nom: 'Dāl',   son: 'd',                            audioUrl: ttsUrl('دَال') },
-  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        audioUrl: ttsUrl('ذَال') },
-  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      audioUrl: ttsUrl('رَاء') },
-  { g: 'ز', nom: 'Zāy',   son: 'z',                            audioUrl: ttsUrl('زَاي') },
-  { g: 'س', nom: 'Sīn',   son: 's',                            audioUrl: ttsUrl('سِين') },
-  { g: 'ش', nom: 'Shīn',  son: 'ch',                           audioUrl: ttsUrl('شِين') },
-  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 audioUrl: ttsUrl('صَاد') },
-  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 audioUrl: ttsUrl('ضَاد') },
-  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 audioUrl: ttsUrl('طَاء') },
-  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 audioUrl: ttsUrl('ظَاء') },
-  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         audioUrl: ttsUrl('عَيْن') },
-  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              audioUrl: ttsUrl('غَيْن') },
-  { g: 'ف', nom: 'Fā',    son: 'f',                            audioUrl: ttsUrl('فَاء') },
-  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   audioUrl: ttsUrl('قَاف') },
-  { g: 'ك', nom: 'Kāf',   son: 'k',                            audioUrl: ttsUrl('كَاف') },
-  { g: 'ل', nom: 'Lām',   son: 'l',                            audioUrl: ttsUrl('لَام') },
-  { g: 'م', nom: 'Mīm',   son: 'm',                            audioUrl: ttsUrl('مِيم') },
-  { g: 'ن', nom: 'Nūn',   son: 'n',                            audioUrl: ttsUrl('نُون') },
-  { g: 'ه', nom: 'Hā',    son: 'h léger',                      audioUrl: ttsUrl('هَاء') },
-  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       audioUrl: ttsUrl('وَاو') },
-  { g: 'ي', nom: 'Yā',    son: 'y / î',                        audioUrl: ttsUrl('يَاء') },
+  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  ttsText: 'أَلِف' },
+  { g: 'ب', nom: 'Bā',    son: 'b',                            ttsText: 'بَاء' },
+  { g: 'ت', nom: 'Tā',    son: 't',                            ttsText: 'تَاء' },
+  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       ttsText: 'ثَاء' },
+  { g: 'ج', nom: 'Jīm',   son: 'dj',                           ttsText: 'جِيم' },
+  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                ttsText: 'حَاء' },
+  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    ttsText: 'خَاء' },
+  { g: 'د', nom: 'Dāl',   son: 'd',                            ttsText: 'دَال' },
+  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        ttsText: 'ذَال' },
+  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      ttsText: 'رَاء' },
+  { g: 'ز', nom: 'Zāy',   son: 'z',                            ttsText: 'زَاي' },
+  { g: 'س', nom: 'Sīn',   son: 's',                            ttsText: 'سِين' },
+  { g: 'ش', nom: 'Shīn',  son: 'ch',                           ttsText: 'شِين' },
+  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 ttsText: 'صَاد' },
+  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 ttsText: 'ضَاد' },
+  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 ttsText: 'طَاء' },
+  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 ttsText: 'ظَاء' },
+  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         ttsText: 'عَيْن' },
+  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              ttsText: 'غَيْن' },
+  { g: 'ف', nom: 'Fā',    son: 'f',                            ttsText: 'فَاء' },
+  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   ttsText: 'قَاف' },
+  { g: 'ك', nom: 'Kāf',   son: 'k',                            ttsText: 'كَاف' },
+  { g: 'ل', nom: 'Lām',   son: 'l',                            ttsText: 'لَام' },
+  { g: 'م', nom: 'Mīm',   son: 'm',                            ttsText: 'مِيم' },
+  { g: 'ن', nom: 'Nūn',   son: 'n',                            ttsText: 'نُون' },
+  { g: 'ه', nom: 'Hā',    son: 'h léger',                      ttsText: 'هَاء' },
+  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       ttsText: 'وَاو' },
+  { g: 'ي', nom: 'Yā',    son: 'y / î',                        ttsText: 'يَاء' },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -107,11 +102,12 @@ async function main() {
     let ordre = 1;
 
     for (const L of group) {
-      // 1) Découverte de la lettre (glyphe + nom + son + audio TTS Google).
+      // 1) Découverte de la lettre (glyphe + nom + son).
+      // `ttsText` = texte à prononcer via expo-speech (TTS natif arabe du device).
       steps.push({
         ordre: ordre++,
         type: 'discovery',
-        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: L.audioUrl },
+        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: null, ttsText: L.ttsText },
       });
       // 2) Test : reconnaître la lettre par son nom.
       const distract = pickDistinct(allNames, L.nom, 3);
