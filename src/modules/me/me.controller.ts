@@ -40,6 +40,12 @@ export const meController = {
     return reply.send({ month, days });
   },
 
+  /** GET /me/sourates — surahs the user has learned in full (read-only list). */
+  async sourates(req: FastifyRequest, reply: FastifyReply) {
+    const sourates = await meService.getLearnedSourates(req.auth!.sub);
+    return reply.send({ sourates });
+  },
+
   /** POST /me/hearts/sync: recompute regen, persist, return the hearts block. */
   async syncHearts(req: FastifyRequest, reply: FastifyReply) {
     const now = new Date();

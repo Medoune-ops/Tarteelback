@@ -7,6 +7,7 @@ import { userRepository } from './user.repository.js';
 import type { UpdateMeInput, UpdateSettingsInput } from './me.schemas.js';
 import { initialsFrom } from '../../core/tokens.js';
 import { computeUserStats } from './user.stats.js';
+import { getLearnedSourates } from './learnedSourates.js';
 import { serializeUserFlat } from './user.serializer.js';
 
 /**
@@ -100,5 +101,14 @@ export const meService = {
       orderBy: { day: 'asc' },
     });
     return rows.map((r) => r.day);
+  },
+
+  /**
+   * GET /me/sourates — the surahs the user has learned in full (every lesson of
+   * a section teaching the surah is completed). Powers the "Sourates apprises"
+   * badge list; read-only.
+   */
+  async getLearnedSourates(userId: string) {
+    return getLearnedSourates(userId);
   },
 };

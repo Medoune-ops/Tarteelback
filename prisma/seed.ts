@@ -231,14 +231,21 @@ async function seedDemoLesson() {
       },
     });
   });
+  // Étape finale : le verset complet, présenté dans un LECTEUR MOT PAR MOT
+  // (mots tappables + auto-lecture surlignée). `mots` porte l'audio réel par mot
+  // (même source que les étapes découverte), ce qui active le lecteur côté front.
   steps.push({
-    type: 'voice',
+    type: 'discovery',
     payload: {
       arabe: 'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
       translitteration: 'Bismi-llāhi r-raḥmāni r-raḥīm',
       traduction: "Au nom d'Allah, le Tout Miséricordieux, le Très Miséricordieux",
       audioUrl: basmalaAudio,
-      seuilReussite: 70,
+      mots: mots.map((mot, i) => ({
+        position: i + 1,
+        texteArabe: mot.arabe,
+        audioUrl: motAudio(i + 1),
+      })),
     },
   });
 
