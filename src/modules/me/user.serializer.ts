@@ -81,6 +81,13 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     lastHeartLossAt: hearts.lastHeartLossAt ? hearts.lastHeartLossAt.getTime() : null,
     sourates: stats.sourates,
     precision: stats.precision,
+    // Onboarding/setup state — the front routes to the setup flow only when
+    // `onboardingDone` is false. Persisting & returning these here is what stops
+    // the setup from re-running on every login.
+    onboardingDone: user.onboardingDone,
+    level: user.level,
+    objectif: user.objectif,
+    dailyMinutes: user.dailyMinutes,
     // Profile fields the front's Settings screen needs (optional on the front,
     // but without them it shows "Mon profil / —"). `avatar` is a URL or null;
     // we don't store uploaded avatars yet, so it's null (the front falls back to
