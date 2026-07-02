@@ -23,8 +23,6 @@ const prisma = new PrismaClient();
 const MAX_VERSES = 8;        // plafond de versets par leçon (≤ ~16 étapes)
 const FR = 'fr';
 const TRANSLIT = 'la';
-// Sourates courtes pour remplir la section Alphabet (leçons 2→10).
-const ALPHABET_FILL = [114, 113, 112, 111, 110, 109, 108, 107, 106];
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -131,27 +129,8 @@ async function main() {
     console.log(`  ✓ Hizb ${section.hizb} — ${n} leçons`);
   }
 
-  // ── Section Alphabet : préserver la leçon 1, remplir 2→10 ──────────────────
-  const alphabet = await prisma.section.findFirst({
-    where: { hizb: null },
-    include: { lessons: { orderBy: { ordre: 'asc' } } },
-  });
-  if (alphabet) {
-    const fillSourates = await prisma.sourate.findMany({ where: { numero: { in: ALPHABET_FILL } } });
-    const byNum = new Map(fillSourates.map((s) => [s.numero, s]));
-    const toFill = alphabet.lessons.filter((l) => l.ordre >= 2); // garde la démo (ordre 1)
-    for (let i = 0; i < toFill.length; i++) {
-      const sourate = byNum.get(ALPHABET_FILL[i % ALPHABET_FILL.length]!);
-      if (!sourate) continue;
-      const steps = await buildSteps(sourate.id, pool);
-      await writeLesson(toFill[i]!.id, steps);
-      lessons++;
-      stepsTotal += steps.length;
-    }
-    console.log(`  ✓ Alphabet — ${toFill.length} leçons remplies (leçon 1 démo préservée)`);
-  }
-
-  console.log(`\n✓ ${lessons} leçons générées, ${stepsTotal} étapes au total`);
+  // La section Alphabet (section 1) est gérée à part par generateAlphabet.ts.
+  console.log(`\n✓ ${lessons} leçons de sourates générées, ${stepsTotal} étapes au total`);
 }
 
 main()
