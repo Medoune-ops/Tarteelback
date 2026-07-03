@@ -34,7 +34,7 @@ export interface VoicePayload {
   seuilReussite: number;
 }
 
-export type StepType = 'discovery' | 'written' | 'voice';
+export type StepType = 'discovery' | 'written' | 'voice' | 'ordering' | 'matching';
 
 /** The answer body a client may send. */
 export interface AnswerInput {
@@ -44,6 +44,8 @@ export interface AnswerInput {
   score?: number;
   /** voice: optional transcript (informational). */
   transcription?: string;
+  /** ordering: word positions submitted by the user, in the order they placed them. */
+  positions?: number[];
 }
 
 export interface Judgement {
@@ -96,6 +98,18 @@ export function judgeStep(
       // Lenient AND never heart-at-stake (client score is untrusted).
       return { correct: score >= seuil, heartAtStake: false };
     }
+
+    case 'ordering': {
+      const positions = Array.isArray(answer.positions) ? answer.positions : [];
+      if (positions.length === 0) return { correct: false, heartAtStake: true };
+      // Correct if and only if positions are strictly ascending (original word order).
+      const isAscending = positions.every((pos, i) => i === 0 || positions[i - 1]! < pos);
+      return { correct: isAscending, heartAtStake: true };
+    }
+
+    // matching is client-side only — the server never receives an answer for it.
+    case 'matching':
+      return { correct: true, heartAtStake: false };
 
     default:
       return { correct: false, heartAtStake: false };

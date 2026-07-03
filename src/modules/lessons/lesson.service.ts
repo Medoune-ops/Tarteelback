@@ -115,8 +115,8 @@ export const lessonService = {
     const lesson = await lessonRepository.getLessonWithSteps(lessonId);
     if (!lesson) throw new AppError('NOT_FOUND', 'Lesson not found');
 
-    // Number of test steps (written/voice) — the cap for correctCount.
-    const testStepCount = lesson.steps.filter((s) => s.type !== 'discovery').length;
+    // Number of server-judged test steps — matching is client-only, ordering counts.
+    const testStepCount = lesson.steps.filter((s) => s.type !== 'discovery' && s.type !== 'matching').length;
 
     const result = await prisma.$transaction(async (tx) => {
       // Lock the user row for the duration so streak/XP updates are consistent

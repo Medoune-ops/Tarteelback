@@ -8,6 +8,8 @@ export const answerSchema = z
     // voice: recognition score 0–100
     score: z.number().min(0).max(100).optional(),
     transcription: z.string().max(2000).optional(),
+    // ordering: positions array in user-submitted order
+    positions: z.array(z.number().int().min(1)).max(50).optional(),
   })
   .strict();
 

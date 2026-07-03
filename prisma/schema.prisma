@@ -62,6 +62,8 @@ enum StepType {
   discovery
   written
   voice
+  ordering
+  matching
 }
 
 enum RevisionState {
