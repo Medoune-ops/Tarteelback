@@ -221,7 +221,7 @@ async function main() {
 
   for (const section of hizbSections) {
     // 1) Collecter tous les groupes de versets pour cette section (toutes sourates).
-    type LessonBlueprint = { titre: string; steps: StepRow[] };
+    type LessonBlueprint = { titre: string; steps: StepRow[]; sourateNumero: number };
     const blueprints: LessonBlueprint[] = [];
 
     for (const link of section.sourateLinks) {
@@ -234,26 +234,31 @@ async function main() {
         const group = groups[gi]!;
         const steps = buildGroupSteps(group, 1, pool);
         const nums = group.map((v) => v.numero).join('-');
-        blueprints.push({ titre: `${sourate.nom} ${nums}`, steps });
+        blueprints.push({ titre: `${sourate.nom} ${nums}`, steps, sourateNumero: sourate.numero });
       }
     }
 
     // 2) Supprimer toutes les leçons existantes de cette section (cascade).
     await prisma.lesson.deleteMany({ where: { sectionId: section.id } });
 
-    // 3) Recréer les leçons avec les bons ordres.
-    for (let i = 0; i < blueprints.length; i++) {
-      const bp = blueprints[i]!;
-      const lesson = await prisma.lesson.create({
-        data: { sectionId: section.id, ordre: i + 1, titre: bp.titre },
-      });
-      if (bp.steps.length > 0) {
-        await prisma.lessonStep.createMany({
-          data: bp.steps.map((s) => ({ lessonId: lesson.id, ordre: s.ordre, type: s.type, payload: s.payload })),
-        });
-      }
-      totalSteps += bp.steps.length;
+    // 3) Recréer les leçons EN LOT (2-3 allers-retours réseau par section, pas
+    //    2 par leçon). createManyAndReturn nous rend les ids dans l'ordre inséré,
+    //    qu'on associe ensuite aux étapes en un seul createMany.
+    const createdLessons = await prisma.lesson.createManyAndReturn({
+      data: blueprints.map((bp, i) => ({ sectionId: section.id, ordre: i + 1, titre: bp.titre, sourateNumero: bp.sourateNumero })),
+      select: { id: true, ordre: true },
+    });
+    // Indexer par `ordre` (1-based) pour rattacher chaque blueprint à son id.
+    const idByOrdre = new Map(createdLessons.map((l) => [l.ordre, l.id]));
+
+    const allSteps = blueprints.flatMap((bp, i) => {
+      const lessonId = idByOrdre.get(i + 1)!;
+      return bp.steps.map((s) => ({ lessonId, ordre: s.ordre, type: s.type, payload: s.payload }));
+    });
+    if (allSteps.length > 0) {
+      await prisma.lessonStep.createMany({ data: allSteps });
     }
+    totalSteps += allSteps.length;
 
     totalLessons += blueprints.length;
     console.log(`  ✓ Hizb ${section.hizb} (section ${section.ordre}) — ${blueprints.length} leçons, ${blueprints.reduce((a, b) => a + b.steps.length, 0)} étapes`);

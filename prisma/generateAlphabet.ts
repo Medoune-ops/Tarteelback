@@ -16,37 +16,38 @@ import { PrismaClient, Prisma, type StepType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Les 28 lettres de l'alphabet arabe, dans l'ordre, avec nom, son et texte TTS.
-// `ttsText` = forme longue vocalisée pour expo-speech (prononciation native arabe).
+// Les 28 lettres de l'alphabet arabe.
+// `letterKey` = clé audio locale bundlée côté front (assets/sounds/letters/<key>.wav).
+// `ttsText`   = fallback expo-speech si le fichier audio est absent.
 const LETTERS = [
-  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  ttsText: 'أَلِف' },
-  { g: 'ب', nom: 'Bā',    son: 'b',                            ttsText: 'بَاء' },
-  { g: 'ت', nom: 'Tā',    son: 't',                            ttsText: 'تَاء' },
-  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       ttsText: 'ثَاء' },
-  { g: 'ج', nom: 'Jīm',   son: 'dj',                           ttsText: 'جِيم' },
-  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                ttsText: 'حَاء' },
-  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    ttsText: 'خَاء' },
-  { g: 'د', nom: 'Dāl',   son: 'd',                            ttsText: 'دَال' },
-  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        ttsText: 'ذَال' },
-  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      ttsText: 'رَاء' },
-  { g: 'ز', nom: 'Zāy',   son: 'z',                            ttsText: 'زَاي' },
-  { g: 'س', nom: 'Sīn',   son: 's',                            ttsText: 'سِين' },
-  { g: 'ش', nom: 'Shīn',  son: 'ch',                           ttsText: 'شِين' },
-  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 ttsText: 'صَاد' },
-  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 ttsText: 'ضَاد' },
-  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 ttsText: 'طَاء' },
-  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 ttsText: 'ظَاء' },
-  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         ttsText: 'عَيْن' },
-  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              ttsText: 'غَيْن' },
-  { g: 'ف', nom: 'Fā',    son: 'f',                            ttsText: 'فَاء' },
-  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   ttsText: 'قَاف' },
-  { g: 'ك', nom: 'Kāf',   son: 'k',                            ttsText: 'كَاف' },
-  { g: 'ل', nom: 'Lām',   son: 'l',                            ttsText: 'لَام' },
-  { g: 'م', nom: 'Mīm',   son: 'm',                            ttsText: 'مِيم' },
-  { g: 'ن', nom: 'Nūn',   son: 'n',                            ttsText: 'نُون' },
-  { g: 'ه', nom: 'Hā',    son: 'h léger',                      ttsText: 'هَاء' },
-  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       ttsText: 'وَاو' },
-  { g: 'ي', nom: 'Yā',    son: 'y / î',                        ttsText: 'يَاء' },
+  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  letterKey: 'alif',  ttsText: 'أَلِف' },
+  { g: 'ب', nom: 'Bā',    son: 'b',                            letterKey: 'ba',    ttsText: 'بَاء' },
+  { g: 'ت', nom: 'Tā',    son: 't',                            letterKey: 'ta',    ttsText: 'تَاء' },
+  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       letterKey: 'tha',   ttsText: 'ثَاء' },
+  { g: 'ج', nom: 'Jīm',   son: 'dj',                           letterKey: 'jeem',  ttsText: 'جِيم' },
+  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                letterKey: 'ha',    ttsText: 'حَاء' },
+  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    letterKey: 'kha',   ttsText: 'خَاء' },
+  { g: 'د', nom: 'Dāl',   son: 'd',                            letterKey: 'dal',   ttsText: 'دَال' },
+  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        letterKey: 'dhal',  ttsText: 'ذَال' },
+  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      letterKey: 'ra',    ttsText: 'رَاء' },
+  { g: 'ز', nom: 'Zāy',   son: 'z',                            letterKey: 'zay',   ttsText: 'زَاي' },
+  { g: 'س', nom: 'Sīn',   son: 's',                            letterKey: 'sin',   ttsText: 'سِين' },
+  { g: 'ش', nom: 'Shīn',  son: 'ch',                           letterKey: 'shin',  ttsText: 'شِين' },
+  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 letterKey: 'sad',   ttsText: 'صَاد' },
+  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 letterKey: 'dad',   ttsText: 'ضَاد' },
+  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 letterKey: 'ta2',   ttsText: 'طَاء' },
+  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 letterKey: 'dha2',  ttsText: 'ظَاء' },
+  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         letterKey: 'ayn',   ttsText: 'عَيْن' },
+  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              letterKey: 'ghayn', ttsText: 'غَيْن' },
+  { g: 'ف', nom: 'Fā',    son: 'f',                            letterKey: 'fa',    ttsText: 'فَاء' },
+  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   letterKey: 'qaf',   ttsText: 'قَاف' },
+  { g: 'ك', nom: 'Kāf',   son: 'k',                            letterKey: 'kaf',   ttsText: 'كَاف' },
+  { g: 'ل', nom: 'Lām',   son: 'l',                            letterKey: 'lam',   ttsText: 'لَام' },
+  { g: 'م', nom: 'Mīm',   son: 'm',                            letterKey: 'mim',   ttsText: 'مِيم' },
+  { g: 'ن', nom: 'Nūn',   son: 'n',                            letterKey: 'nun',   ttsText: 'نُون' },
+  { g: 'ه', nom: 'Hā',    son: 'h léger',                      letterKey: 'ha2',   ttsText: 'هَاء' },
+  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       letterKey: 'waw',   ttsText: 'وَاو' },
+  { g: 'ي', nom: 'Yā',    son: 'y / î',                        letterKey: 'ya',    ttsText: 'يَاء' },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -84,6 +85,64 @@ function chunkEven<T>(arr: T[], parts: number): T[][] {
   return res;
 }
 
+const FR = 'fr';
+const TRANSLIT = 'la';
+
+interface StepRow { ordre: number; type: StepType; payload: Prisma.InputJsonValue }
+
+/**
+ * Construit les étapes de la leçon Al-Fatiha : chaque verset en LECTEUR mot par
+ * mot (mots + audio réels) suivi d'un test « Que signifie ce verset ? ».
+ * Renvoie null si le Coran n'a pas été importé (sourate 1 absente).
+ */
+async function buildFatihaSteps(): Promise<StepRow[] | null> {
+  const fatiha = await prisma.sourate.findUnique({ where: { numero: 1 } });
+  if (!fatiha) return null;
+  const versets = await prisma.verset.findMany({
+    where: { sourateId: fatiha.id },
+    orderBy: { numero: 'asc' },
+    include: {
+      mots: { orderBy: { position: 'asc' } },
+      traductions: { where: { langue: FR } },
+      translitterations: { where: { langue: TRANSLIT } },
+    },
+  });
+  if (versets.length === 0) return null;
+
+  // Distracteurs = les traductions fr des versets d'Al-Fatiha.
+  const pool = [...new Set(versets.map((v) => v.traductions[0]?.texte).filter((t): t is string => !!t))];
+
+  const steps: StepRow[] = [];
+  let ordre = 1;
+  for (const v of versets) {
+    const trad = v.traductions[0]?.texte ?? '';
+    const translit = v.translitterations[0]?.texte ?? '';
+    const mots = v.mots.map((m) => ({ position: m.position, texteArabe: m.texteArabe, audioUrl: m.audioUrl }));
+
+    // 1) Découverte : lecteur mot par mot du verset.
+    steps.push({
+      ordre: ordre++,
+      type: 'discovery',
+      payload: { arabe: v.texteArabe, translitteration: translit, traduction: trad, audioUrl: v.audioUrl, mots },
+    });
+
+    // 2) Test écrit : sens du verset (seulement si assez de distracteurs).
+    if (trad && pool.length >= 4) {
+      const distract = pickDistinct(pool, trad, 3);
+      const shuffled = shuffle([{ correct: true, text: trad }, ...distract.map((t) => ({ correct: false, text: t }))]);
+      const ids = ['A', 'B', 'C', 'D'];
+      const options = shuffled.map((o, k) => ({ id: ids[k]!, text: o.text }));
+      const bonneReponse = ids[shuffled.findIndex((o) => o.correct)]!;
+      steps.push({
+        ordre: ordre++,
+        type: 'written',
+        payload: { consigne: 'Que signifie ce verset ?', arabe: v.texteArabe, translitteration: translit, options, bonneReponse },
+      });
+    }
+  }
+  return steps;
+}
+
 async function main() {
   const alphabet = await prisma.section.findFirst({
     where: { hizb: null },
@@ -92,11 +151,15 @@ async function main() {
   if (!alphabet) throw new Error('Section Alphabet (hizb null) introuvable');
 
   const lessons = alphabet.lessons;
-  const chunks = chunkEven(LETTERS, lessons.length);
+  // La DERNIÈRE leçon de la section = Al-Fatiha (après l'apprentissage des
+  // lettres). Les 28 lettres sont réparties sur les leçons précédentes.
+  const letterLessons = lessons.length > 1 ? lessons.slice(0, -1) : lessons;
+  const fatihaLesson = lessons.length > 1 ? lessons[lessons.length - 1] : null;
+  const chunks = chunkEven(LETTERS, letterLessons.length);
   const allNames = LETTERS.map((l) => l.nom);
 
   let stepsTotal = 0;
-  for (let i = 0; i < lessons.length; i++) {
+  for (let i = 0; i < letterLessons.length; i++) {
     const group = chunks[i] ?? [];
     const steps: { ordre: number; type: StepType; payload: Prisma.InputJsonValue }[] = [];
     let ordre = 1;
@@ -107,7 +170,7 @@ async function main() {
       steps.push({
         ordre: ordre++,
         type: 'discovery',
-        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: null, ttsText: L.ttsText },
+        payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: null, letterKey: L.letterKey, ttsText: L.ttsText },
       });
       // 2) Test : reconnaître la lettre par son nom.
       const distract = pickDistinct(allNames, L.nom, 3);
@@ -122,22 +185,38 @@ async function main() {
       });
     }
 
-    await prisma.lessonStep.deleteMany({ where: { lessonId: lessons[i]!.id } });
+    await prisma.lessonStep.deleteMany({ where: { lessonId: letterLessons[i]!.id } });
     if (steps.length > 0) {
       await prisma.lessonStep.createMany({
-        data: steps.map((s) => ({ lessonId: lessons[i]!.id, ordre: s.ordre, type: s.type, payload: s.payload })),
+        data: steps.map((s) => ({ lessonId: letterLessons[i]!.id, ordre: s.ordre, type: s.type, payload: s.payload })),
       });
     }
     // Titre = les lettres de la leçon (ex: "ا ب ت").
     await prisma.lesson.update({
-      where: { id: lessons[i]!.id },
+      where: { id: letterLessons[i]!.id },
       data: { titre: group.length ? group.map((l) => l.g).join(' ') : `Leçon ${i + 1}` },
     });
     stepsTotal += steps.length;
     console.log(`  ✓ Leçon ${i + 1}: ${group.map((l) => l.nom).join(', ') || '(vide)'} — ${steps.length} étapes`);
   }
 
-  console.log(`\n✓ Alphabet: ${LETTERS.length} lettres sur ${lessons.length} leçons, ${stepsTotal} étapes`);
+  // Dernière leçon de la section 1 = Al-Fatiha (après l'alphabet).
+  if (fatihaLesson) {
+    const fSteps = await buildFatihaSteps();
+    await prisma.lessonStep.deleteMany({ where: { lessonId: fatihaLesson.id } });
+    if (fSteps && fSteps.length > 0) {
+      await prisma.lessonStep.createMany({
+        data: fSteps.map((s) => ({ lessonId: fatihaLesson.id, ordre: s.ordre, type: s.type, payload: s.payload })),
+      });
+      await prisma.lesson.update({ where: { id: fatihaLesson.id }, data: { titre: 'Al-Fātiha', sourateNumero: 1 } });
+      stepsTotal += fSteps.length;
+      console.log(`  ✓ Leçon ${lessons.length}: Al-Fātiha — ${fSteps.length} étapes`);
+    } else {
+      console.log(`  ⚠ Leçon ${lessons.length}: Al-Fatiha ignorée (Coran non importé — lancer seed:quran)`);
+    }
+  }
+
+  console.log(`\n✓ Section 1: ${LETTERS.length} lettres sur ${letterLessons.length} leçons + Al-Fatiha, ${stepsTotal} étapes`);
 }
 
 main()

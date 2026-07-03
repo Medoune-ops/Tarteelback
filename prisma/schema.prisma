@@ -282,12 +282,18 @@ model Lesson {
   ordre     Int
   titre     String
   iconType  String  @default("star")
+  // Numéro (1–114) de la sourate enseignée par cette leçon, si applicable.
+  // Rempli au seed. Sert à marquer "déjà mémorisé" à l'onboarding (skip du
+  // point de départ) et, plus tard, aux révisions. null pour les leçons de
+  // lettres de l'alphabet.
+  sourateNumero Int?
 
   steps    LessonStep[]
   progress LessonProgress[]
 
   @@unique([sectionId, ordre])
   @@index([sectionId])
+  @@index([sourateNumero])
 }
 
 model LessonStep {

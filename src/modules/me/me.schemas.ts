@@ -24,6 +24,10 @@ export const updateMeSchema = z
     onboardingDone: z.boolean().optional(),
     timezone: timezoneSchema.optional(),
     language: z.string().min(2).max(10).optional(),
+    // Onboarding only: numéros (1–114) des sourates déjà mémorisées. Non stocké
+    // sur User — sert à pré-marquer les leçons correspondantes comme acquises
+    // (skip du point de départ). Extrait avant l'update User dans le service.
+    sourates: z.array(z.number().int().min(1).max(114)).max(114).optional(),
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });

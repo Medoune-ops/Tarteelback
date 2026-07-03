@@ -9,6 +9,7 @@ import { initialsFrom } from '../../core/tokens.js';
 import { computeUserStats } from './user.stats.js';
 import { getLearnedSourates } from './learnedSourates.js';
 import { serializeUserFlat } from './user.serializer.js';
+import { applyOnboardingStart } from './onboardingStart.js';
 
 /**
  * Recompute the time-sensitive parts of a user's state (hearts regen, streak
@@ -76,9 +77,18 @@ export const meService = {
 
   /** PATCH /me: update profile fields. */
   async update(userId: string, input: UpdateMeInput): Promise<User> {
-    const data: Record<string, unknown> = { ...input };
-    if (input.displayName) data.avatarInitials = initialsFrom(input.displayName);
+    // `sourates` n'est pas un champ User (onboarding only) — on l'extrait.
+    const { sourates, ...profile } = input;
+    const data: Record<string, unknown> = { ...profile };
+    if (profile.displayName) data.avatarInitials = initialsFrom(profile.displayName);
     const user = await userRepository.update(userId, data);
+
+    // À la fin de l'onboarding, personnalise le point de départ du parcours :
+    // saute l'alphabet si l'utilisateur sait lire + les sourates mémorisées.
+    if (input.onboardingDone) {
+      await applyOnboardingStart(userId, user.level, sourates ?? []);
+    }
+
     return syncUserState(user);
   },
 
