@@ -3,6 +3,14 @@ import { AppError } from '../../core/errors.js';
 import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { computeHearts, snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { applyActivity, localDayKey } from '../../core/streak.js';
+import {
+  GEM_LESSON_COMPLETE,
+  GEM_LESSON_PERFECT,
+  GEM_DAILY_STREAK,
+  GEM_STREAK_MILESTONES,
+  DOUBLE_XP_MULTIPLIER,
+  isDoubleXpActive,
+} from '../../core/gems.js';
 import { judgeStep, type AnswerInput, type StepType } from '../../core/lessonJudge.js';
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
@@ -132,10 +140,13 @@ export const lessonService = {
         where: { userId_lessonId: { userId, lessonId } },
       });
       const firstCompletion = existing?.etat !== 'completed';
-      // XP = 15 + correctCount×2 (bounded), doubled for premium. Matches the
-      // front's barème. 0 on replays (anti-farm).
+      // XP = 15 + correctCount×2 (bounded), doubled for premium, doubled again
+      // while a bought double-XP boost is running. 0 on replays (anti-farm).
       const baseXp = lessonXp(correctCount ?? testStepCount, testStepCount);
-      const gained = firstCompletion ? applyXpMultiplier(baseXp, premium) : 0;
+      const doubleXp = isDoubleXpActive(user.doubleXpUntil, now);
+      const gained = firstCompletion
+        ? applyXpMultiplier(baseXp, premium) * (doubleXp ? DOUBLE_XP_MULTIPLIER : 1)
+        : 0;
 
       // Mark progress (idempotent).
       await tx.lessonProgress.upsert({
@@ -146,7 +157,10 @@ export const lessonService = {
 
       let u = user;
       let league: { weekId: string; amount: number } | null = null;
+      let gemsGained = 0;
       if (firstCompletion) {
+        // Pending missed days may consume streak-freeze items (Plus: unlimited,
+        // nothing decremented).
         const streak = applyActivity(
           {
             streak: user.streak,
@@ -156,12 +170,44 @@ export const lessonService = {
           },
           user.timezone,
           now,
+          premium ? Number.POSITIVE_INFINITY : user.streakFreezes,
         );
+        const freezesConsumed = premium ? 0 : streak.freezesConsumed;
+
+        // Gems (economy source), ledgered row by row in the same transaction:
+        //  - lesson +10, or +20 when perfect (0 mistakes on the test steps);
+        //  - +5 the first time the streak counts today (+50 at D7, +150 at D30).
+        const perfect =
+          testStepCount > 0 && (correctCount ?? testStepCount) >= testStepCount;
+        const gemRows: { amount: number; reason: 'lesson_complete' | 'lesson_perfect' | 'daily_streak' | 'streak_bonus'; ref: string }[] = [
+          perfect
+            ? { amount: GEM_LESSON_PERFECT, reason: 'lesson_perfect', ref: lessonId }
+            : { amount: GEM_LESSON_COMPLETE, reason: 'lesson_complete', ref: lessonId },
+        ];
+        const streakCountedToday =
+          streak.streak > 0 &&
+          (user.streak === 0 ||
+            user.lastActivityDate == null ||
+            localDayKey(user.lastActivityDate, user.timezone) !== localDayKey(now, user.timezone));
+        if (streakCountedToday) {
+          gemRows.push({ amount: GEM_DAILY_STREAK, reason: 'daily_streak', ref: `d${streak.streak}` });
+          const milestone = GEM_STREAK_MILESTONES[streak.streak];
+          if (milestone) {
+            gemRows.push({ amount: milestone, reason: 'streak_bonus', ref: `d${streak.streak}` });
+          }
+        }
+        gemsGained = gemRows.reduce((sum, r) => sum + r.amount, 0);
+        await tx.gemTransaction.createMany({
+          data: gemRows.map((r) => ({ userId, ...r })),
+        });
+
         u = await tx.user.update({
           where: { id: userId },
           data: {
             xp: { increment: gained },
             weeklyXp: { increment: gained },
+            gems: { increment: gemsGained },
+            ...(freezesConsumed > 0 ? { streakFreezes: { decrement: freezesConsumed } } : {}),
             streak: streak.streak,
             streakFrozen: streak.streakFrozen,
             lastStreakValue: streak.lastStreakValue,
@@ -182,7 +228,7 @@ export const lessonService = {
         update: {},
       });
 
-      return { u, gained, premium, firstCompletion, league };
+      return { u, gained, gemsGained, premium, firstCompletion, league };
     });
 
     // Mirror the league XP into Redis AFTER the DB commit (best-effort; the DB
@@ -194,9 +240,11 @@ export const lessonService = {
 
     return {
       xpGained: result.gained,
+      gemsGained: result.gemsGained,
       alreadyCompleted: !result.firstCompletion,
       totalXp: result.u.xp,
       weeklyXp: result.u.weeklyXp,
+      gems: result.u.gems,
       streak: result.u.streak,
       streakFrozen: result.u.streakFrozen,
       premium: result.premium,

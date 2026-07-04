@@ -31,7 +31,7 @@ const EnvSchema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(90),
 
   MAX_HEARTS: z.coerce.number().int().positive().default(5),
-  HEART_REGEN_MS: z.coerce.number().int().positive().default(4 * 60 * 60 * 1000),
+  HEART_REGEN_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
   PREMIUM_XP_MULTIPLIER: z.coerce.number().int().positive().default(2),
 
   DEFAULT_LANG: z.string().default('en'),

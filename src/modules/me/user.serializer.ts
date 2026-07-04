@@ -2,6 +2,7 @@ import type { User } from '@prisma/client';
 import { isPremiumActive } from '../../core/premium.js';
 import { snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { localDayKey } from '../../core/streak.js';
+import { isDoubleXpActive, REVIEW_HEARTS_PER_DAY } from '../../core/gems.js';
 import type { UserStats } from './user.stats.js';
 
 /**
@@ -36,6 +37,17 @@ export function serializeUser(user: User, now: Date = new Date()) {
 
     xp: user.xp,
     weeklyXp: user.weeklyXp,
+
+    // Gem economy.
+    gems: user.gems,
+    streakFreezes: user.streakFreezes,
+    doubleXpUntil: user.doubleXpUntil,
+    doubleXpActive: isDoubleXpActive(user.doubleXpUntil, now),
+    // "Réviser pour regagner" gate: hearts still regainable via review today.
+    reviewHeartsRemaining:
+      user.reviewHeartsDay === localDayKey(now, user.timezone)
+        ? Math.max(0, REVIEW_HEARTS_PER_DAY - user.reviewHeartsUsed)
+        : REVIEW_HEARTS_PER_DAY,
 
     hearts: {
       count: hearts.hearts,
@@ -75,6 +87,12 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     streak: user.streak,
     xp: user.xp,
     hearts: hearts.hearts,
+    gems: user.gems,
+    streakFreezes: user.streakFreezes,
+    // Epoch ms like lastHeartLossAt; null when no boost is running.
+    doubleXpUntil: isDoubleXpActive(user.doubleXpUntil, now)
+      ? user.doubleXpUntil!.getTime()
+      : null,
     isPremium: premium,
     currentLesson: stats.currentLesson,
     // Front uses this as the regen anchor; null when hearts are full.

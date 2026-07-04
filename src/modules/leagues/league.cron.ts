@@ -19,6 +19,7 @@
 import { prisma } from '../../config/prisma.js';
 import { withLock } from '../../core/lock.js';
 import { PODIUM_REWARD } from '../../core/rewards.js';
+import { promotionGems } from '../../core/gems.js';
 
 const PODIUM_XP = PODIUM_REWARD;
 const PROMOTION = 3;
@@ -90,7 +91,8 @@ async function closeWeek(
   byOrdre: Map<number, { id: string; ordre: number }>,
 ): Promise<number> {
   const tier = week.league.ordre;
-  const higher = byOrdre.get(tier + 1)?.id ?? week.leagueId; // already top
+  const higherLeague = byOrdre.get(tier + 1);
+  const higher = higherLeague?.id ?? week.leagueId; // already top
   const lower = byOrdre.get(tier - 1)?.id ?? week.leagueId; // already bottom
   const nextNumero = week.numeroSemaine + 1;
 
@@ -130,6 +132,24 @@ async function closeWeek(
           update: { weeklyXp: 0 },
         });
         await tx.user.update({ where: { id: batch[i]!.userId }, data: { weeklyXp: 0 } });
+
+        // Actual promotion (not already at the top tier) → gems, ledgered.
+        // Idempotency comes from `closedAt`: a closed week is never re-run.
+        if (rank <= PROMOTION && higherLeague && targetLeagueId === higherLeague.id) {
+          const gems = promotionGems(higherLeague.ordre);
+          await tx.gemTransaction.create({
+            data: {
+              userId: batch[i]!.userId,
+              amount: gems,
+              reason: 'league_promotion',
+              ref: `w${week.numeroSemaine}`,
+            },
+          });
+          await tx.user.update({
+            where: { id: batch[i]!.userId },
+            data: { gems: { increment: gems } },
+          });
+        }
 
         // Top-3 finish → record a claimable podium reward (idempotent per week).
         if (rank <= 3) {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyActivity,
   refreshStreak,
+  settleStreak,
   repairStreak,
   localDayKey,
   type StreakState,
@@ -70,6 +71,42 @@ describe('streak — activity', () => {
     const resumed = applyActivity(broken, TZ, day('2026-01-13'));
     expect(resumed.streak).toBe(1);
     expect(resumed.lastStreakValue).toBe(5); // still remembers for paid repair
+  });
+});
+
+describe('streak — freeze items', () => {
+  it('one freeze protects the second missed day', () => {
+    // Last activity Jan 10, now Jan 12 → 1 grace day + 1 day needing a freeze.
+    const r = settleStreak(base, TZ, day('2026-01-12'), 1);
+    expect(r.state.streak).toBe(5);
+    expect(r.state.streakFrozen).toBe(true);
+    expect(r.freezesConsumed).toBe(1);
+  });
+
+  it('settles the anchor so freezes are not re-consumed on the next sync', () => {
+    const r = settleStreak(base, TZ, day('2026-01-12'), 1);
+    const again = settleStreak(r.state, TZ, day('2026-01-12'), 0);
+    expect(again.state.streak).toBe(5);
+    expect(again.freezesConsumed).toBe(0);
+  });
+
+  it('breaks when there are not enough freezes', () => {
+    // 3 missed days beyond the grace → needs 3, only 1 held.
+    const r = settleStreak(base, TZ, day('2026-01-14'), 1);
+    expect(r.state.streak).toBe(0);
+    expect(r.state.lastStreakValue).toBe(5);
+    expect(r.freezesConsumed).toBe(0);
+  });
+
+  it('unlimited freezes (Plus) always protect', () => {
+    const r = settleStreak(base, TZ, day('2026-01-20'), Number.POSITIVE_INFINITY);
+    expect(r.state.streak).toBe(5);
+  });
+
+  it('a protected day still allows the streak to increment today', () => {
+    const s = applyActivity(base, TZ, day('2026-01-12'), 1);
+    expect(s.streak).toBe(6);
+    expect(s.freezesConsumed).toBe(1);
   });
 });
 

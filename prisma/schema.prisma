@@ -75,6 +75,22 @@ enum RevisionState {
 enum TransactionType {
   premium_subscription
   streak_repair
+  gem_pack
+}
+
+/// Why a user's gem balance changed. Positive amounts = earnings (economy
+/// source), negative = spends (economy sink). One GemTransaction row per
+/// change so the earned:spent ratio KPI can be computed from the ledger.
+enum GemReason {
+  lesson_complete // +10
+  lesson_perfect // +20 (0 mistakes, replaces lesson_complete)
+  daily_streak // +5 per maintained day (+ bonus tiers)
+  streak_bonus // +50 at D7, +150 at D30
+  league_promotion // +100..500 depending on the reached tier
+  pack_purchase // + pack size (paid with real money)
+  heart_refill // -350
+  streak_freeze // -200
+  double_xp // -100
 }
 
 enum TransactionStatus {
@@ -131,6 +147,20 @@ model User {
   lastDailyReminderOn String?
   lastStreakAlertOn   String?
 
+  // Gems (virtual currency) — server-authoritative balance. Every change goes
+  // through a GemTransaction row (ledger) inside the same DB transaction.
+  gems Int @default(0)
+  // Purchased streak-freeze inventory (200 gems each, max 2 held). Consumed
+  // automatically when missed days would otherwise break the streak. Premium
+  // (Plus) users never consume any: their freezes are unlimited.
+  streakFreezes Int @default(0)
+  // Double-XP boost (100 gems) active until this instant; null = no boost.
+  doubleXpUntil DateTime?
+  // "Réviser pour regagner" gate: local-day + how many hearts were regained
+  // through review sessions that day (max 2/day).
+  reviewHeartsDay  String?
+  reviewHeartsUsed Int     @default(0)
+
   // Rewards / engagement (server-authoritative; front mirrors store fields).
   // User-set streak goal (null = none). Reward credited once on reach.
   streakGoal     Int?
@@ -149,6 +179,7 @@ model User {
   podiumRewards     PodiumReward[]
   passwordResets    PasswordResetToken[]
   activityDays      ActivityDay[]
+  gemTransactions   GemTransaction[]
 
   @@index([weeklyXp])
 }
@@ -465,6 +496,23 @@ model LeagueMembership {
 
   @@unique([userId, leagueWeekId])
   @@index([leagueWeekId, weeklyXp])
+}
+
+/// Gem ledger: one row per balance change (earn or spend). The `User.gems`
+/// column is the authoritative running balance; this ledger is the audit trail
+/// and powers the earned:spent economy KPI.
+model GemTransaction {
+  id     String    @id @default(cuid())
+  userId String
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Signed delta: positive = earned, negative = spent.
+  amount Int
+  reason GemReason
+  // Optional link to the source (lessonId, week ref, money Transaction id…).
+  ref    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // ─── Billing ─────────────────────────────────────────────────────────────────

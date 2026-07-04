@@ -5,7 +5,8 @@ import { AppError } from '../../core/errors.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { repairStreak } from '../../core/streak.js';
 import { userRepository } from '../me/user.repository.js';
-import type { SubscribeInput } from './billing.schemas.js';
+import { GEM_PACKS } from '../../core/gems.js';
+import type { SubscribeInput, BuyGemsInput } from './billing.schemas.js';
 
 /**
  * MOCK billing provider. No real Stripe call: we record a Transaction and apply
@@ -86,6 +87,40 @@ export const billingService = {
       premiumUntil: user.premiumUntil,
       transactions,
     };
+  },
+
+  /**
+   * POST /billing/gems — buy a gem pack (mock payment, later RevenueCat).
+   * Money Transaction + gem credit + ledger row are committed atomically.
+   */
+  async buyGems(userId: string, input: BuyGemsInput) {
+    const pack = GEM_PACKS[input.pack];
+    await userRepository.getOrThrow(userId);
+
+    const result = charge(pack.priceEur);
+    if (!result.ok) throw new AppError('PAYMENT_FAILED', 'Payment was declined');
+
+    const [updated] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { gems: { increment: pack.gems } },
+      }),
+      prisma.transaction.create({
+        data: {
+          userId,
+          type: 'gem_pack',
+          montant: pack.priceEur,
+          devise: env.BILLING_CURRENCY,
+          statut: 'success',
+          providerRef: result.ref,
+        },
+      }),
+      prisma.gemTransaction.create({
+        data: { userId, amount: pack.gems, reason: 'pack_purchase', ref: result.ref },
+      }),
+    ]);
+
+    return { gems: updated.gems, pack: pack.id, gemsAdded: pack.gems, providerRef: result.ref };
   },
 
   /** POST /billing/repair-streak — pay to restore the broken streak. */

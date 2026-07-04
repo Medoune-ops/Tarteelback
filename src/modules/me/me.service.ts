@@ -2,7 +2,7 @@ import type { User } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { computeHearts } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
-import { refreshStreak } from '../../core/streak.js';
+import { settleStreak } from '../../core/streak.js';
 import { userRepository } from './user.repository.js';
 import type { UpdateMeInput, UpdateSettingsInput } from './me.schemas.js';
 import { initialsFrom } from '../../core/tokens.js';
@@ -37,8 +37,9 @@ export async function syncUserState(user: User, now: Date = new Date()): Promise
     data.lastHeartLossAt = hearts.lastHeartLossAt;
   }
 
-  // Streak.
-  const streak = refreshStreak(
+  // Streak. Missed days beyond the free grace day consume streak-freeze items
+  // (unlimited for Plus — nothing decremented) before breaking the streak.
+  const settle = settleStreak(
     {
       streak: user.streak,
       streakFrozen: user.streakFrozen,
@@ -47,11 +48,20 @@ export async function syncUserState(user: User, now: Date = new Date()): Promise
     },
     user.timezone,
     now,
+    premium ? Number.POSITIVE_INFINITY : user.streakFreezes,
   );
+  const streak = settle.state;
+  const freezesConsumed = premium ? 0 : settle.freezesConsumed;
   if (streak.streak !== user.streak) data.streak = streak.streak;
   if (streak.streakFrozen !== user.streakFrozen) data.streakFrozen = streak.streakFrozen;
   if (streak.lastStreakValue !== user.lastStreakValue) {
     data.lastStreakValue = streak.lastStreakValue;
+  }
+  if (freezesConsumed > 0) {
+    data.streakFreezes = Math.max(0, user.streakFreezes - freezesConsumed);
+    // Persist the settled anchor (yesterday) so the consumption is not
+    // re-counted on the next sync.
+    data.lastActivityDate = streak.lastActivityDate;
   }
 
   if (Object.keys(data).length === 0) return user;

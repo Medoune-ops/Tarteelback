@@ -9,4 +9,5 @@ export async function billingRoutes(app: FastifyInstance) {
   app.post('/subscribe', { schema: { ...sec, summary: 'Activate premium (mock payment)' } }, billingController.subscribe);
   app.get('/status', { schema: { ...sec, summary: 'Premium status & transactions' } }, billingController.status);
   app.post('/repair-streak', { schema: { ...sec, summary: 'Pay to restore the broken streak' } }, billingController.repairStreak);
+  app.post('/gems', { schema: { ...sec, summary: 'Buy a gem pack (mock payment)' } }, billingController.buyGems);
 }

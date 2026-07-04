@@ -3,8 +3,10 @@
  *
  * Rules:
  *  - +1 when the user completes ≥1 lesson during their local day.
- *  - 1 local day with no activity  -> frozen (not lost).
- *  - 2 local days with no activity -> broken: snapshot into lastStreakValue,
+ *  - 1 local day with no activity  -> frozen (not lost) — free grace day.
+ *  - Each FURTHER missed day consumes one streak-freeze item (bought with
+ *    gems; unlimited for Plus). When the freezes cover every extra missed day
+ *    the streak survives; otherwise it breaks: snapshot into lastStreakValue,
  *    streak=0, frozen=false.
  *  - Resuming after a break -> streak restarts at 1.
  *  - Paid repair restores streak = lastStreakValue.
@@ -57,52 +59,100 @@ function dayDiff(aKey: string, bKey: string): number {
   return Math.round((b - a) / (24 * 60 * 60 * 1000));
 }
 
+export interface StreakSettle {
+  state: StreakState;
+  /**
+   * How many streak-freeze items this settle consumed. Meaningful only for
+   * free users (pass `Infinity` for Plus and ignore the count — their freezes
+   * are unlimited and no inventory is decremented).
+   */
+  freezesConsumed: number;
+}
+
 /**
  * Recompute streak freshness when the app opens (no activity happening now).
- * Applies freeze after 1 missed day and break after ≥2 missed days.
+ * The first missed day is a free grace (frozen). Each extra missed day needs
+ * one streak-freeze item; when `freezesAvailable` covers them all the streak
+ * survives, otherwise it breaks (snapshot into lastStreakValue).
  */
-export function refreshStreak(
+export function settleStreak(
   state: StreakState,
   timezone: string,
   now: Date = new Date(),
-): StreakState {
+  freezesAvailable = 0,
+): StreakSettle {
   if (state.lastActivityDate == null || state.streak === 0) {
-    return state;
+    return { state, freezesConsumed: 0 };
   }
   const lastKey = localDayKey(state.lastActivityDate, timezone);
   const nowKey = localDayKey(now, timezone);
   const diff = dayDiff(lastKey, nowKey);
 
-  if (diff <= 0) return { ...state, streakFrozen: false }; // active today
-  if (diff === 1) return { ...state, streakFrozen: true }; // one day missed -> frozen
-  // Two or more missed days -> broken.
+  if (diff <= 0) return { state: { ...state, streakFrozen: false }, freezesConsumed: 0 };
+  if (diff === 1) return { state: { ...state, streakFrozen: true }, freezesConsumed: 0 };
+
+  // ≥2 missed local days: the grace day is free, each further day needs a freeze.
+  const needed = diff - 1;
+  if (freezesAvailable >= needed) {
+    // Protected. Anchor the activity date on YESTERDAY (local) so the state
+    // settles into the plain "frozen grace day" case: future settles stop
+    // re-counting (and re-consuming), and a lesson today still increments.
+    return {
+      state: {
+        ...state,
+        streakFrozen: true,
+        lastActivityDate: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      },
+      freezesConsumed: needed,
+    };
+  }
+  // Not enough freezes -> broken (paid repair can still restore it).
   return {
-    streak: 0,
-    streakFrozen: false,
-    lastStreakValue: state.streak,
-    lastActivityDate: state.lastActivityDate,
+    state: {
+      streak: 0,
+      streakFrozen: false,
+      lastStreakValue: state.streak,
+      lastActivityDate: state.lastActivityDate,
+    },
+    freezesConsumed: 0,
   };
+}
+
+/** `settleStreak` without any freeze items (legacy shape, state only). */
+export function refreshStreak(
+  state: StreakState,
+  timezone: string,
+  now: Date = new Date(),
+): StreakState {
+  return settleStreak(state, timezone, now, 0).state;
 }
 
 /**
  * Apply a completed activity (≥1 lesson done) "now". Increments at most once
- * per local day. Resuming after a break restarts at 1.
+ * per local day. Resuming after a break restarts at 1. Pending missed days are
+ * settled first, consuming freezes when available (Infinity for Plus).
  */
 export function applyActivity(
   state: StreakState,
   timezone: string,
   now: Date = new Date(),
-): StreakState {
+  freezesAvailable = 0,
+): StreakState & { freezesConsumed: number } {
   const nowKey = localDayKey(now, timezone);
 
-  // First refresh to settle any pending freeze/break.
-  const refreshed = refreshStreak(state, timezone, now);
+  // First settle any pending freeze/break (may consume freeze items).
+  const { state: refreshed, freezesConsumed } = settleStreak(
+    state,
+    timezone,
+    now,
+    freezesAvailable,
+  );
 
   if (refreshed.lastActivityDate != null) {
     const lastKey = localDayKey(refreshed.lastActivityDate, timezone);
     if (lastKey === nowKey && refreshed.streak > 0) {
       // Already counted today; just ensure not frozen.
-      return { ...refreshed, streakFrozen: false, lastActivityDate: now };
+      return { ...refreshed, streakFrozen: false, lastActivityDate: now, freezesConsumed };
     }
   }
 
@@ -112,6 +162,7 @@ export function applyActivity(
     streakFrozen: false,
     lastStreakValue: refreshed.lastStreakValue,
     lastActivityDate: now,
+    freezesConsumed,
   };
 }
 

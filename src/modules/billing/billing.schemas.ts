@@ -9,3 +9,12 @@ export const subscribeSchema = z
   .strict();
 
 export type SubscribeInput = z.infer<typeof subscribeSchema>;
+
+export const buyGemsSchema = z
+  .object({
+    pack: z.enum(['p500', 'p3000', 'p7000']),
+    paymentToken: z.string().optional(),
+  })
+  .strict();
+
+export type BuyGemsInput = z.infer<typeof buyGemsSchema>;

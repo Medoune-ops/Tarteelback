@@ -15,6 +15,8 @@ export const DB_TESTS = process.env.RUN_DB_TESTS === '1';
 /** Truncate all data tables between tests (fast, FK-safe). */
 export async function resetDb() {
   const tables = [
+    'GemTransaction',
+    'ActivityDay',
     'Transaction',
     'LeagueMembership',
     'LeagueWeek',

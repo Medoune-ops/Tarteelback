@@ -8,6 +8,7 @@ import { leagueRoutes } from './modules/leagues/league.routes.js';
 import { billingRoutes } from './modules/billing/billing.routes.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
+import { gemRoutes } from './modules/gems/gem.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -22,4 +23,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(notificationRoutes, { prefix: '/me/notifications' });
   // Rewards mounted under /me so the front's GET /me/podiums etc. line up.
   await app.register(rewardRoutes, { prefix: '/me' });
+  // Gem economy (balance, heart refill, streak freezes, double XP, review gate).
+  await app.register(gemRoutes, { prefix: '/me' });
 }
