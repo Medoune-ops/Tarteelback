@@ -2,8 +2,14 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { localDayKey } from '../../core/streak.js';
-import { MAX_HEARTS } from '../../core/hearts.js';
-import { streakReward, podiumReward, rollDailyChest, type DailyChestReward } from '../../core/rewards.js';
+import { MAX_HEARTS, computeHearts } from '../../core/hearts.js';
+import {
+  streakReward,
+  podiumReward,
+  rollDailyChest,
+  CHEST_GEMS_PER_HEART,
+  type DailyChestReward,
+} from '../../core/rewards.js';
 
 export const rewardService = {
   /** Set/replace the user's streak goal. */
@@ -97,7 +103,7 @@ export const rewardService = {
    * (XP or hearts) and applied atomically. A second call the same local day is
    * rejected.
    */
-  async claimDailyChest(userId: string): Promise<{ reward: DailyChestReward; totalXp: number; hearts: number }> {
+  async claimDailyChest(userId: string): Promise<{ reward: DailyChestReward; totalXp: number; hearts: number; gems: number }> {
     const now = new Date();
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
@@ -108,20 +114,41 @@ export const rewardService = {
       }
 
       const premium = isPremiumActive(user, now);
-      const reward = rollDailyChest();
+      let reward = rollDailyChest();
+
+      // Settle time-based regen BEFORE judging "full": hearts rolled while
+      // already full (or premium = unlimited) would be worthless, so they are
+      // converted to gems instead — the chest never feels like a dud.
+      const synced = computeHearts(
+        { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
+        premium,
+        now,
+      );
+      if (reward.type === 'hearts' && (premium || synced.hearts >= MAX_HEARTS)) {
+        reward = { type: 'gems', amount: reward.amount * CHEST_GEMS_PER_HEART };
+      }
 
       // Reward XP credits total XP only (like the front's addXP) — it is not
       // weekly/league XP, so the league ranking is untouched.
-      const data: Record<string, unknown> = { lastChestDay: today };
+      const data: Record<string, unknown> = {
+        lastChestDay: today,
+        hearts: synced.hearts,
+        lastHeartLossAt: synced.lastHeartLossAt,
+      };
       if (reward.type === 'xp') {
         data.xp = { increment: applyXpMultiplier(reward.amount, premium) };
+      } else if (reward.type === 'gems') {
+        data.gems = { increment: reward.amount };
+        await tx.gemTransaction.create({
+          data: { userId, amount: reward.amount, reason: 'daily_chest', ref: today },
+        });
       } else {
         // Hearts capped at MAX.
-        data.hearts = Math.min(MAX_HEARTS, user.hearts + reward.amount);
+        data.hearts = Math.min(MAX_HEARTS, synced.hearts + reward.amount);
         if (data.hearts === MAX_HEARTS) data.lastHeartLossAt = null;
       }
       const updated = await tx.user.update({ where: { id: userId }, data });
-      return { reward, totalXp: updated.xp, hearts: updated.hearts };
+      return { reward, totalXp: updated.xp, hearts: updated.hearts, gems: updated.gems };
     });
   },
 };

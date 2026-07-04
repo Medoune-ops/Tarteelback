@@ -41,7 +41,14 @@ export function podiumReward(rang: number): number {
 
 export type DailyChestReward =
   | { type: 'xp'; amount: number }
-  | { type: 'hearts'; amount: number };
+  | { type: 'hearts'; amount: number }
+  | { type: 'gems'; amount: number };
+
+/**
+ * A hearts reward is worthless when hearts are already full (or premium =
+ * unlimited). Convert it to gems so the chest never feels like a dud.
+ */
+export const CHEST_GEMS_PER_HEART = 15;
 
 const DAILY_CHEST_POOL: DailyChestReward[] = [
   { type: 'xp', amount: 10 },

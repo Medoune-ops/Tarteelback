@@ -87,6 +87,7 @@ enum GemReason {
   daily_streak // +5 per maintained day (+ bonus tiers)
   streak_bonus // +50 at D7, +150 at D30
   league_promotion // +100..500 depending on the reached tier
+  daily_chest // hearts rolled while already full → converted to gems
   pack_purchase // + pack size (paid with real money)
   heart_refill // -350
   streak_freeze // -200

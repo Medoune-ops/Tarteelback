@@ -1,0 +1,89 @@
+# =============================================================================
+# Stack de PRODUCTION autonome — API + Postgres + Redis en un seul fichier.
+# Pensé pour Dokploy (type "Docker Compose"), mais marche partout où Docker
+# tourne (VPS, Coolify, Portainer, docker compose en local…).
+#
+#   1. Copie .env.example → .env.prod et remplis les 3 variables OBLIGATOIRES
+#      ci-dessous (POSTGRES_PASSWORD + les 2 secrets JWT).
+#   2. docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Le conteneur API applique les migrations Prisma au démarrage (CMD du
+# Dockerfile : `prisma migrate deploy` — idempotent), puis lance le serveur.
+# Sur Dokploy : crée une app "Compose", pointe ce repo/fichier, mets les
+# variables dans l'onglet Environment, et expose le service `api` (port 4000)
+# derrière le reverse-proxy intégré (Traefik) avec ton domaine.
+#
+# Seed initial (une seule fois, après le premier démarrage) :
+#   docker compose -f docker-compose.prod.yml exec api npx tsx prisma/importQuran.ts
+#   docker compose -f docker-compose.prod.yml exec api npx tsx prisma/seed.ts
+# =============================================================================
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://tarteel:${POSTGRES_PASSWORD:?definis POSTGRES_PASSWORD}@postgres:5432/tarteel?schema=public&connection_limit=10&pool_timeout=20
+      REDIS_URL: redis://redis:6379
+      # OBLIGATOIRES en prod : ≥32 caractères, distincts, jamais des placeholders
+      # (le serveur refuse de démarrer sinon). Génère chacun avec :
+      #   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?definis JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?definis JWT_REFRESH_SECRET}
+      # "*" est interdit en prod — mets l'origine de ton front web, ou une
+      # valeur factice non vide pour une app mobile pure.
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://tarteel.app}
+      # Optionnels (emails de reset, prix, règles de jeu…) — voir .env.example.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      APP_RESET_URL: ${APP_RESET_URL:-tarteel://reset-password}
+    ports:
+      - "${API_PORT:-4000}:4000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tarteel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definis POSTGRES_PASSWORD}
+      POSTGRES_DB: tarteel
+    # Pas de port publié : la base n'est accessible QUE depuis le réseau du
+    # compose (l'API). Décommente pour un accès externe (psql, pgAdmin) :
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - tarteel_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tarteel -d tarteel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - tarteel_prod_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  tarteel_prod_pgdata:
+  tarteel_prod_redisdata:
