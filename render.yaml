@@ -39,7 +39,9 @@ services:
     # 1) installe les deps, 2) génère le client Prisma, 3) compile le TS -> dist/
     buildCommand: npm ci && npx prisma generate && npm run build
     # preDeploy s'exécute AVANT de basculer le trafic : applique les migrations.
-    # C'est ça qui crée/met à jour tes tables sans jamais toucher aux données.
+    # ⚠ IGNORÉ sur le plan FREE (preDeploy est réservé aux instances payantes) —
+    # c'est pourquoi `npm start` applique AUSSI les migrations au démarrage
+    # (idempotent). Sans ça, le schéma de prod ne suit plus le code → 500.
     preDeployCommand: npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
