@@ -107,6 +107,27 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     expect(wrongKey.statusCode).toBe(400);
   });
 
+  it('PATCH /me { username } sets the public pseudo (accounts created without one)', async () => {
+    const u = await registerUser(app); // pas de username à l'inscription
+    const res = await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(u.accessToken),
+      payload: { username: 'Mon_Pseudo' }, // normalisé en minuscules
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().username).toBe('mon_pseudo');
+
+    // Un autre compte ne peut pas prendre le même pseudo.
+    const other = await registerUser(app);
+    const dup = await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(other.accessToken),
+      payload: { username: 'mon_pseudo' },
+    });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().error.code).toBe('USERNAME_TAKEN');
+  });
+
   it('PATCH /me/settings rejects unknown keys (mass-assignment guard)', async () => {
     const u = await registerUser(app);
     const res = await app.inject({

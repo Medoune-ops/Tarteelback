@@ -93,7 +93,17 @@ export const meService = {
     const { sourates, ...profile } = input;
     const data: Record<string, unknown> = { ...profile };
     if (profile.displayName) data.avatarInitials = initialsFrom(profile.displayName);
-    const user = await userRepository.update(userId, data);
+    let user: User;
+    try {
+      user = await userRepository.update(userId, data);
+    } catch (e) {
+      // Unicité du pseudo : même code d'erreur qu'à l'inscription pour que le
+      // front affiche « déjà pris » sous le champ.
+      if (profile.username && (e as { code?: string }).code === 'P2002') {
+        throw new AppError('USERNAME_TAKEN', 'Username already taken');
+      }
+      throw e;
+    }
 
     // À la fin de l'onboarding, personnalise le point de départ du parcours :
     // saute l'alphabet si l'utilisateur sait lire + les sourates mémorisées.
