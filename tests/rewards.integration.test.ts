@@ -97,7 +97,9 @@ d('rewards: daily chest (integration)', () => {
 
     const open = await app.inject({ method: 'POST', url: '/me/daily-chest/claim', headers: authHeader(u.accessToken) });
     expect(open.statusCode).toBe(200);
-    expect(['xp', 'hearts']).toContain(open.json().reward.type);
+    // Fresh user = full hearts → a hearts roll is converted to gems, so the
+    // possible outcomes are xp or gems (never a wasted hearts reward).
+    expect(['xp', 'gems']).toContain(open.json().reward.type);
 
     const status2 = await app.inject({ method: 'GET', url: '/me/daily-chest', headers: authHeader(u.accessToken) });
     expect(status2.json().available).toBe(false);

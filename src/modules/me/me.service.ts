@@ -131,4 +131,13 @@ export const meService = {
   async getLearnedSourates(userId: string) {
     return getLearnedSourates(userId);
   },
+
+  /**
+   * DELETE /me — suppression définitive du compte. Toutes les relations ont
+   * `onDelete: Cascade` : progression, sessions, tokens push, transactions,
+   * ledger de gemmes… tout part avec la ligne User. Irréversible.
+   */
+  async deleteAccount(userId: string): Promise<void> {
+    await prisma.user.delete({ where: { id: userId } });
+  },
 };

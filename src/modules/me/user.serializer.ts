@@ -31,6 +31,7 @@ export function serializeUser(user: User, now: Date = new Date()) {
     onboardingDone: user.onboardingDone,
     timezone: user.timezone,
     language: user.language,
+    voiceEnabled: user.voiceEnabled,
 
     isPremium: premium,
     premiumUntil: user.premiumUntil,
@@ -113,5 +114,8 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     name: user.displayName,
     email: user.email,
     avatar: null as string | null,
+    // Préférence voix (Settings) — sans elle le toggle du front repart à `true`
+    // à chaque ouverture au lieu de refléter le vrai réglage.
+    voiceEnabled: user.voiceEnabled,
   };
 }

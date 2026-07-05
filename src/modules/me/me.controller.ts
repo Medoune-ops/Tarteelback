@@ -29,6 +29,12 @@ export const meController = {
     return reply.send(flat);
   },
 
+  /** DELETE /me — suppression définitive du compte (cascade sur toutes les données). */
+  async deleteAccount(req: FastifyRequest, reply: FastifyReply) {
+    await meService.deleteAccount(req.auth!.sub);
+    return reply.code(204).send();
+  },
+
   /**
    * GET /me/activity?month=YYYY-MM — exact active days that month (calendar).
    * Defaults to the current UTC month when `month` is missing/invalid.

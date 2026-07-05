@@ -104,6 +104,28 @@ d('auth & persistent session (integration)', () => {
       isPremium: expect.any(Boolean),
       sourates: expect.any(Number),
       precision: expect.any(Number),
+      voiceEnabled: expect.any(Boolean),
     });
+  });
+
+  it('DELETE /me erases the account for good', async () => {
+    const u = await registerUser(app, { email: 'delete-me@test.app', password: 'password123' });
+    const auth = { authorization: `Bearer ${u.accessToken}` };
+
+    const del = await app.inject({ method: 'DELETE', url: '/me', headers: auth });
+    expect(del.statusCode).toBe(204);
+
+    // The user row is gone: /me now 404s, a second delete too.
+    const me = await app.inject({ method: 'GET', url: '/me', headers: auth });
+    expect(me.statusCode).toBe(404);
+    const again = await app.inject({ method: 'DELETE', url: '/me', headers: auth });
+    expect(again.statusCode).toBe(404);
+
+    // And the credentials no longer log in.
+    const login = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { email: 'delete-me@test.app', password: 'password123', deviceId: 'd' },
+    });
+    expect(login.statusCode).toBe(401);
   });
 });
