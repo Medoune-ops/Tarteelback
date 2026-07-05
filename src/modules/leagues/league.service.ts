@@ -19,14 +19,16 @@ const WINDOW_AFTER = 3; // members shown below the user
 type Member = {
   userId: string;
   weeklyXp: number;
-  user: { displayName: string; avatarInitials: string };
+  user: { displayName: string; avatarInitials: string; username: string | null };
 };
 
 function shape(m: Member, rang: number, meId: string, total: number) {
   return {
     rang,
     userId: m.userId,
-    name: m.user.displayName,
+    // Classement public → pseudo choisi à l'inscription ; le nom complet
+    // reste privé (fallback pour les comptes créés avant le champ username).
+    name: m.user.username ?? m.user.displayName,
     initials: m.user.avatarInitials,
     weeklyXp: m.weeklyXp,
     me: m.userId === meId,

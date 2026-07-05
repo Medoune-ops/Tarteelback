@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { timezoneSchema } from '../me/me.schemas.js';
+import { timezoneSchema, usernameSchema } from '../me/me.schemas.js';
 
 // A device id ties a refresh token to one app installation. The RN app should
 // generate a stable id (e.g. expo-application/installationId) and reuse it.
@@ -12,6 +12,7 @@ export const registerSchema = z
     email: z.string().email().toLowerCase(),
     password: z.string().min(8).max(128),
     displayName: z.string().min(1).max(80),
+    username: usernameSchema.optional(),
     deviceId,
     timezone: timezoneSchema.optional(),
     language: z.string().min(2).max(10).optional(),

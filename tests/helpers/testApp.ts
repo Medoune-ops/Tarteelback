@@ -52,7 +52,7 @@ let counter = 0;
 /** Register a fresh user and return its tokens + id. */
 export async function registerUser(
   app: FastifyInstance,
-  overrides: Partial<{ email: string; password: string; displayName: string; deviceId: string }> = {},
+  overrides: Partial<{ email: string; password: string; displayName: string; username: string; deviceId: string }> = {},
 ) {
   const email = overrides.email ?? `user${counter++}_${Date.now()}@test.app`;
   const deviceId = overrides.deviceId ?? 'device-1';
@@ -63,6 +63,7 @@ export async function registerUser(
       email,
       password: overrides.password ?? 'password123',
       displayName: overrides.displayName ?? 'Test User',
+      ...(overrides.username ? { username: overrides.username } : {}),
       deviceId,
     },
   });

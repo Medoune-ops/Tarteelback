@@ -10,6 +10,18 @@ export const timezoneSchema = z
   .refine(isValidTimezone, { message: 'Invalid IANA timezone' });
 
 /**
+ * Pseudo public (affiché dans les ligues à la place du nom complet).
+ * 3–20 caractères, lettres/chiffres/point/underscore, normalisé en minuscules.
+ * Optionnel côté API (comptes existants) — l'affichage retombe sur
+ * displayName quand absent.
+ */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9._]{3,20}$/, 'Username: 3-20 chars, letters/digits/._ only');
+
+/**
  * Profile fields the user may update from the app (onboarding & settings).
  * `.strict()` rejects any unknown key (400) — defence against mass-assignment:
  * a client cannot smuggle `isPremium`, `role`, `xp`, `hearts`, etc. into the
@@ -18,6 +30,7 @@ export const timezoneSchema = z
 export const updateMeSchema = z
   .object({
     displayName: z.string().min(1).max(80).optional(),
+    username: usernameSchema.optional(),
     level: z.enum(['debutant', 'alphabet', 'lent', 'fluent']).optional(),
     objectif: z.enum(['lire', 'hifz', 'tafsir', 'complet']).optional(),
     dailyMinutes: z.number().int().min(1).max(600).optional(),

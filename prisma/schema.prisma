@@ -108,6 +108,10 @@ model User {
   email          String    @unique
   passwordHash   String? // null when the account is OAuth-only
   displayName    String
+  // Pseudo public (ligues, classements) — le nom complet reste privé au
+  // profil. Optionnel pour les comptes créés avant son introduction :
+  // l'affichage retombe alors sur displayName. Stocké en minuscules.
+  username       String?   @unique
   avatarInitials String    @default("")
   role           Role      @default(user)
 

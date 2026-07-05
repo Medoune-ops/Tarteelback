@@ -57,14 +57,25 @@ export const authService = {
     const existing = await authRepository.findUserByEmail(input.email);
     if (existing) throw new AppError('EMAIL_TAKEN', 'Email already registered');
 
-    const user = await authRepository.createUser({
-      email: input.email,
-      passwordHash: await hashPassword(input.password),
-      displayName: input.displayName,
-      avatarInitials: initialsFrom(input.displayName),
-      timezone: input.timezone ?? 'UTC',
-      language: input.language ?? 'en',
-    });
+    let user: User;
+    try {
+      user = await authRepository.createUser({
+        email: input.email,
+        passwordHash: await hashPassword(input.password),
+        displayName: input.displayName,
+        username: input.username ?? null,
+        avatarInitials: initialsFrom(input.displayName),
+        timezone: input.timezone ?? 'UTC',
+        language: input.language ?? 'en',
+      });
+    } catch (e) {
+      // Unicité du pseudo (P2002 sur username) → erreur dédiée que le front
+      // affiche sous le bon champ (l'email est déjà vérifié au-dessus).
+      if ((e as { code?: string }).code === 'P2002') {
+        throw new AppError('USERNAME_TAKEN', 'Username already taken');
+      }
+      throw e;
+    }
 
     const tokens = await issueTokens(user, input.deviceId, sign);
     return { user, tokens };

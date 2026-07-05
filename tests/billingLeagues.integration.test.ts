@@ -87,6 +87,25 @@ d('leagues ranking (integration)', () => {
     expect(body.podium[0].weeklyXp).toBe(1000);
   });
 
+  it('shows the public username in the ranking, never the full name', async () => {
+    await currentWeek();
+    const me = await registerUser(app, { displayName: 'Medoune Seck', username: 'medoune_s' });
+    await app.inject({ method: 'POST', url: '/leagues/join', headers: authHeader(me.accessToken) });
+
+    const res = await app.inject({ method: 'GET', url: '/leagues/me', headers: authHeader(me.accessToken) });
+    const body = res.json();
+    const mine = [...body.podium, ...body.around].find((m: { me: boolean }) => m.me);
+    expect(mine.name).toBe('medoune_s');
+
+    // Uniqueness: the same username cannot be registered twice.
+    const dup = await app.inject({
+      method: 'POST', url: '/auth/register',
+      payload: { email: 'dup-username@test.app', password: 'password123', displayName: 'X', username: 'medoune_s', deviceId: 'd' },
+    });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().error.code).toBe('USERNAME_TAKEN');
+  });
+
   it('lesson XP flows into the league weekly ranking', async () => {
     const week = await currentWeek();
     const me = await registerUser(app);

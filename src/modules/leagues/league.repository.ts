@@ -1,10 +1,10 @@
-import type { Prisma } from '@prisma/client';
+﻿import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 
 /** Data access for leagues, weeks and memberships. */
 export const leagueRepository = {
   /**
-   * The user's CURRENT active week — the week they're a member of that is live
+   * The user's CURRENT active week â€” the week they're a member of that is live
    * right now. This correctly handles multiple leagues having an active week
    * simultaneously (a user belongs to exactly one).
    */
@@ -20,7 +20,7 @@ export const leagueRepository = {
     });
   },
 
-  /** The active week of the lowest league — where a new joiner is placed. */
+  /** The active week of the lowest league â€” where a new joiner is placed. */
   lowestActiveWeek(now: Date = new Date()) {
     return prisma.leagueWeek.findFirst({
       where: { dateDebut: { lte: now }, dateFin: { gt: now } },
@@ -47,7 +47,7 @@ export const leagueRepository = {
     });
   },
 
-  // ── Ranking primitives (O(log n) with the @@index([leagueWeekId, weeklyXp])) ──
+  // â”€â”€ Ranking primitives (O(log n) with the @@index([leagueWeekId, weeklyXp])) â”€â”€
 
   /** Total participants in a week. */
   countParticipants(leagueWeekId: string) {
@@ -56,7 +56,7 @@ export const leagueRepository = {
 
   /**
    * The user's rank = 1 + (number of members strictly above them by weeklyXp,
-   * with joinedAt as the tie-breaker). Index-backed COUNT — does not load the
+   * with joinedAt as the tie-breaker). Index-backed COUNT â€” does not load the
    * whole league.
    */
   async rankOf(leagueWeekId: string, userId: string): Promise<number | null> {
@@ -83,7 +83,7 @@ export const leagueRepository = {
       where: { leagueWeekId },
       orderBy: [{ weeklyXp: 'desc' }, { joinedAt: 'asc' }],
       take,
-      include: { user: { select: { id: true, displayName: true, avatarInitials: true } } },
+      include: { user: { select: { id: true, displayName: true, avatarInitials: true, username: true } } },
     });
   },
 
@@ -97,11 +97,11 @@ export const leagueRepository = {
       orderBy: [{ weeklyXp: 'desc' }, { joinedAt: 'asc' }],
       skip: Math.max(0, skip),
       take,
-      include: { user: { select: { id: true, displayName: true, avatarInitials: true } } },
+      include: { user: { select: { id: true, displayName: true, avatarInitials: true, username: true } } },
     });
   },
 
-  /** All (userId, weeklyXp) of a week — used to rebuild the Redis sorted set. */
+  /** All (userId, weeklyXp) of a week â€” used to rebuild the Redis sorted set. */
   allScores(leagueWeekId: string) {
     return prisma.leagueMembership.findMany({
       where: { leagueWeekId },
@@ -113,7 +113,7 @@ export const leagueRepository = {
   usersOf(userIds: string[]) {
     return prisma.user.findMany({
       where: { id: { in: userIds } },
-      select: { id: true, displayName: true, avatarInitials: true },
+      select: { id: true, displayName: true, avatarInitials: true, username: true },
     });
   },
 

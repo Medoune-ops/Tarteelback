@@ -22,6 +22,7 @@ export function serializeUser(user: User, now: Date = new Date()) {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    username: user.username,
     avatarInitials: user.avatarInitials,
     role: user.role,
 
@@ -112,6 +113,7 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     // we don't store uploaded avatars yet, so it's null (the front falls back to
     // `avatarInitials`-style initials from `name`).
     name: user.displayName,
+    username: user.username,
     email: user.email,
     avatar: null as string | null,
     // Préférence voix (Settings) — sans elle le toggle du front repart à `true`
