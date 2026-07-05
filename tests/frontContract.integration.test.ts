@@ -87,6 +87,26 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     expect(fresh.language).toBe('ar');
   });
 
+  it("PATCH /me { displayName } renames and echoes the flat `name` (edit-profile flow)", async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(u.accessToken),
+      payload: { displayName: 'Nouveau Nom' },
+    });
+    expect(res.statusCode).toBe(200);
+    // The flat shape exposes it as `name` — what the RN store hydrates from.
+    expect(res.json().name).toBe('Nouveau Nom');
+
+    // `name` is NOT a schema field (the front must map it to displayName).
+    const wrongKey = await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(u.accessToken),
+      payload: { name: 'X' },
+    });
+    expect(wrongKey.statusCode).toBe(400);
+  });
+
   it('PATCH /me/settings rejects unknown keys (mass-assignment guard)', async () => {
     const u = await registerUser(app);
     const res = await app.inject({
