@@ -9,12 +9,21 @@ import { GEM_PACKS } from '../../core/gems.js';
 import type { SubscribeInput, BuyGemsInput } from './billing.schemas.js';
 
 /**
- * MOCK billing provider. No real Stripe call: we record a Transaction and apply
- * the entitlement. The API contract is identical to a real provider, so a
- * Stripe integration can replace `charge()` without touching callers.
+ * ══════════ POINT DE BRANCHEMENT DE L'API DE PAIEMENT (côté serveur) ══════════
+ *
+ * MOCK billing provider — dev uniquement, aucun débit réel. Le contrat API est
+ * identique à un vrai provider : au branchement (Stripe/RevenueCat/Wave…),
+ * remplacer UNIQUEMENT `charge()` par la vérification du `paymentToken` reçu
+ * du client (créé par le PaymentProvider du front, lib/payments.ts) — les
+ * appelants (subscribe, buyGems, repairStreak) ne changent pas.
+ *
+ * ⚠ Tant que ce mock est en place, `charge()` accepte tout : NE PAS lancer
+ * commercialement sans l'avoir remplacé (Premium gratuit sinon).
  */
-function charge(amount: number): { ok: boolean; ref: string } {
-  // Always succeeds in mock mode; ref mimics a provider charge id.
+function charge(amount: number, paymentToken?: string): { ok: boolean; ref: string } {
+  // Mock : réussit toujours ; `ref` imite un id de charge provider. Le vrai
+  // provider devra vérifier `paymentToken` + le montant, et renvoyer sa ref.
+  void paymentToken;
   return { ok: true, ref: `mock_${crypto.randomBytes(8).toString('hex')}` };
 }
 
@@ -27,7 +36,7 @@ export const billingService = {
     const isYearly = input.plan === 'annuel';
     const amount = isYearly ? env.PREMIUM_PRICE_YEARLY : env.PREMIUM_PRICE_MONTHLY;
 
-    const result = charge(amount);
+    const result = charge(amount, input.paymentToken);
     if (!result.ok) {
       await prisma.transaction.create({
         data: {
