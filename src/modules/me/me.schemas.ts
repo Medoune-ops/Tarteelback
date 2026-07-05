@@ -48,3 +48,14 @@ export const updateSettingsSchema = z
   .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+/**
+ * DELETE /me — re-authentification obligatoire : un access token volé (15 min)
+ * ne doit PAS suffire à détruire un compte. Le mot de passe est vérifié côté
+ * service quand le compte en possède un.
+ */
+export const deleteMeSchema = z
+  .object({ password: z.string().min(1).max(200).optional() })
+  .strict();
+
+export type DeleteMeInput = z.infer<typeof deleteMeSchema>;

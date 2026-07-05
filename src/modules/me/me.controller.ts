@@ -4,7 +4,7 @@ import { snapshot } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { meService, syncUserState } from './me.service.js';
 import { userRepository } from './user.repository.js';
-import { updateMeSchema, updateSettingsSchema } from './me.schemas.js';
+import { updateMeSchema, updateSettingsSchema, deleteMeSchema } from './me.schemas.js';
 
 export const meController = {
   /** GET /me — flat shape the RN store hydrates from directly (BACKEND.md). */
@@ -31,7 +31,9 @@ export const meController = {
 
   /** DELETE /me — suppression définitive du compte (cascade sur toutes les données). */
   async deleteAccount(req: FastifyRequest, reply: FastifyReply) {
-    await meService.deleteAccount(req.auth!.sub);
+    // Le body est optionnel (comptes OAuth-only) mais strictement validé.
+    const input = parse(deleteMeSchema, req.body ?? {});
+    await meService.deleteAccount(req.auth!.sub, input.password);
     return reply.code(204).send();
   },
 

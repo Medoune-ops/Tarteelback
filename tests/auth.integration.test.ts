@@ -108,17 +108,29 @@ d('auth & persistent session (integration)', () => {
     });
   });
 
-  it('DELETE /me erases the account for good', async () => {
+  it('DELETE /me requires the password, then erases the account for good', async () => {
     const u = await registerUser(app, { email: 'delete-me@test.app', password: 'password123' });
     const auth = { authorization: `Bearer ${u.accessToken}` };
 
-    const del = await app.inject({ method: 'DELETE', url: '/me', headers: auth });
+    // A stolen access token alone must NOT be able to destroy the account.
+    const noPass = await app.inject({ method: 'DELETE', url: '/me', headers: auth });
+    expect(noPass.statusCode).toBe(401);
+    const badPass = await app.inject({
+      method: 'DELETE', url: '/me', headers: auth, payload: { password: 'wrong-password' },
+    });
+    expect(badPass.statusCode).toBe(401);
+
+    const del = await app.inject({
+      method: 'DELETE', url: '/me', headers: auth, payload: { password: 'password123' },
+    });
     expect(del.statusCode).toBe(204);
 
     // The user row is gone: /me now 404s, a second delete too.
     const me = await app.inject({ method: 'GET', url: '/me', headers: auth });
     expect(me.statusCode).toBe(404);
-    const again = await app.inject({ method: 'DELETE', url: '/me', headers: auth });
+    const again = await app.inject({
+      method: 'DELETE', url: '/me', headers: auth, payload: { password: 'password123' },
+    });
     expect(again.statusCode).toBe(404);
 
     // And the credentials no longer log in.

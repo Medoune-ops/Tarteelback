@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { isTest } from '../../config/env.js';
 import { meController } from './me.controller.js';
 
 /** Current-user routes. All require a valid access token. */
@@ -11,7 +12,12 @@ export async function meRoutes(app: FastifyInstance) {
   app.patch('/', { schema: { tags: ['me'], summary: 'Update profile', ...sec } }, meController.update);
   app.delete(
     '/',
-    { schema: { tags: ['me'], summary: 'Delete account permanently (cascades all data)', ...sec } },
+    {
+      // Limite serrée : l'endpoint vérifie un mot de passe → ne pas en faire
+      // un oracle de brute force (5 essais/min par IP).
+      config: { rateLimit: { max: isTest ? 100_000 : 5, timeWindow: '1 minute' } },
+      schema: { tags: ['me'], summary: 'Delete account permanently (requires password)', ...sec },
+    },
     meController.deleteAccount,
   );
   app.patch(

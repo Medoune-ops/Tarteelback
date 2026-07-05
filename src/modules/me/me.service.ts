@@ -1,5 +1,7 @@
 import type { User } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
+import { AppError } from '../../core/errors.js';
+import { verifyPassword } from '../../core/password.js';
 import { computeHearts } from '../../core/hearts.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { settleStreak } from '../../core/streak.js';
@@ -136,8 +138,19 @@ export const meService = {
    * DELETE /me — suppression définitive du compte. Toutes les relations ont
    * `onDelete: Cascade` : progression, sessions, tokens push, transactions,
    * ledger de gemmes… tout part avec la ligne User. Irréversible.
+   *
+   * Re-authentification : quand le compte a un mot de passe, il DOIT être
+   * fourni et vérifié — un access token volé ne suffit pas à détruire le
+   * compte. Les comptes sans hash (OAuth-only) passent sans mot de passe.
    */
-  async deleteAccount(userId: string): Promise<void> {
+  async deleteAccount(userId: string, password?: string): Promise<void> {
+    const user = await userRepository.getOrThrow(userId);
+    if (user.passwordHash != null) {
+      const ok = password != null && (await verifyPassword(user.passwordHash, password));
+      if (!ok) {
+        throw new AppError('INVALID_CREDENTIALS', 'Password confirmation required');
+      }
+    }
     await prisma.user.delete({ where: { id: userId } });
   },
 };
