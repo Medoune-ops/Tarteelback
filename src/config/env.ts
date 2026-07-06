@@ -62,6 +62,21 @@ const EnvSchema = z.object({
   // Reset-token lifetime.
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 
+  // ASR serveur (microservice asr/ — Whisper base fine-tuné Coran). Optionnel :
+  // quand ASR_URL est absent, les étapes voice gardent le chemin client
+  // indulgent (score on-device, jamais de coeur en jeu).
+  ASR_URL: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v.replace(/\/+$/, '') : undefined)),
+  ASR_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+  ASR_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+
   PREMIUM_PRICE_MONTHLY: z.coerce.number().default(1.52),
   PREMIUM_PRICE_YEARLY: z.coerce.number().default(15.24),
   STREAK_REPAIR_PRICE: z.coerce.number().default(0.87),

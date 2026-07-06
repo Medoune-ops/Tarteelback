@@ -73,13 +73,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const client = redis;
     if (!client || client.status === 'ready') return;
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
+    const timer = setTimeout(
         () => reject(new Error('Redis unreachable after 10s')),
         10_000,
       );
       client.once('ready', () => {
         clearTimeout(timer);
-        resolve();
+      resolve();
       });
     });
   };

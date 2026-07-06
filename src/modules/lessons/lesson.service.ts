@@ -11,7 +11,15 @@ import {
   DOUBLE_XP_MULTIPLIER,
   isDoubleXpActive,
 } from '../../core/gems.js';
-import { judgeStep, type AnswerInput, type StepType } from '../../core/lessonJudge.js';
+import {
+  judgeStep,
+  judgeVoiceServer,
+  type AnswerInput,
+  type Judgement,
+  type StepType,
+} from '../../core/lessonJudge.js';
+import { scoreRecitation } from '../../core/arabic.js';
+import { transcribeAudio } from './asr.client.js';
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
 import { lessonRepository } from './lesson.repository.js';
@@ -31,6 +39,59 @@ function lessonXp(correctCount: number, testStepCount: number): number {
   return LESSON_XP_BASE + safeCorrect * LESSON_XP_PER_CORRECT;
 }
 
+type HeartsState = { hearts: number; lastHeartLossAt: Date | null };
+
+/**
+ * Settle time-based heart regeneration (idempotent write) and block a free
+ * user who is already out of hearts. Shared by both answer paths.
+ */
+async function settleAndGuardHearts(userId: string, now: Date) {
+  const user = await userRepository.getOrThrow(userId);
+  const premium = isPremiumActive(user, now);
+
+  const synced = computeHearts(
+    { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
+    premium,
+    now,
+  );
+  if (
+    synced.hearts !== user.hearts ||
+    synced.lastHeartLossAt?.getTime() !== user.lastHeartLossAt?.getTime()
+  ) {
+    await userRepository.update(userId, {
+      hearts: synced.hearts,
+      lastHeartLossAt: synced.lastHeartLossAt,
+    });
+  }
+
+  if (!premium && synced.hearts <= 0) {
+    throw new AppError('OUT_OF_HEARTS', 'You have no hearts left');
+  }
+  return { premium, synced };
+}
+
+/**
+ * On a wrong test answer, deduct a heart ATOMICALLY and conditionally.
+ * `updateMany ... WHERE hearts > 0 SET hearts = hearts - 1` is a single SQL
+ * statement → no read-modify-write race (two concurrent wrong answers each
+ * remove exactly one heart, never "lose" a decrement).
+ */
+async function applyHeartLoss(
+  userId: string,
+  judgement: Judgement,
+  synced: HeartsState,
+  premium: boolean,
+  now: Date,
+): Promise<HeartsState> {
+  if (judgement.correct || !judgement.heartAtStake || premium) return synced;
+  const wasFull = synced.hearts >= MAX_HEARTS;
+  const res = await lessonRepository.decrementHeart(userId, wasFull ? now : null);
+  if (res.count === 0) return synced;
+  // Re-read the authoritative value after the atomic decrement.
+  const fresh = await userRepository.getOrThrow(userId);
+  return { hearts: fresh.hearts, lastHeartLossAt: fresh.lastHeartLossAt };
+}
+
 export const lessonService = {
   /**
    * Judge one submitted answer. Server-authoritative:
@@ -41,29 +102,7 @@ export const lessonService = {
    */
   async answer(userId: string, lessonId: string, stepId: string, body: AnswerInput) {
     const now = new Date();
-    const user = await userRepository.getOrThrow(userId);
-    const premium = isPremiumActive(user, now);
-
-    // 1) Settle time-based regeneration first (idempotent write).
-    const synced = computeHearts(
-      { hearts: user.hearts, lastHeartLossAt: user.lastHeartLossAt },
-      premium,
-      now,
-    );
-    if (
-      synced.hearts !== user.hearts ||
-      synced.lastHeartLossAt?.getTime() !== user.lastHeartLossAt?.getTime()
-    ) {
-      await userRepository.update(userId, {
-        hearts: synced.hearts,
-        lastHeartLossAt: synced.lastHeartLossAt,
-      });
-    }
-
-    // A blocked free user cannot act at all.
-    if (!premium && synced.hearts <= 0) {
-      throw new AppError('OUT_OF_HEARTS', 'You have no hearts left');
-    }
+    const { premium, synced } = await settleAndGuardHearts(userId, now);
 
     const step = await lessonRepository.getStep(stepId);
     if (!step || step.lessonId !== lessonId) {
@@ -71,21 +110,7 @@ export const lessonService = {
     }
 
     const judgement = judgeStep(step.type as StepType, step.payload, body as AnswerInput);
-
-    // 2) On a wrong test answer, deduct a heart ATOMICALLY and conditionally.
-    //    `updateMany ... WHERE hearts > 0 SET hearts = hearts - 1` is a single
-    //    SQL statement → no read-modify-write race (two concurrent wrong
-    //    answers each remove exactly one heart, never "lose" a decrement).
-    let heartsState = synced;
-    if (!judgement.correct && judgement.heartAtStake && !premium) {
-      const wasFull = synced.hearts >= MAX_HEARTS;
-      const res = await lessonRepository.decrementHeart(userId, wasFull ? now : null);
-      if (res.count > 0) {
-        // Re-read the authoritative value after the atomic decrement.
-        const fresh = await userRepository.getOrThrow(userId);
-        heartsState = { hearts: fresh.hearts, lastHeartLossAt: fresh.lastHeartLossAt };
-      }
-    }
+    const heartsState = await applyHeartLoss(userId, judgement, synced, premium, now);
 
     // After judging, it's safe to reveal the correct option id so the front can
     // highlight it (green) — the user has already answered. Only for `written`.
@@ -99,6 +124,59 @@ export const lessonService = {
     return {
       correct: judgement.correct,
       bonneReponse, // correct option id (written only), revealed post-answer
+      heartsLeft: snap.hearts,
+      outOfHearts: snap.outOfHearts,
+      unlimited: snap.unlimited,
+      msUntilNextHeart: snap.msUntilNextHeart,
+    };
+  },
+
+  /**
+   * Server-scored voice answer: the client uploads the raw recording, the ASR
+   * microservice (Whisper base fine-tuné Coran) transcribes it, and the score
+   * is computed HERE against the step's expected verse text. Because the score
+   * is trusted, a failed recitation costs a heart (unlike the client path).
+   */
+  async answerVoice(
+    userId: string,
+    lessonId: string,
+    stepId: string,
+    audio: Buffer,
+    filename: string,
+    mimetype: string,
+  ) {
+    const now = new Date();
+    const { premium, synced } = await settleAndGuardHearts(userId, now);
+
+    const step = await lessonRepository.getStep(stepId);
+    if (!step || step.lessonId !== lessonId) {
+      throw new AppError('NOT_FOUND', 'Step not found in this lesson');
+    }
+    if (step.type !== 'voice') {
+      throw new AppError('VALIDATION_ERROR', 'Not a voice step');
+    }
+
+    const p = step.payload as { arabe?: unknown };
+    const expected = typeof p?.arabe === 'string' ? p.arabe : '';
+
+    let transcription = '';
+    let score = 0;
+    let judgement: Judgement = { correct: false, heartAtStake: false };
+    if (expected) {
+      // ASR unavailability throws SERVICE_UNAVAILABLE (503) BEFORE any heart
+      // is at stake — the front then falls back to the on-device path.
+      transcription = await transcribeAudio(audio, filename, mimetype);
+      score = scoreRecitation(expected, transcription);
+      judgement = judgeVoiceServer(step.payload, score);
+    }
+    // Malformed step content (no expected text): fail closed, no heart lost.
+
+    const heartsState = await applyHeartLoss(userId, judgement, synced, premium, now);
+    const snap = snapshot(heartsState, premium, now);
+    return {
+      correct: judgement.correct,
+      score,
+      transcription,
       heartsLeft: snap.hearts,
       outOfHearts: snap.outOfHearts,
       unlimited: snap.unlimited,

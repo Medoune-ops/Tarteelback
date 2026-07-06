@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import multipart from '@fastify/multipart';
 import { lessonController } from './lesson.controller.js';
 
 /**
@@ -7,6 +8,12 @@ import { lessonController } from './lesson.controller.js';
  * mutate hearts/XP/streak.
  */
 export async function lessonRoutes(app: FastifyInstance) {
+  // Multipart parser scoped to this module — only /answer-voice uploads audio.
+  // 10 MiB is generous for a single-ayah recording (Expo m4a ≈ 100 KiB/s).
+  await app.register(multipart, {
+    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 2 },
+  });
+
   app.addHook('preHandler', app.authenticate);
   const sec = { tags: ['lessons'] as const, security: [{ bearerAuth: [] }] };
 
@@ -14,6 +21,19 @@ export async function lessonRoutes(app: FastifyInstance) {
     '/:id/steps/:stepId/answer',
     { schema: { ...sec, summary: 'Submit an answer (server judges, may cost a heart)' } },
     lessonController.answer,
+  );
+
+  app.post(
+    '/:id/steps/:stepId/answer-voice',
+    {
+      schema: {
+        ...sec,
+        summary:
+          'Submit a voice recording (multipart "audio"); server-side Whisper ASR scores the recitation — may cost a heart. 503 when ASR is not configured.',
+        consumes: ['multipart/form-data'],
+      },
+    },
+    lessonController.answerVoice,
   );
 
   app.post(

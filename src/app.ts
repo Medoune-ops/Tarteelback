@@ -103,14 +103,26 @@ export async function buildApp(): Promise<FastifyInstance> {
   }));
 
   // ── Readiness: used by the load balancer to route traffic only when the DB
-  // is reachable. Returns 503 if the DB is down. ──
+  // is reachable. Returns 503 if the DB is down. Redis is reported but never
+  // fails the check — it's an optional accelerator (see config/redis.ts). ──
   app.get('/ready', { logLevel: 'warn' }, async (_req, reply) => {
+    let redisStatus: 'up' | 'down' | 'disabled' = 'disabled';
+    if (redis) {
+      try {
+        await redis.ping();
+        redisStatus = 'up';
+      } catch {
+        redisStatus = 'down';
+      }
+    }
+
     try {
       await prisma.$queryRaw`SELECT 1`;
-      return { status: 'ready' };
+      return { status: 'ready', redis: redisStatus };
     } catch {
       return reply.status(503).send({
         error: { code: 'INTERNAL', message: 'Database not reachable' },
+        redis: redisStatus,
       });
     }
   });
