@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
+import { AppError } from '../../core/errors.js';
 import { lessonService } from './lesson.service.js';
 import { answerSchema, completeSchema, completeFlatSchema } from './lesson.schemas.js';
 
@@ -8,6 +9,29 @@ export const lessonController = {
     const { id, stepId } = req.params as { id: string; stepId: string };
     const body = parse(answerSchema, req.body ?? {});
     const result = await lessonService.answer(req.auth!.sub, id, stepId, body);
+    return reply.send(result);
+  },
+
+  /**
+   * POST /lessons/:id/steps/:stepId/answer-voice — multipart upload of the raw
+   * recording (field `audio`). Server-side ASR + scoring; may cost a heart.
+   */
+  async answerVoice(req: FastifyRequest, reply: FastifyReply) {
+    const { id, stepId } = req.params as { id: string; stepId: string };
+    const file = await req.file();
+    if (!file) {
+      throw new AppError('VALIDATION_ERROR', 'Multipart field "audio" is required');
+    }
+    // toBuffer() enforces the multipart fileSize limit (throws if exceeded).
+    const audio = await file.toBuffer();
+    const result = await lessonService.answerVoice(
+      req.auth!.sub,
+      id,
+      stepId,
+      audio,
+      file.filename || 'recording',
+      file.mimetype || 'application/octet-stream',
+    );
     return reply.send(result);
   },
 

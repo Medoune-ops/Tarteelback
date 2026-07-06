@@ -33,6 +33,25 @@ services:
       timeout: 5s
       retries: 10
 
+  # ASR — Whisper base fine-tuné Coran (tarteel-ai/whisper-base-ar-quran).
+  # Le premier build télécharge et convertit le modèle (long, une seule fois).
+  # Le backend le joint via ASR_URL=http://localhost:9000 en dev local.
+  asr:
+    build: ./asr
+    container_name: tarteel-asr
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      # En dev, pas de clé. En prod, définir la même valeur que ASR_API_KEY du backend.
+      ASR_API_KEY: ""
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
 volumes:
   tarteel_pgdata:
   tarteel_redisdata:

@@ -128,6 +128,7 @@ GET /sections/:id/lessons
 ```
 GET  /lessons/:id
 POST /lessons/:id/steps/:stepId/answer
+POST /lessons/:id/steps/:stepId/answer-voice   # multipart audio (server ASR)
 POST /lessons/:id/complete
 ```
 `GET /lessons/:id` → `{ "lesson": { id, titre, steps: LessonStep[] } }`.
@@ -161,8 +162,25 @@ Completion also bumps the streak (once per local day) and feeds the league
 ranking. Send `{ correctCount, totalTests }` for the exact XP/score.
 **Idempotent:** replaying `complete` on an already-finished lesson returns
 `xpGained: 0` and `alreadyCompleted: true` and changes nothing (no XP/streak
-farming). Note: `voice` steps never deduct a heart (the recognition score is
-produced on-device and not trusted server-side).
+farming). Note: `voice` steps answered via `.../answer` never deduct a heart
+(the recognition score is produced on-device and not trusted server-side).
+
+### Voice, server-scored: `POST .../steps/:stepId/answer-voice`
+
+`multipart/form-data` with one field **`audio`** = the raw recording
+(m4a/wav/mp3, ≤ 10 MiB — e.g. `expo-av`'s `recording.getURI()`). The server
+transcribes it with Whisper (base fine-tuné Coran, microservice `asr/`), scores
+the recitation against the step's expected verse text (diacritics-insensitive,
+word-level), and judges against `seuilReussite`. **The score is trusted here,
+so a failed recitation costs a heart** (free users). →
+```json
+{ "correct": true, "score": 93, "transcription": "بسم الله الرحمن الرحيم",
+  "heartsLeft": 5, "outOfHearts": false, "unlimited": false, "msUntilNextHeart": null }
+```
+RN usage: `FormData` + `{ uri, name: 'recording.m4a', type: 'audio/m4a' }`.
+**503 `SERVICE_UNAVAILABLE`** when the ASR service is not configured/reachable
+→ fall back to the on-device path (`.../answer` with `{ score }`), which stays
+lenient and heart-free.
 
 ---
 

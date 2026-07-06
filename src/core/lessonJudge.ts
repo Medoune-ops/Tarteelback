@@ -58,12 +58,13 @@ export interface Judgement {
  * Judge a single step.
  *  - `discovery` always passes, no heart at stake.
  *  - `written` requires the exact correct option (server-authoritative).
- *  - `voice` is lenient AND never costs a heart: the recognition `score` is
- *    produced by on-device ASR, so the server cannot trust it. We therefore do
- *    NOT make hearts/XP depend on a client-supplied voice score — cheating it
- *    gains nothing, and a flaky ASR never wrongly penalises an honest user.
- *    (When a server-side ASR/scoring service exists, set `heartAtStake: true`
- *    for voice and score it server-side.)
+ *  - `voice` (this path) is lenient AND never costs a heart: the recognition
+ *    `score` is produced by on-device ASR, so the server cannot trust it. We
+ *    therefore do NOT make hearts/XP depend on a client-supplied voice score —
+ *    cheating it gains nothing, and a flaky ASR never wrongly penalises an
+ *    honest user. The SERVER-SCORED voice path (audio upload → Whisper ASR →
+ *    `judgeVoiceServer`) DOES put a heart at stake, because the server computed
+ *    the score itself.
  *
  * Payloads come from a JSON column, so they're defensively guarded: a
  * malformed/incomplete payload fails closed instead of throwing.
@@ -114,4 +115,15 @@ export function judgeStep(
     default:
       return { correct: false, heartAtStake: false };
   }
+}
+
+/**
+ * Judge a `voice` step from a SERVER-computed score (audio uploaded to
+ * /answer-voice, transcribed by the ASR service, scored against the expected
+ * verse text). Trusted score → the heart IS at stake, unlike the client path.
+ */
+export function judgeVoiceServer(payload: unknown, score: number): Judgement {
+  const p = asObject(payload);
+  const seuil = p && typeof p.seuilReussite === 'number' ? p.seuilReussite : 70;
+  return { correct: score >= seuil, heartAtStake: true };
 }
