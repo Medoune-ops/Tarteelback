@@ -6,7 +6,9 @@
  *   tsx src/jobs/maintenance.ts                 # run all due jobs
  *   tsx src/jobs/maintenance.ts purge-tokens    # run one
  */
+import { pathToFileURL } from 'node:url';
 import { prisma } from '../config/prisma.js';
+import { redis } from '../config/redis.js';
 import { withLock } from '../core/lock.js';
 import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
 import { sendDueDailyReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
@@ -60,10 +62,30 @@ export async function runAllMaintenance(now: Date = new Date()) {
   return { tokens, premium, rollover, reminders };
 }
 
-// CLI entrypoint.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// CLI entrypoint. `pathToFileURL` (et non une concaténation `file://`) pour que
+// la détection marche aussi sous Windows, où argv[1] contient des backslashes.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const which = process.argv[2];
+
+  // Le client Redis n'accepte aucune commande avant 'ready' (offline queue
+  // désactivée) : on attend la connexion, sinon le premier withLock échoue.
+  const waitForRedis = async () => {
+    const client = redis;
+    if (!client || client.status === 'ready') return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Redis unreachable after 10s')),
+        10_000,
+      );
+      client.once('ready', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  };
+
   const run = async () => {
+    await waitForRedis();
     switch (which) {
       case 'purge-tokens':
         return purgeRefreshTokens();
@@ -78,10 +100,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
   };
   run()
-    .then((r) => {
+    .then(async (r) => {
       // eslint-disable-next-line no-console
       console.log('Maintenance:', JSON.stringify(r));
-      return prisma.$disconnect();
+      // Ferme les connexions, sinon le process ne se termine jamais et chaque
+      // exécution du cron resterait suspendue.
+      await Promise.all([prisma.$disconnect(), redis?.quit()]);
+      process.exit(0);
     })
     .catch((e) => {
       // eslint-disable-next-line no-console
