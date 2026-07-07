@@ -76,6 +76,7 @@ enum TransactionType {
   premium_subscription
   streak_repair
   gem_pack
+  heart_pack // achat direct de cœurs avec de l'argent (paiement mock)
 }
 
 /// Why a user's gem balance changed. Positive amounts = earnings (economy
@@ -171,6 +172,14 @@ model User {
   streakGoal     Int?
   // Local-day (YYYY-MM-DD) of the last claimed daily chest (1 per local day).
   lastChestDay   String?
+
+  // Parrainage : code de partage unique (généré à la demande) + qui a parrainé
+  // ce compte. Un compte ne peut être parrainé qu'UNE fois (referredById figé
+  // au 1er redeem) → le parrain et le filleul reçoivent chacun des cœurs bonus.
+  referralCode String? @unique
+  referredById String?
+  referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals    User[]  @relation("UserReferrals")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

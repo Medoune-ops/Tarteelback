@@ -10,6 +10,7 @@ import { notificationRoutes } from './modules/notifications/notification.routes.
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
 import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
+import { referralRoutes } from './modules/referral/referral.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -28,4 +29,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(gemRoutes, { prefix: '/me' });
   // SRS des sourates apprises (score, prochaine révision).
   await app.register(revisionRoutes, { prefix: '/me' });
+  // Parrainage (code de partage + redeem → cœurs bonus).
+  await app.register(referralRoutes, { prefix: '/me' });
 }

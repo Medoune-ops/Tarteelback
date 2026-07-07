@@ -6,7 +6,8 @@ import { isPremiumActive } from '../../core/premium.js';
 import { repairStreak } from '../../core/streak.js';
 import { userRepository } from '../me/user.repository.js';
 import { GEM_PACKS } from '../../core/gems.js';
-import type { SubscribeInput, BuyGemsInput } from './billing.schemas.js';
+import { MAX_HEARTS } from '../../core/hearts.js';
+import type { SubscribeInput, BuyGemsInput, BuyHeartsInput } from './billing.schemas.js';
 
 /**
  * ══════════ POINT DE BRANCHEMENT DE L'API DE PAIEMENT (côté serveur) ══════════
@@ -130,6 +131,44 @@ export const billingService = {
     ]);
 
     return { gems: updated.gems, pack: pack.id, gemsAdded: pack.gems, providerRef: result.ref };
+  },
+
+  /**
+   * POST /billing/hearts — achète un refill complet des cœurs avec de l'argent
+   * (paiement mock). Premium = cœurs illimités → l'achat n'a pas de sens et est
+   * refusé. Transaction monétaire + refill sont committés atomiquement.
+   */
+  async buyHearts(userId: string, input: BuyHeartsInput) {
+    const user = await userRepository.getOrThrow(userId);
+    if (isPremiumActive(user)) {
+      throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');
+    }
+    if (user.hearts >= MAX_HEARTS) {
+      throw new AppError('CONFLICT', 'Hearts are already full');
+    }
+
+    const amount = env.HEART_REFILL_PRICE;
+    const result = charge(amount, input.paymentToken);
+    if (!result.ok) throw new AppError('PAYMENT_FAILED', 'Payment was declined');
+
+    const [updated] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { hearts: MAX_HEARTS, lastHeartLossAt: null },
+      }),
+      prisma.transaction.create({
+        data: {
+          userId,
+          type: 'heart_pack',
+          montant: amount,
+          devise: env.BILLING_CURRENCY,
+          statut: 'success',
+          providerRef: result.ref,
+        },
+      }),
+    ]);
+
+    return { hearts: updated.hearts, providerRef: result.ref };
   },
 
   /** POST /billing/repair-streak — pay to restore the broken streak. */

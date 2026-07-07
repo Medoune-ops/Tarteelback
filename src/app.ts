@@ -87,6 +87,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'notifications', description: 'Push tokens & preferences' },
         { name: 'rewards', description: 'Streak goal, podiums, daily chest' },
         { name: 'revision', description: 'SRS des sourates apprises + récitation notée par Whisper' },
+        { name: 'referral', description: 'Parrainage : code de partage + cœurs bonus' },
       ],
     },
   });
