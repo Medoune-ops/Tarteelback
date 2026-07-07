@@ -103,7 +103,10 @@ export const gemService = {
    * Validated against the real review module: `numero` must reference a
    * `SourateRevision` whose `derniereRevision` is very recent, i.e. the
    * client just finished a real POST /me/revisions/:id/review for it — no
-   * more taking the client's word for it.
+   * more taking the client's word for it. `derniereRecompenseCoeur` marks
+   * which completion was already cashed in, so the SAME session can't be
+   * replayed for a second heart within the 10-minute window (only a fresh
+   * `derniereRevision` — i.e. a new POST .../review — unlocks another).
    */
   async reviewRegainHeart(userId: string, numero: number) {
     const now = new Date();
@@ -113,15 +116,39 @@ export const gemService = {
     const revision = await prisma.sourateRevision.findUnique({
       where: { userId_sourateId: { userId, sourateId: sourate.id } },
     });
-    if (
-      !revision?.derniereRevision ||
-      now.getTime() - revision.derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS
-    ) {
+    const derniereRevision = revision?.derniereRevision;
+    if (!derniereRevision || now.getTime() - derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS) {
       throw new AppError('CONFLICT', 'No recently completed review session found for this sourate');
+    }
+    if (
+      revision.derniereRecompenseCoeur &&
+      revision.derniereRecompenseCoeur.getTime() >= derniereRevision.getTime()
+    ) {
+      throw new AppError('CONFLICT', 'This review session already granted a heart');
     }
 
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+
+      // Atomic "not already claimed" check + claim, mirroring spendGems's
+      // conditional-update pattern — closes the race where two concurrent
+      // requests both pass the pre-check above for the same session.
+      const claim = await tx.sourateRevision.updateMany({
+        where: {
+          userId,
+          sourateId: sourate.id,
+          derniereRevision,
+          OR: [
+            { derniereRecompenseCoeur: null },
+            { derniereRecompenseCoeur: { lt: derniereRevision } },
+          ],
+        },
+        data: { derniereRecompenseCoeur: derniereRevision },
+      });
+      if (claim.count === 0) {
+        throw new AppError('CONFLICT', 'This review session already granted a heart');
+      }
+
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
       const premium = isPremiumActive(user, now);
       if (premium) throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');

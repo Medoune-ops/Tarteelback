@@ -452,6 +452,10 @@ model SourateRevision {
   prochaineRevision DateTime?
   derniereRevision  DateTime?
   intervalleJours   Int          @default(1)
+  // Anti-triche "réviser pour regagner" : marque la dernière `derniereRevision`
+  // déjà récompensée par un cœur, pour qu'une même session complétée ne
+  // puisse pas être rejouée plusieurs fois (cf. gem.service.ts).
+  derniereRecompenseCoeur DateTime?
 
   @@unique([userId, sourateId])
   @@index([userId])

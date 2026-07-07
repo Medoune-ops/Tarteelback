@@ -39,21 +39,26 @@ export const revisionService = {
     const learned = await getLearnedSourates(userId);
     if (learned.length === 0) return { revisions: [] };
 
-    const now = new Date();
-    await prisma.$transaction(
-      learned.map((s) =>
-        prisma.sourateRevision.upsert({
-          where: { userId_sourateId: { userId, sourateId: s.id } },
-          update: {},
-          create: { userId, sourateId: s.id, prochaineRevision: now },
-        }),
-      ),
-    );
-
-    const revisions = await prisma.sourateRevision.findMany({
-      where: { userId, sourateId: { in: learned.map((s) => s.id) } },
+    const sourateIds = learned.map((s) => s.id);
+    const existing = await prisma.sourateRevision.findMany({
+      where: { userId, sourateId: { in: sourateIds } },
     });
-    const byId = new Map(revisions.map((r) => [r.sourateId, r]));
+    const byId = new Map(existing.map((r) => [r.sourateId, r]));
+
+    // Ne crée que les lignes manquantes (sourate apprise pour la 1re fois) —
+    // évite un upsert no-op sur chaque sourate à chaque chargement de la page.
+    const missing = learned.filter((s) => !byId.has(s.id));
+    if (missing.length > 0) {
+      const now = new Date();
+      await prisma.sourateRevision.createMany({
+        data: missing.map((s) => ({ userId, sourateId: s.id, prochaineRevision: now })),
+        skipDuplicates: true,
+      });
+      const created = await prisma.sourateRevision.findMany({
+        where: { userId, sourateId: { in: missing.map((s) => s.id) } },
+      });
+      for (const r of created) byId.set(r.sourateId, r);
+    }
 
     return {
       revisions: learned
