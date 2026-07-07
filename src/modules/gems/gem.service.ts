@@ -111,13 +111,17 @@ export const gemService = {
   async reviewRegainHeart(userId: string, numero: number) {
     const now = new Date();
 
+    // An unknown sourate can never have a review session either — same
+    // "nothing to claim" outcome from the caller's perspective, so it's a 409
+    // like the other no-session cases below, not a 404.
     const sourate = await prisma.sourate.findUnique({ where: { numero } });
-    if (!sourate) throw new AppError('NOT_FOUND', 'Sourate not found');
-    const revision = await prisma.sourateRevision.findUnique({
-      where: { userId_sourateId: { userId, sourateId: sourate.id } },
-    });
+    const revision = sourate
+      ? await prisma.sourateRevision.findUnique({
+          where: { userId_sourateId: { userId, sourateId: sourate.id } },
+        })
+      : null;
     const derniereRevision = revision?.derniereRevision;
-    if (!derniereRevision || now.getTime() - derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS) {
+    if (!sourate || !derniereRevision || now.getTime() - derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS) {
       throw new AppError('CONFLICT', 'No recently completed review session found for this sourate');
     }
     if (

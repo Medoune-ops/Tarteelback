@@ -136,27 +136,34 @@ export const billingService = {
   /**
    * POST /billing/hearts — achète un refill complet des cœurs avec de l'argent
    * (paiement mock). Premium = cœurs illimités → l'achat n'a pas de sens et est
-   * refusé. Transaction monétaire + refill sont committés atomiquement.
+   * refusé. Le verrou de ligne (FOR UPDATE) empêche deux requêtes concurrentes
+   * de passer toutes les deux le check "pas déjà plein" et de facturer deux
+   * refills pour un seul achat. Transaction monétaire + refill sont committés
+   * atomiquement.
    */
   async buyHearts(userId: string, input: BuyHeartsInput) {
-    const user = await userRepository.getOrThrow(userId);
-    if (isPremiumActive(user)) {
-      throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');
-    }
-    if (user.hearts >= MAX_HEARTS) {
-      throw new AppError('CONFLICT', 'Hearts are already full');
-    }
+    return prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      if (locked.length === 0) throw new AppError('NOT_FOUND', 'User not found');
 
-    const amount = env.HEART_REFILL_PRICE;
-    const result = charge(amount, input.paymentToken);
-    if (!result.ok) throw new AppError('PAYMENT_FAILED', 'Payment was declined');
+      const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      if (isPremiumActive(user)) {
+        throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');
+      }
+      if (user.hearts >= MAX_HEARTS) {
+        throw new AppError('CONFLICT', 'Hearts are already full');
+      }
 
-    const [updated] = await prisma.$transaction([
-      prisma.user.update({
+      const amount = env.HEART_REFILL_PRICE;
+      const result = charge(amount, input.paymentToken);
+      if (!result.ok) throw new AppError('PAYMENT_FAILED', 'Payment was declined');
+
+      const updated = await tx.user.update({
         where: { id: userId },
         data: { hearts: MAX_HEARTS, lastHeartLossAt: null },
-      }),
-      prisma.transaction.create({
+      });
+      await tx.transaction.create({
         data: {
           userId,
           type: 'heart_pack',
@@ -165,10 +172,10 @@ export const billingService = {
           statut: 'success',
           providerRef: result.ref,
         },
-      }),
-    ]);
+      });
 
-    return { hearts: updated.hearts, providerRef: result.ref };
+      return { hearts: updated.hearts, providerRef: result.ref };
+    });
   },
 
   /** POST /billing/repair-streak — pay to restore the broken streak. */

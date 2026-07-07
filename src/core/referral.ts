@@ -12,6 +12,14 @@ import crypto from 'node:crypto';
 /** Cœurs bonus crédités au parrain ET au filleul lors d'un parrainage validé. */
 export const REFERRAL_HEART_REWARD = 2;
 
+/**
+ * Nombre maximum de filleuls dont le parrainage rapporte encore une récompense
+ * au parrain. Au-delà, `redeem` reste valide pour le NOUVEAU compte (qui
+ * touche toujours ses cœurs de bienvenue), mais le parrain n'en reçoit plus —
+ * ferme le farming par création de faux comptes en masse.
+ */
+export const REFERRAL_MAX_REWARDED_REFERRALS = 20;
+
 // Alphabet sans caractères ambigus (0/O, 1/I/L) pour un code facile à recopier.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 6;

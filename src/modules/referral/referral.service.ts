@@ -5,6 +5,7 @@ import { isPremiumActive } from '../../core/premium.js';
 import { computeHearts, MAX_HEARTS } from '../../core/hearts.js';
 import {
   REFERRAL_HEART_REWARD,
+  REFERRAL_MAX_REWARDED_REFERRALS,
   generateReferralCode,
   normalizeReferralCode,
 } from '../../core/referral.js';
@@ -104,7 +105,12 @@ export const referralService = {
         throw new AppError('CONFLICT', 'This account has already used a referral code');
       }
 
-      await grantHearts(tx, referrer.id, REFERRAL_HEART_REWARD, now);
+      // Le filleul touche toujours ses cœurs de bienvenue ; le parrain n'est
+      // récompensé que sous le plafond (ferme le farming par faux comptes).
+      const rewardedCount = await tx.user.count({ where: { referredById: referrer.id } });
+      if (rewardedCount <= REFERRAL_MAX_REWARDED_REFERRALS) {
+        await grantHearts(tx, referrer.id, REFERRAL_HEART_REWARD, now);
+      }
       await grantHearts(tx, userId, REFERRAL_HEART_REWARD, now);
     });
 
