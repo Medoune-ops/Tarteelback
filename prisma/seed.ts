@@ -259,6 +259,7 @@ async function seedDemoLesson() {
 
 async function seedLeagues(demoUserId: string) {
   const tiers = [
+     
     { nom: 'Bronze', niveau: 1, ordre: 1 },
     { nom: 'Argent', niveau: 2, ordre: 2 },
     { nom: 'Or', niveau: 3, ordre: 3 },
