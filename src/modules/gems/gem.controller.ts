@@ -1,5 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { parse } from '../../core/validate.js';
 import { gemService } from './gem.service.js';
+import { reviewRegainSchema } from './gem.schemas.js';
 
 export const gemController = {
   async status(req: FastifyRequest, reply: FastifyReply) {
@@ -13,7 +15,8 @@ export const gemController = {
   },
 
   async reviewRegainHeart(req: FastifyRequest, reply: FastifyReply) {
-    const result = await gemService.reviewRegainHeart(req.auth!.sub);
+    const body = parse(reviewRegainSchema, req.body ?? {});
+    const result = await gemService.reviewRegainHeart(req.auth!.sub, body.numero);
     return reply.send(result);
   },
 

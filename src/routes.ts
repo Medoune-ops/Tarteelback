@@ -9,6 +9,7 @@ import { billingRoutes } from './modules/billing/billing.routes.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
 import { gemRoutes } from './modules/gems/gem.routes.js';
+import { revisionRoutes } from './modules/revision/revision.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -25,4 +26,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(rewardRoutes, { prefix: '/me' });
   // Gem economy (balance, heart refill, streak freezes, double XP, review gate).
   await app.register(gemRoutes, { prefix: '/me' });
+  // SRS des sourates apprises (score, prochaine révision).
+  await app.register(revisionRoutes, { prefix: '/me' });
 }

@@ -49,6 +49,8 @@ export const MAX_STREAK_FREEZES = 2;
 
 /** Max hearts regainable through completed review sessions per local day. */
 export const REVIEW_HEARTS_PER_DAY = 2;
+/** A review session "counts" only if its SourateRevision was just updated. */
+export const REVIEW_SESSION_MAX_AGE_MS = 10 * 60 * 1000;
 
 // ─── Paid packs (mock provider; regionalize via RevenueCat later) ───────────
 

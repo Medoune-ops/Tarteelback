@@ -10,6 +10,7 @@ import {
   DOUBLE_XP_DURATION_MS,
   MAX_STREAK_FREEZES,
   REVIEW_HEARTS_PER_DAY,
+  REVIEW_SESSION_MAX_AGE_MS,
   isDoubleXpActive,
 } from '../../core/gems.js';
 
@@ -99,13 +100,26 @@ export const gemService = {
    * POST /me/hearts/review-regain — "réviser pour regagner": one COMPLETED
    * review session = +1 heart, free, max 2 per local day.
    *
-   * Plumbing only for now: the SM-2 review engine doesn't exist server-side
-   * yet, so the completion signal is client-declared (like voice scores, it is
-   * therefore capped and can never grant more than 2 hearts/day). When the
-   * review module lands, this must validate a real finished review session.
+   * Validated against the real review module: `numero` must reference a
+   * `SourateRevision` whose `derniereRevision` is very recent, i.e. the
+   * client just finished a real POST /me/revisions/:id/review for it — no
+   * more taking the client's word for it.
    */
-  async reviewRegainHeart(userId: string) {
+  async reviewRegainHeart(userId: string, numero: number) {
     const now = new Date();
+
+    const sourate = await prisma.sourate.findUnique({ where: { numero } });
+    if (!sourate) throw new AppError('NOT_FOUND', 'Sourate not found');
+    const revision = await prisma.sourateRevision.findUnique({
+      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+    });
+    if (
+      !revision?.derniereRevision ||
+      now.getTime() - revision.derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS
+    ) {
+      throw new AppError('CONFLICT', 'No recently completed review session found for this sourate');
+    }
+
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
