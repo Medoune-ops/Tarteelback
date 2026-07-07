@@ -86,6 +86,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'billing', description: 'Premium & streak repair (mock)' },
         { name: 'notifications', description: 'Push tokens & preferences' },
         { name: 'rewards', description: 'Streak goal, podiums, daily chest' },
+        { name: 'revision', description: 'Free-form SRS recitation review (Whisper-scored)' },
       ],
     },
   });

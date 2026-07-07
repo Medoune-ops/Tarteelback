@@ -151,6 +151,26 @@ export function makeMatchingPairs(ordre: number, pairs: Array<{ arabe: string; t
   return { ordre, type: 'matching', payload: { paires } };
 }
 
+/**
+ * Étape voix : récite le verset, scoré par l'ASR serveur (Whisper base
+ * fine-tuné Coran) — voir src/modules/lessons/asr.client.ts côté backend.
+ * `seuilReussite` reste indulgent (70) car même un ASR spécialisé n'atteint pas
+ * 100% sur une récitation humaine variable (rythme, tajwid, bruit ambiant).
+ */
+export function makeVoice(ordre: number, v: VersetData): StepRow {
+  return {
+    ordre,
+    type: 'voice',
+    payload: {
+      arabe: v.texteArabe,
+      translitteration: v.translit,
+      traduction: v.trad,
+      audioUrl: v.audioUrl,
+      seuilReussite: 70,
+    },
+  };
+}
+
 export function makeMatching(ordre: number, v1: VersetData, v2: VersetData): StepRow {
   return makeMatchingPairs(ordre, [
     { arabe: v1.texteArabe, traduction: v1.trad },
@@ -192,6 +212,7 @@ export function buildGroupSteps(group: VerseGroup, startOrdre: number, pool: str
     if (v.mots.length >= MIN_ORDERING_WORDS) steps.push(makeOrdering(0, v));
     const written = makeWritten(0, v, pool);
     if (written) steps.push(written);
+    steps.push(makeVoice(0, v));
   } else {
     const [v1, v2] = group;
     steps.push(makeDiscovery(0, v1));
@@ -203,6 +224,7 @@ export function buildGroupSteps(group: VerseGroup, startOrdre: number, pool: str
     if (w1) steps.push(w1);
     const w2 = makeWritten(0, v2, pool);
     if (w2) steps.push(w2);
+    steps.push(makeVoice(0, v2));
   }
 
   // Numérotation propre à partir de startOrdre.
