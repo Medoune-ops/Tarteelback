@@ -1,8 +1,18 @@
 import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { computeNextRevision, type RevisionQuality } from '../../core/revision.js';
+import { scoreRecitation } from '../../core/arabic.js';
+import { transcribeAudio } from '../lessons/asr.client.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
 import type { Sourate, SourateRevision } from '@prisma/client';
+
+// En dessous de ce score, le verset récité est jugé "manqué" (aide affichée
+// côté front). Plus permissif que le seuil des leçons (70) : une session de
+// révision porte sur un verset entier, pas un mot isolé.
+const FLUENT_THRESHOLD = 60;
+// Au-dessus de ce score (sans atteindre la fluidité) : hésitation plutôt
+// qu'oubli total — nuance renvoyée au front via `verdict`.
+const HESITANT_THRESHOLD = 30;
 
 /** Résout une sourate par cuid OU par numero (même dispatch que content.service.ts). */
 async function resolveSourate(idOrNumero: string): Promise<Sourate> {
@@ -99,5 +109,25 @@ export const revisionService = {
     });
 
     return serialize(updated, sourate);
+  },
+
+  /**
+   * POST /me/revisions/versets/:versetId/recite — récitation d'un verset en
+   * contexte de révision (écran flashcard). Transcrit l'audio via l'ASR serveur
+   * (Whisper) et score contre le texte du verset. AUCUN cœur en jeu ici : la
+   * révision ne pénalise jamais (contrairement au moteur de leçon).
+   */
+  async reciteVerset(versetId: string, audio: Buffer, filename: string, mimetype: string) {
+    const verset = await prisma.verset.findUnique({
+      where: { id: versetId },
+      select: { texteArabe: true },
+    });
+    if (!verset) throw new AppError('NOT_FOUND', 'Verset not found');
+
+    const transcription = await transcribeAudio(audio, filename, mimetype);
+    const score = scoreRecitation(verset.texteArabe, transcription);
+    const fluide = score >= FLUENT_THRESHOLD;
+    const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
+    return { score, transcription, fluide, verdict };
   },
 };
