@@ -86,7 +86,8 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'billing', description: 'Premium & streak repair (mock)' },
         { name: 'notifications', description: 'Push tokens & preferences' },
         { name: 'rewards', description: 'Streak goal, podiums, daily chest' },
-        { name: 'revision', description: 'Free-form SRS recitation review (Whisper-scored)' },
+        { name: 'revision', description: 'SRS des sourates apprises + récitation notée par Whisper' },
+        { name: 'referral', description: 'Parrainage : code de partage + cœurs bonus' },
       ],
     },
   });
@@ -110,7 +111,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     let redisStatus: 'up' | 'down' | 'disabled' = 'disabled';
     if (redis) {
       try {
-        await redis.ping();
+        // `redis.ping()` has no built-in command timeout: a connected-but-
+        // unresponsive Redis would otherwise hang this readiness probe
+        // indefinitely instead of failing fast.
+        await Promise.race([
+          redis.ping(),
+          new Promise((_resolve, reject) =>
+            setTimeout(() => reject(new Error('Redis ping timeout')), 2000),
+          ),
+        ]);
         redisStatus = 'up';
       } catch {
         redisStatus = 'down';

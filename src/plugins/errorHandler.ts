@@ -70,6 +70,22 @@ export default fp(async (app) => {
       });
     }
 
+    // Fastify plugin errors (e.g. @fastify/multipart's file/fields/parts size
+    // limits: FST_REQ_FILE_TOO_LARGE, FST_FILES_LIMIT...) are the client's
+    // fault, not ours — map their own statusCode instead of falling to 500.
+    const fastifyErr = err as { code?: string; statusCode?: number };
+    if (
+      typeof fastifyErr.code === 'string' &&
+      fastifyErr.code.startsWith('FST_') &&
+      typeof fastifyErr.statusCode === 'number' &&
+      fastifyErr.statusCode >= 400 &&
+      fastifyErr.statusCode < 500
+    ) {
+      return reply.status(fastifyErr.statusCode).send({
+        error: { code: 'VALIDATION_ERROR', message: err.message },
+      });
+    }
+
     // Fastify schema validation (querystring/params).
     if ((err as { validation?: unknown }).validation) {
       return reply.status(400).send({

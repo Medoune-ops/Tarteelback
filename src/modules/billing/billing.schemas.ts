@@ -18,3 +18,12 @@ export const buyGemsSchema = z
   .strict();
 
 export type BuyGemsInput = z.infer<typeof buyGemsSchema>;
+
+export const buyHeartsSchema = z
+  .object({
+    // Achat d'un refill complet des cœurs (montant fixe côté serveur).
+    paymentToken: z.string().optional(),
+  })
+  .strict();
+
+export type BuyHeartsInput = z.infer<typeof buyHeartsSchema>;

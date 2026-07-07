@@ -10,6 +10,7 @@ import {
   DOUBLE_XP_DURATION_MS,
   MAX_STREAK_FREEZES,
   REVIEW_HEARTS_PER_DAY,
+  REVIEW_SESSION_MAX_AGE_MS,
   isDoubleXpActive,
 } from '../../core/gems.js';
 
@@ -99,15 +100,59 @@ export const gemService = {
    * POST /me/hearts/review-regain — "réviser pour regagner": one COMPLETED
    * review session = +1 heart, free, max 2 per local day.
    *
-   * Plumbing only for now: the SM-2 review engine doesn't exist server-side
-   * yet, so the completion signal is client-declared (like voice scores, it is
-   * therefore capped and can never grant more than 2 hearts/day). When the
-   * review module lands, this must validate a real finished review session.
+   * Validated against the real review module: `numero` must reference a
+   * `SourateRevision` whose `derniereRevision` is very recent, i.e. the
+   * client just finished a real POST /me/revisions/:id/review for it — no
+   * more taking the client's word for it. `derniereRecompenseCoeur` marks
+   * which completion was already cashed in, so the SAME session can't be
+   * replayed for a second heart within the 10-minute window (only a fresh
+   * `derniereRevision` — i.e. a new POST .../review — unlocks another).
    */
-  async reviewRegainHeart(userId: string) {
+  async reviewRegainHeart(userId: string, numero: number) {
     const now = new Date();
+
+    // An unknown sourate can never have a review session either — same
+    // "nothing to claim" outcome from the caller's perspective, so it's a 409
+    // like the other no-session cases below, not a 404.
+    const sourate = await prisma.sourate.findUnique({ where: { numero } });
+    const revision = sourate
+      ? await prisma.sourateRevision.findUnique({
+          where: { userId_sourateId: { userId, sourateId: sourate.id } },
+        })
+      : null;
+    const derniereRevision = revision?.derniereRevision;
+    if (!sourate || !derniereRevision || now.getTime() - derniereRevision.getTime() > REVIEW_SESSION_MAX_AGE_MS) {
+      throw new AppError('CONFLICT', 'No recently completed review session found for this sourate');
+    }
+    if (
+      revision.derniereRecompenseCoeur &&
+      revision.derniereRecompenseCoeur.getTime() >= derniereRevision.getTime()
+    ) {
+      throw new AppError('CONFLICT', 'This review session already granted a heart');
+    }
+
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+
+      // Atomic "not already claimed" check + claim, mirroring spendGems's
+      // conditional-update pattern — closes the race where two concurrent
+      // requests both pass the pre-check above for the same session.
+      const claim = await tx.sourateRevision.updateMany({
+        where: {
+          userId,
+          sourateId: sourate.id,
+          derniereRevision,
+          OR: [
+            { derniereRecompenseCoeur: null },
+            { derniereRecompenseCoeur: { lt: derniereRevision } },
+          ],
+        },
+        data: { derniereRecompenseCoeur: derniereRevision },
+      });
+      if (claim.count === 0) {
+        throw new AppError('CONFLICT', 'This review session already granted a heart');
+      }
+
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
       const premium = isPremiumActive(user, now);
       if (premium) throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');

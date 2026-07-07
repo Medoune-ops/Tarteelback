@@ -80,6 +80,8 @@ const EnvSchema = z.object({
   PREMIUM_PRICE_MONTHLY: z.coerce.number().default(1.52),
   PREMIUM_PRICE_YEARLY: z.coerce.number().default(15.24),
   STREAK_REPAIR_PRICE: z.coerce.number().default(0.87),
+  // Prix d'un refill complet des cœurs payé avec de l'argent (paiement mock).
+  HEART_REFILL_PRICE: z.coerce.number().default(0.99),
   BILLING_CURRENCY: z.string().default('EUR'),
 });
 
