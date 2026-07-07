@@ -82,25 +82,77 @@ d('gems: review → heart gate (integration)', () => {
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(); });
 
-  it('grants +1 heart per review, max 2 per local day, free', async () => {
+  /** A `numero`'d Sourate with a SourateRevision completed just now (fresh review session). */
+  async function completeReviewSession(userId: string, numero: number) {
+    const sourate = await prisma.sourate.upsert({
+      where: { numero },
+      update: {},
+      create: { numero, nom: `S${numero}`, nomArabe: `س${numero}`, nombreVersets: 7, hizb: 1 },
+    });
+    await prisma.sourateRevision.upsert({
+      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      update: { derniereRevision: new Date() },
+      create: { userId, sourateId: sourate.id, derniereRevision: new Date(), prochaineRevision: new Date() },
+    });
+  }
+
+  it('grants +1 heart per completed review session, max 2 per local day, free', async () => {
     const u = await registerUser(app);
     await prisma.user.update({
       where: { id: u.userId },
       data: { hearts: 0, lastHeartLossAt: new Date() },
     });
 
-    const r1 = await app.inject({ method: 'POST', url: '/me/hearts/review-regain', headers: authHeader(u.accessToken) });
+    await completeReviewSession(u.userId, 1);
+    const r1 = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero: 1 },
+    });
     expect(r1.statusCode).toBe(200);
     expect(r1.json().hearts).toBe(1);
     expect(r1.json().reviewHeartsRemaining).toBe(1);
 
-    const r2 = await app.inject({ method: 'POST', url: '/me/hearts/review-regain', headers: authHeader(u.accessToken) });
+    // Replaying the SAME completed session must not grant a second heart.
+    const replay = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero: 1 },
+    });
+    expect(replay.statusCode).toBe(409);
+
+    // A genuinely new session (different sourate) unlocks the 2nd heart.
+    await completeReviewSession(u.userId, 2);
+    const r2 = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero: 2 },
+    });
+    expect(r2.statusCode).toBe(200);
     expect(r2.json().hearts).toBe(2);
     expect(r2.json().reviewHeartsRemaining).toBe(0);
 
-    // Daily cap reached.
-    const r3 = await app.inject({ method: 'POST', url: '/me/hearts/review-regain', headers: authHeader(u.accessToken) });
+    // Daily cap reached, even for a 3rd genuinely new session.
+    await completeReviewSession(u.userId, 3);
+    const r3 = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero: 3 },
+    });
     expect(r3.statusCode).toBe(409);
+  });
+
+  it('rejects when no recently completed review session exists for the sourate', async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero: 1 },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('rejects a missing or invalid `numero`', async () => {
+    const u = await registerUser(app);
+    const noBody = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain', headers: authHeader(u.accessToken),
+    });
+    expect(noBody.statusCode).toBe(400);
   });
 });
 

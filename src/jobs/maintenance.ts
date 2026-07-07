@@ -106,6 +106,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       // Ferme les connexions, sinon le process ne se termine jamais et chaque
       // exécution du cron resterait suspendue.
       await Promise.all([prisma.$disconnect(), redis?.quit()]);
+      // process.exit() ne vide pas les buffers stdout en attente (pertinent
+      // quand le scheduler redirige/pipe la sortie) : on attend explicitement
+      // le flush du console.log ci-dessus avant de couper le process.
+      await new Promise<void>((resolve) => process.stdout.write('', () => resolve()));
       process.exit(0);
     })
     .catch((e) => {

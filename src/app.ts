@@ -109,7 +109,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     let redisStatus: 'up' | 'down' | 'disabled' = 'disabled';
     if (redis) {
       try {
-        await redis.ping();
+        // `redis.ping()` has no built-in command timeout: a connected-but-
+        // unresponsive Redis would otherwise hang this readiness probe
+        // indefinitely instead of failing fast.
+        await Promise.race([
+          redis.ping(),
+          new Promise((_resolve, reject) =>
+            setTimeout(() => reject(new Error('Redis ping timeout')), 2000),
+          ),
+        ]);
         redisStatus = 'up';
       } catch {
         redisStatus = 'down';

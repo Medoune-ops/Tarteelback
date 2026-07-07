@@ -7,11 +7,6 @@ import { AppError } from '../../core/errors.js';
  * exposé publiquement ; le backend est son seul appelant.
  */
 
-/** L'ASR serveur est-il configuré ? (sinon: chemin voice client, indulgent) */
-export function asrEnabled(): boolean {
-  return Boolean(env.ASR_URL);
-}
-
 /**
  * Transcrit un enregistrement audio (m4a/wav/mp3…) en texte arabe.
  * Toute indisponibilité (non configuré, timeout, 5xx) devient un 503
@@ -49,6 +44,11 @@ export async function transcribeAudio(
     throw new AppError('SERVICE_UNAVAILABLE', `Voice scoring service error (${res.status})`);
   }
 
-  const data = (await res.json()) as { text?: unknown };
+  let data: { text?: unknown };
+  try {
+    data = (await res.json()) as { text?: unknown };
+  } catch {
+    throw new AppError('SERVICE_UNAVAILABLE', 'Voice scoring service returned an invalid response');
+  }
   return typeof data.text === 'string' ? data.text : '';
 }
