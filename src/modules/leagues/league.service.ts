@@ -51,8 +51,19 @@ export const leagueService = {
   /**
    * Add weekly XP to the user's CURRENT active membership, inside the caller's
    * transaction (so it can't diverge from the user's weeklyXp counter).
-   * No-op when the user hasn't joined a league. Returns {weekId, amount} so the
-   * caller can mirror the increment into Redis AFTER the tx commits.
+   *
+   * Auto-enrols the user into the lowest league's active week if they aren't
+   * a member of any active week yet — this keeps `User.weeklyXp` (shown on the
+   * Learn screen) and `LeagueMembership.weeklyXp` (shown on the League screen)
+   * from silently drifting apart. Without this, a user who never joined (or
+   * whose last league week ended without rejoining) keeps earning XP on the
+   * Learn screen while the League screen stays frozen, with no error anywhere.
+   *
+   * Still a no-op if there is genuinely no active league week at all (e.g. no
+   * leagues seeded yet) — nothing to enrol into.
+   *
+   * Returns {weekId, amount} so the caller can mirror the increment into Redis
+   * AFTER the tx commits.
    */
   async addXpIfMemberTx(
     tx: Prisma.TransactionClient,
@@ -60,15 +71,34 @@ export const leagueService = {
     amount: number,
   ): Promise<{ weekId: string; amount: number } | null> {
     if (amount === 0) return null;
-    const week = await tx.leagueWeek.findFirst({
+    const now = new Date();
+    let week = await tx.leagueWeek.findFirst({
       where: {
-        dateDebut: { lte: new Date() },
-        dateFin: { gt: new Date() },
+        dateDebut: { lte: now },
+        dateFin: { gt: now },
         memberships: { some: { userId } },
       },
       select: { id: true },
     });
-    if (!week) return null;
+
+    if (!week) {
+      // Not enrolled anywhere for the current week — auto-join the lowest
+      // league's active week (mirrors POST /leagues/join), starting from 0:
+      // this XP gain becomes their first contribution to the new membership.
+      const lowest = await tx.leagueWeek.findFirst({
+        where: { dateDebut: { lte: now }, dateFin: { gt: now } },
+        orderBy: [{ league: { ordre: 'asc' } }, { dateDebut: 'desc' }],
+        select: { id: true },
+      });
+      if (!lowest) return null; // no league weeks exist at all — nothing to join
+      await tx.leagueMembership.upsert({
+        where: { userId_leagueWeekId: { userId, leagueWeekId: lowest.id } },
+        create: { userId, leagueWeekId: lowest.id, weeklyXp: 0 },
+        update: {},
+      });
+      week = lowest;
+    }
+
     await tx.leagueMembership.updateMany({
       where: { userId, leagueWeekId: week.id },
       data: { weeklyXp: { increment: amount } },

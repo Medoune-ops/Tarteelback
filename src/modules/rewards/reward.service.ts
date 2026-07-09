@@ -3,6 +3,7 @@ import { AppError } from '../../core/errors.js';
 import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { localDayKey } from '../../core/streak.js';
 import { MAX_HEARTS, computeHearts } from '../../core/hearts.js';
+import { leagueService } from '../leagues/league.service.js';
 import {
   streakReward,
   podiumReward,
@@ -24,7 +25,7 @@ export const rewardService = {
    * once cleared, a second call yields xpGained 0.
    */
   async claimStreakReward(userId: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
       if (user.streakGoal == null || user.streak < user.streakGoal) {
@@ -34,10 +35,15 @@ export const rewardService = {
       const gained = applyXpMultiplier(base, isPremiumActive(user));
       const updated = await tx.user.update({
         where: { id: userId },
-        data: { xp: { increment: gained }, streakGoal: null },
+        data: { weeklyXp: { increment: gained }, streakGoal: null },
       });
-      return { xpGained: gained, totalXp: updated.xp, streakGoal: null };
+      const league = await leagueService.addXpIfMemberTx(tx, userId, gained);
+      return { xpGained: gained, totalXp: updated.weeklyXp, streakGoal: null, league };
     });
+    if (result.league) {
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+    }
+    return { xpGained: result.xpGained, totalXp: result.totalXp, streakGoal: result.streakGoal };
   },
 
   /** Podium history (most recent first). */
@@ -63,7 +69,7 @@ export const rewardService = {
    * are rejected by the conditional update.
    */
   async claimPodium(userId: string, ref: string) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const podium = await tx.podiumReward.findUnique({
         where: { userId_ref: { userId, ref } },
       });
@@ -85,10 +91,15 @@ export const rewardService = {
 
       const updated = await tx.user.update({
         where: { id: userId },
-        data: { xp: { increment: gained } },
+        data: { weeklyXp: { increment: gained } },
       });
-      return { xpGained: gained, totalXp: updated.xp, ref };
+      const league = await leagueService.addXpIfMemberTx(tx, userId, gained);
+      return { xpGained: gained, totalXp: updated.weeklyXp, ref, league };
     });
+    if (result.league) {
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+    }
+    return { xpGained: result.xpGained, totalXp: result.totalXp, ref: result.ref };
   },
 
   /** Whether the daily chest is available today (user's local day). */
@@ -105,7 +116,7 @@ export const rewardService = {
    */
   async claimDailyChest(userId: string): Promise<{ reward: DailyChestReward; totalXp: number; hearts: number; gems: number }> {
     const now = new Date();
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
       const today = localDayKey(now, user.timezone);
@@ -128,15 +139,17 @@ export const rewardService = {
         reward = { type: 'gems', amount: reward.amount * CHEST_GEMS_PER_HEART };
       }
 
-      // Reward XP credits total XP only (like the front's addXP) — it is not
-      // weekly/league XP, so the league ranking is untouched.
+      // Reward XP credits the single weekly counter, same as any other XP gain
+      // — it also counts towards the league ranking (see league below).
       const data: Record<string, unknown> = {
         lastChestDay: today,
         hearts: synced.hearts,
         lastHeartLossAt: synced.lastHeartLossAt,
       };
+      let xpGained = 0;
       if (reward.type === 'xp') {
-        data.xp = { increment: applyXpMultiplier(reward.amount, premium) };
+        xpGained = applyXpMultiplier(reward.amount, premium);
+        data.weeklyXp = { increment: xpGained };
       } else if (reward.type === 'gems') {
         data.gems = { increment: reward.amount };
         await tx.gemTransaction.create({
@@ -148,7 +161,12 @@ export const rewardService = {
         if (data.hearts === MAX_HEARTS) data.lastHeartLossAt = null;
       }
       const updated = await tx.user.update({ where: { id: userId }, data });
-      return { reward, totalXp: updated.xp, hearts: updated.hearts, gems: updated.gems };
+      const league = xpGained > 0 ? await leagueService.addXpIfMemberTx(tx, userId, xpGained) : null;
+      return { reward, totalXp: updated.weeklyXp, hearts: updated.hearts, gems: updated.gems, league };
     });
+    if (result.league) {
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+    }
+    return { reward: result.reward, totalXp: result.totalXp, hearts: result.hearts, gems: result.gems };
   },
 };

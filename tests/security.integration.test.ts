@@ -22,7 +22,7 @@ d('security: per-user data isolation (integration)', () => {
     const a = await registerUser(app, { email: 'a@iso.app', displayName: 'Alice A.' });
     const b = await registerUser(app, { email: 'b@iso.app', displayName: 'Bob B.' });
     // Give B distinct state so identity confusion would be observable.
-    await prisma.user.update({ where: { id: b.userId }, data: { xp: 777, streak: 9 } });
+    await prisma.user.update({ where: { id: b.userId }, data: { weeklyXp: 777, streak: 9 } });
 
     // A asks for /me while trying to pass B's id in body and query.
     const res = await app.inject({

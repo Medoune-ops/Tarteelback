@@ -37,7 +37,9 @@ export function serializeUser(user: User, now: Date = new Date()) {
     isPremium: premium,
     premiumUntil: user.premiumUntil,
 
-    xp: user.xp,
+    // Single weekly XP counter — resets with the league rollover, no separate
+    // lifetime total (kept under both keys for front-compat: BACKEND.md).
+    xp: user.weeklyXp,
     weeklyXp: user.weeklyXp,
 
     // Gem economy.
@@ -87,7 +89,8 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
 
   return {
     streak: user.streak,
-    xp: user.xp,
+    // Single weekly XP counter — resets with the league rollover.
+    xp: user.weeklyXp,
     hearts: hearts.hearts,
     gems: user.gems,
     streakFreezes: user.streakFreezes,

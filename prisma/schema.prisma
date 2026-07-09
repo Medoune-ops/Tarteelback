@@ -131,7 +131,8 @@ model User {
   premiumUntil DateTime?
 
   // Stats / hearts / streak (kept on User for atomic 1-1 updates)
-  xp        Int @default(0)
+  // Single XP counter — resets to 0 every week alongside the league rollover
+  // (no separate lifetime total: see league.cron.ts).
   weeklyXp  Int @default(0)
   hearts    Int @default(5)
   // Anchor for heart regeneration; null when hearts are full.

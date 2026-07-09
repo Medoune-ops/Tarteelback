@@ -288,7 +288,6 @@ export const lessonService = {
         u = await tx.user.update({
           where: { id: userId },
           data: {
-            xp: { increment: gained },
             weeklyXp: { increment: gained },
             gems: { increment: gemsGained },
             ...(freezesConsumed > 0 ? { streakFreezes: { decrement: freezesConsumed } } : {}),
@@ -326,7 +325,7 @@ export const lessonService = {
       xpGained: result.gained,
       gemsGained: result.gemsGained,
       alreadyCompleted: !result.firstCompletion,
-      totalXp: result.u.xp,
+      totalXp: result.u.weeklyXp,
       weeklyXp: result.u.weeklyXp,
       gems: result.u.gems,
       streak: result.u.streak,

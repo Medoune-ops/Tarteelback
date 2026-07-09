@@ -48,7 +48,6 @@ async function seedUsers() {
       onboardingDone: true,
       timezone: 'Africa/Dakar',
       language: 'fr',
-      xp: 1240,
       weeklyXp: 1250,
       hearts: 5,
       streak: 15,
