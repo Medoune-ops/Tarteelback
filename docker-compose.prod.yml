@@ -27,6 +27,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      # L'API démarre sans attendre le modèle Whisper (long premier boot) :
+      # tant que l'ASR n'est pas prêt, les endpoints vocaux renvoient 503.
+      asr:
+        condition: service_started
     environment:
       NODE_ENV: production
       PORT: 4000
@@ -44,6 +48,10 @@ services:
       # Optionnels (emails de reset, prix, règles de jeu…) — voir .env.example.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       APP_RESET_URL: ${APP_RESET_URL:-tarteel://reset-password}
+      # Judging vocal serveur (Whisper) — le service `asr` du même compose.
+      ASR_URL: http://asr:9000
+      ASR_API_KEY: ${ASR_API_KEY:-}
+      ASR_TIMEOUT_MS: ${ASR_TIMEOUT_MS:-15000}
     ports:
       - "${API_PORT:-4000}:4000"
     healthcheck:
@@ -83,6 +91,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Whisper fine-tuné Coran (voir asr/) — judging vocal des leçons/révisions.
+  # Pas de port publié : seul l'API l'appelle, via le réseau interne du compose.
+  # Premier build long (~téléchargement + conversion du modèle) ; ensuite le
+  # modèle est dans l'image, aucun téléchargement au démarrage. RAM ~1 Go.
+  asr:
+    build: ./asr
+    restart: unless-stopped
+    environment:
+      ASR_API_KEY: ${ASR_API_KEY:-}
 
 volumes:
   tarteel_prod_pgdata:
