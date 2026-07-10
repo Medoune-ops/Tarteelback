@@ -47,6 +47,20 @@ export const contentRepository = {
     return prisma.sourate.findMany({ orderBy: { numero: 'asc' } });
   },
 
+  /**
+   * Numéro de sourate → position d'enseignement (0-based), dérivée de l'ordre
+   * réel des leçons en base (Section.ordre puis Lesson.ordre) — PAS l'ordre du
+   * Mushaf. Sert au frontend à trier "Mes sourates" comme le vrai parcours.
+   */
+  listTeachingOrder() {
+    return prisma.lesson.findMany({
+      where: { sourateNumero: { not: null } },
+      orderBy: [{ section: { ordre: 'asc' } }, { ordre: 'asc' }],
+      select: { sourateNumero: true },
+      distinct: ['sourateNumero'],
+    });
+  },
+
   getSourate(id: string) {
     return prisma.sourate.findUnique({ where: { id } });
   },

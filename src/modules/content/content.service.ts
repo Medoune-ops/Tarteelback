@@ -42,7 +42,21 @@ export const contentService = {
   },
 
   async listSourates() {
-    return cached('sourates', () => contentRepository.listSourates());
+    return cached('sourates', async () => {
+      const [sourates, teachingOrder] = await Promise.all([
+        contentRepository.listSourates(),
+        contentRepository.listTeachingOrder(),
+      ]);
+      const ordreByNumero = new Map(
+        teachingOrder.map((l, i) => [l.sourateNumero as number, i]),
+      );
+      return sourates.map((s) => ({
+        ...s,
+        // null pour une sourate pas encore enseignée par une leçon (fin du
+        // parcours, contenu pas encore généré) — le front la classe en dernier.
+        ordreParcours: ordreByNumero.get(s.numero) ?? null,
+      }));
+    });
   },
 
   /**
