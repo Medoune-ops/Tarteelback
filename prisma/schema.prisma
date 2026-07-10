@@ -105,16 +105,16 @@ enum TransactionStatus {
 // ─── User & session ──────────────────────────────────────────────────────────
 
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
+  id             String  @id @default(cuid())
+  email          String  @unique
   passwordHash   String? // null when the account is OAuth-only
   displayName    String
   // Pseudo public (ligues, classements) — le nom complet reste privé au
   // profil. Optionnel pour les comptes créés avant son introduction :
   // l'affichage retombe alors sur displayName. Stocké en minuscules.
-  username       String?   @unique
-  avatarInitials String    @default("")
-  role           Role      @default(user)
+  username       String? @unique
+  avatarInitials String  @default("")
+  role           Role    @default(user)
 
   // Profile / onboarding
   level          UserLevel @default(debutant)
@@ -133,46 +133,46 @@ model User {
   // Stats / hearts / streak (kept on User for atomic 1-1 updates)
   // Single XP counter — resets to 0 every week alongside the league rollover
   // (no separate lifetime total: see league.cron.ts).
-  weeklyXp  Int @default(0)
-  hearts    Int @default(5)
+  weeklyXp        Int       @default(0)
+  hearts          Int       @default(5)
   // Anchor for heart regeneration; null when hearts are full.
   lastHeartLossAt DateTime?
 
-  streak          Int      @default(0)
-  streakFrozen    Boolean  @default(false)
+  streak           Int       @default(0)
+  streakFrozen     Boolean   @default(false)
   // Snapshot of the streak just before a break, for paid restoration.
-  lastStreakValue Int      @default(0)
+  lastStreakValue  Int       @default(0)
   // Local-day date of the last completed activity (source of truth for streak).
   lastActivityDate DateTime?
 
   // Notification preferences (push). Defaults on; user can opt out per type.
-  notifDailyReminder Boolean @default(true)
-  notifStreakAlert   Boolean @default(true)
+  notifDailyReminder  Boolean @default(true)
+  notifStreakAlert    Boolean @default(true)
   // Optional preferred local hour (0–23) for the daily learning reminder.
-  reminderHour       Int     @default(19)
+  reminderHour        Int     @default(19)
   // Marks the last local-day a daily reminder was sent, to avoid duplicates.
   lastDailyReminderOn String?
   lastStreakAlertOn   String?
 
   // Gems (virtual currency) — server-authoritative balance. Every change goes
   // through a GemTransaction row (ledger) inside the same DB transaction.
-  gems Int @default(0)
+  gems             Int       @default(0)
   // Purchased streak-freeze inventory (200 gems each, max 2 held). Consumed
   // automatically when missed days would otherwise break the streak. Premium
   // (Plus) users never consume any: their freezes are unlimited.
-  streakFreezes Int @default(0)
+  streakFreezes    Int       @default(0)
   // Double-XP boost (100 gems) active until this instant; null = no boost.
-  doubleXpUntil DateTime?
+  doubleXpUntil    DateTime?
   // "Réviser pour regagner" gate: local-day + how many hearts were regained
   // through review sessions that day (max 2/day).
   reviewHeartsDay  String?
-  reviewHeartsUsed Int     @default(0)
+  reviewHeartsUsed Int       @default(0)
 
   // Rewards / engagement (server-authoritative; front mirrors store fields).
   // User-set streak goal (null = none). Reward credited once on reach.
-  streakGoal     Int?
+  streakGoal   Int?
   // Local-day (YYYY-MM-DD) of the last claimed daily chest (1 per local day).
-  lastChestDay   String?
+  lastChestDay String?
 
   // Parrainage : code de partage unique (généré à la demande) + qui a parrainé
   // ce compte. Un compte ne peut être parrainé qu'UNE fois (referredById figé
@@ -188,6 +188,7 @@ model User {
   refreshTokens     RefreshToken[]
   lessonProgress    LessonProgress[]
   sourateRevisions  SourateRevision[]
+  lettreRevisions   LettreRevision[]
   leagueMemberships LeagueMembership[]
   transactions      Transaction[]
   deviceTokens      DeviceToken[]
@@ -235,9 +236,9 @@ model PasswordResetToken {
 /// A weekly top-3 finish whose XP reward can be claimed once.
 /// Created by the league rollover; mirrors the front `PodiumEntry`.
 model PodiumReward {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Stable id shown to the client (e.g. "w23"); unique per user.
   ref       String
   semaine   Int
@@ -246,7 +247,7 @@ model PodiumReward {
   xp        Int // XP accumulated that week
   reward    Int // XP reward for this rank (500/300/150)
   claimedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@unique([userId, ref])
   @@index([userId])
@@ -254,17 +255,17 @@ model PodiumReward {
 
 /// One Expo push token per device/installation, for sending notifications.
 model DeviceToken {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Expo push token, e.g. "ExponentPushToken[xxxxxxxx]".
-  token     String   @unique
-  deviceId  String // installation id (same notion as RefreshToken.deviceId)
-  platform  String? // "ios" | "android" | "web"
+  token      String    @unique
+  deviceId   String // installation id (same notion as RefreshToken.deviceId)
+  platform   String? // "ios" | "android" | "web"
   // Cleared/disabled when Expo reports the token as no longer valid.
   disabledAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId])
 }
@@ -290,16 +291,16 @@ model RefreshToken {
 // ─── Content (admin-managed) ─────────────────────────────────────────────────
 
 model Section {
-  id          String  @id @default(cuid())
-  ordre       Int     @unique
-  hizb        Int? // null for the alphabet section
-  kicker      String
-  titre       String
-  sousTitre   String
-  couleur     String
+  id           String @id @default(cuid())
+  ordre        Int    @unique
+  hizb         Int? // null for the alphabet section
+  kicker       String
+  titre        String
+  sousTitre    String
+  couleur      String
   degradeStart String
   degradeEnd   String
-  headerIcon  String
+  headerIcon   String
 
   lessons      Lesson[]
   // Surahs shown as context badges on the section.
@@ -322,20 +323,21 @@ model SectionSourate {
 }
 
 model Lesson {
-  id        String  @id @default(cuid())
-  sectionId String
-  section   Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  ordre     Int
-  titre     String
-  iconType  String  @default("star")
+  id            String  @id @default(cuid())
+  sectionId     String
+  section       Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  ordre         Int
+  titre         String
+  iconType      String  @default("star")
   // Numéro (1–114) de la sourate enseignée par cette leçon, si applicable.
   // Rempli au seed. Sert à marquer "déjà mémorisé" à l'onboarding (skip du
   // point de départ) et, plus tard, aux révisions. null pour les leçons de
   // lettres de l'alphabet.
   sourateNumero Int?
 
-  steps    LessonStep[]
-  progress LessonProgress[]
+  steps     LessonStep[]
+  progress  LessonProgress[]
+  revisions LettreRevision[]
 
   @@unique([sectionId, ordre])
   @@index([sectionId])
@@ -385,9 +387,9 @@ model Verset {
   texteArabe String
   audioUrl   String?
 
-  traductions      VersetTraduction[]
+  traductions       VersetTraduction[]
   translitterations VersetTranslitteration[]
-  mots             VersetMot[]
+  mots              VersetMot[]
 
   @@unique([sourateId, numero])
   @@index([sourateId])
@@ -397,12 +399,12 @@ model Verset {
 /// UI play EXACTLY the word shown (not the whole verse). `position` is 1-based
 /// and follows the Mushaf order. Filled from quran.com (`words[].audio_url`).
 model VersetMot {
-  id        String  @id @default(cuid())
-  versetId  String
-  verset    Verset  @relation(fields: [versetId], references: [id], onDelete: Cascade)
-  position  Int // 1-based index of the word within the verse
+  id         String  @id @default(cuid())
+  versetId   String
+  verset     Verset  @relation(fields: [versetId], references: [id], onDelete: Cascade)
+  position   Int // 1-based index of the word within the verse
   texteArabe String
-  audioUrl  String?
+  audioUrl   String?
 
   @@unique([versetId, position])
   @@index([versetId])
@@ -452,22 +454,41 @@ model LessonProgress {
 
 /// SRS data — feature coming later; model exists, endpoints are secondary.
 model SourateRevision {
-  id               String        @id @default(cuid())
-  userId           String
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sourateId        String
-  sourate          Sourate       @relation(fields: [sourateId], references: [id], onDelete: Cascade)
-  score            Int           @default(0)
-  etat             RevisionState @default(revoir)
-  prochaineRevision DateTime?
-  derniereRevision  DateTime?
-  intervalleJours   Int          @default(1)
+  id                      String        @id @default(cuid())
+  userId                  String
+  user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourateId               String
+  sourate                 Sourate       @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  score                   Int           @default(0)
+  etat                    RevisionState @default(revoir)
+  prochaineRevision       DateTime?
+  derniereRevision        DateTime?
+  intervalleJours         Int           @default(1)
   // Anti-triche "réviser pour regagner" : marque la dernière `derniereRevision`
   // déjà récompensée par un cœur, pour qu'une même session complétée ne
   // puisse pas être rejouée plusieurs fois (cf. gem.service.ts).
   derniereRecompenseCoeur DateTime?
 
   @@unique([userId, sourateId])
+  @@index([userId])
+}
+
+/// SRS des leçons d'alphabet/harakat (Lesson.sourateNumero = null) — même
+/// mécanique que SourateRevision (score 0-100, planning), mais liée à une
+/// Lesson plutôt qu'à une Sourate : ces leçons n'enseignent pas un verset.
+model LettreRevision {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId          String
+  lesson            Lesson        @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  score             Int           @default(0)
+  etat              RevisionState @default(revoir)
+  prochaineRevision DateTime?
+  derniereRevision  DateTime?
+  intervalleJours   Int           @default(1)
+
+  @@unique([userId, lessonId])
   @@index([userId])
 }
 
@@ -521,15 +542,15 @@ model LeagueMembership {
 /// column is the authoritative running balance; this ledger is the audit trail
 /// and powers the earned:spent economy KPI.
 model GemTransaction {
-  id     String    @id @default(cuid())
-  userId String
-  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   // Signed delta: positive = earned, negative = spent.
-  amount Int
-  reason GemReason
+  amount    Int
+  reason    GemReason
   // Optional link to the source (lessonId, week ref, money Transaction id…).
-  ref    String?
-  createdAt DateTime @default(now())
+  ref       String?
+  createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
 }

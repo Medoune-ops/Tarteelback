@@ -61,6 +61,169 @@ const LETTERS = [
 
 type Letter = typeof LETTERS[number];
 
+// ─── Harakat (signes de voyellation) ─────────────────────────────────────────
+// Insérées ENTRE les leçons de lettres et Al-Fatiha (même section, hizb null) :
+// une fois l'alphabet connu, on apprend ce qui donne leur SON aux lettres
+// (fatha/kasra/damma/sukun/tanwin) avant d'aborder les versets.
+// On réutilise un sous-ensemble de lettres simples (non-emphatiques) pour ne
+// pas surcharger, et le TTS arabe (`ttsText`) car il n'y a pas de mp3 dédiés
+// aux combinaisons lettre+harakat (contrairement aux 28 lettres seules).
+const HARAKA_LETTERS = LETTERS.filter((l) =>
+  ['ba', 'ta', 'jeem', 'dal', 'ra', 'sin', 'fa', 'kaf', 'lam', 'mim', 'nun'].includes(l.letterKey),
+);
+
+interface Haraka { nom: string; sigle: string; son: string; suffix: string; combine: (g: string) => string }
+
+const FATHA: Haraka  = { nom: 'Fatha',  sigle: 'َ', son: 'a',  suffix: 'a',  combine: (g) => g + 'َ' };
+const KASRA: Haraka  = { nom: 'Kasra',  sigle: 'ِ', son: 'i',  suffix: 'i',  combine: (g) => g + 'ِ' };
+const DAMMA: Haraka  = { nom: 'Damma',  sigle: 'ُ', son: 'ou', suffix: 'ou', combine: (g) => g + 'ُ' };
+const SUKUN: Haraka  = { nom: 'Sukun',  sigle: 'ْ', son: '(aucune voyelle)', suffix: '',   combine: (g) => g + 'ْ' };
+
+/** Étape d'intro : met en avant LE signe enseigné dans cette leçon (glyphe seul, en grand). */
+function makeHarakaIntro(ordre: number, h: Haraka): StepRow {
+  return {
+    ordre,
+    type: 'discovery',
+    payload: {
+      arabe: h.sigle,
+      translitteration: h.nom,
+      traduction: `Nouveau signe : le ${h.nom} — il donne le son « ${h.son} »`,
+      audioUrl: null,
+      ttsText: h === SUKUN ? undefined : h.combine('ا'),
+    },
+  };
+}
+
+/** Étapes d'une leçon fatha/kasra/damma/sukun : intro sur le signe, puis discovery + written par lettre, puis matching récap. */
+function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
+  const steps: StepRow[] = [makeHarakaIntro(1, h)];
+  let ordre = 2;
+  const allSyllables = letters.map((l) => h.combine(l.g));
+  for (const L of letters) {
+    const syll = h.combine(L.g);
+    const ttsText = h === SUKUN ? L.ttsText : syll; // le TTS lit mal un signe seul sans support consonne+voyelle réel
+    steps.push({
+      ordre: ordre++,
+      type: 'discovery',
+      payload: {
+        arabe: syll,
+        translitteration: h.suffix ? `${L.nom.toLowerCase()}${h.suffix}` : `${L.nom.toLowerCase()} (sans voyelle)`,
+        traduction: `${h.nom} → son « ${h.son} »`,
+        audioUrl: null,
+        ttsText,
+      },
+    });
+    const distract = pickDistractors(allSyllables, syll, 3);
+    const shuffled = shuffle([{ correct: true, text: syll }, ...distract.map((t) => ({ correct: false, text: t }))]);
+    const ids = ['A', 'B', 'C', 'D'];
+    const options = shuffled.map((o, k) => ({ id: ids[k]!, text: o.text }));
+    const bonneReponse = ids[shuffled.findIndex((o) => o.correct)]!;
+    steps.push({
+      ordre: ordre++,
+      type: 'written',
+      payload: { consigne: `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${h.suffix} » ?`, arabe: '', options, bonneReponse },
+    });
+  }
+  if (letters.length >= 2) {
+    steps.push(makeMatchingPairs(ordre++, letters.map((L) => ({ arabe: h.combine(L.g), traduction: `${L.nom.toLowerCase()}${h.suffix || ' (sukun)'}` }))));
+  }
+  return steps;
+}
+
+/** Étapes de la leçon Tanwin (fin de mot : an/in/oun) — même moule, 3 signes × sous-ensemble de lettres. */
+function buildTanwinSteps(letters: Letter[]): StepRow[] {
+  const TANWIN = [
+    { sigle: 'ً', suffix: 'an',  combine: (g: string) => g + 'ً' },
+    { sigle: 'ٍ', suffix: 'in',  combine: (g: string) => g + 'ٍ' },
+    { sigle: 'ٌ', suffix: 'oun', combine: (g: string) => g + 'ٌ' },
+  ];
+  const steps: StepRow[] = [];
+  let ordre = 1;
+  const allSyllables = letters.flatMap((L) => TANWIN.map((t) => t.combine(L.g)));
+  for (const t of TANWIN) {
+    // Intro : met en avant LE signe tanwin enseigné dans ce bloc (glyphe seul, en grand).
+    steps.push({
+      ordre: ordre++,
+      type: 'discovery',
+      payload: {
+        arabe: t.sigle,
+        translitteration: `Tanwin ${t.suffix}`,
+        traduction: `Nouveau signe : le tanwin « ${t.sigle} » — il donne le son « ${t.suffix} »`,
+        audioUrl: null,
+        ttsText: t.combine('ا'),
+      },
+    });
+    for (const L of letters) {
+      const syll = t.combine(L.g);
+      steps.push({
+        ordre: ordre++,
+        type: 'discovery',
+        payload: {
+          arabe: syll,
+          translitteration: `${L.nom.toLowerCase()}${t.suffix}`,
+          traduction: `Tanwin « ${t.sigle} » → son « ${t.suffix} »`,
+          audioUrl: null,
+          ttsText: syll,
+        },
+      });
+      const distract = pickDistractors(allSyllables, syll, 3);
+      const shuffled = shuffle([{ correct: true, text: syll }, ...distract.map((s) => ({ correct: false, text: s }))]);
+      const ids = ['A', 'B', 'C', 'D'];
+      const options = shuffled.map((o, k) => ({ id: ids[k]!, text: o.text }));
+      const bonneReponse = ids[shuffled.findIndex((o) => o.correct)]!;
+      steps.push({
+        ordre: ordre++,
+        type: 'written',
+        payload: { consigne: `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${t.suffix} » ?`, arabe: '', options, bonneReponse },
+      });
+    }
+  }
+  const recap = letters.slice(0, 2).flatMap((L) => TANWIN.map((t) => ({ arabe: t.combine(L.g), traduction: `${L.nom.toLowerCase()}${t.suffix}` })));
+  steps.push(makeMatchingPairs(ordre++, recap));
+  return steps;
+}
+
+/** Leçon de synthèse : associer chaque signe seul (glyphe) à son nom/son + QCM mixte sur des syllabes variées. */
+function buildHarakaSummarySteps(letters: Letter[]): StepRow[] {
+  const steps: StepRow[] = [];
+  let ordre = 1;
+  const signs: Haraka[] = [FATHA, KASRA, DAMMA, SUKUN];
+  for (const h of signs) {
+    steps.push({
+      ordre: ordre++,
+      type: 'discovery',
+      payload: {
+        arabe: h.sigle,
+        translitteration: h.nom,
+        traduction: `Donne le son « ${h.son} »`,
+        audioUrl: null,
+        ttsText: h === SUKUN ? undefined : h.combine('ا'),
+      },
+    });
+  }
+  steps.push(makeMatchingPairs(ordre++, signs.map((h) => ({ arabe: h.sigle, traduction: h.nom }))));
+
+  // QCM mixte : syllabes prises sur des lettres/harakat variés.
+  const mixed = letters.slice(0, 6).flatMap((L, i) => {
+    const h = signs[i % 3]!; // alterne fatha/kasra/damma
+    return [{ arabe: h.combine(L.g), reponse: `${L.nom.toLowerCase()}${h.suffix}` }];
+  });
+  const allMixed = mixed.map((m) => m.reponse);
+  for (const m of mixed) {
+    const distract = pickDistractors(allMixed, m.reponse, 3);
+    const shuffled = shuffle([{ correct: true, text: m.reponse }, ...distract.map((t) => ({ correct: false, text: t }))]);
+    const ids = ['A', 'B', 'C', 'D'];
+    const options = shuffled.map((o, k) => ({ id: ids[k]!, text: o.text }));
+    const bonneReponse = ids[shuffled.findIndex((o) => o.correct)]!;
+    steps.push({
+      ordre: ordre++,
+      type: 'written',
+      payload: { consigne: 'Comment se prononce cette syllabe ?', arabe: m.arabe, options, bonneReponse },
+    });
+  }
+  return steps;
+}
+
 /** Découpe `arr` en `parts` tranches contiguës aussi égales que possible. */
 function chunkEven<T>(arr: T[], parts: number): T[][] {
   const base = Math.floor(arr.length / parts);
@@ -143,6 +306,16 @@ async function main() {
       });
     }
 
+    // 1bis) Leçons de harakat — entre l'alphabet et Al-Fatiha : une fois les
+    // lettres connues, on apprend ce qui leur donne leur son (fatha/kasra/
+    // damma/sukun/tanwin) avant d'aborder les versets.
+    bps.push({ titre: 'Fatha ـَ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, FATHA) });
+    bps.push({ titre: 'Kasra ـِ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, KASRA) });
+    bps.push({ titre: 'Damma ـُ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, DAMMA) });
+    bps.push({ titre: 'Soukoune ـْ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, SUKUN) });
+    bps.push({ titre: 'Tanwin ـً ـٍ ـٌ', sourateNumero: null, steps: buildTanwinSteps(HARAKA_LETTERS.slice(0, 6)) });
+    bps.push({ titre: 'Révision des signes', sourateNumero: null, steps: buildHarakaSummarySteps(HARAKA_LETTERS) });
+
     // 2) Al-Fatiha au format standard (1-2 versets/leçon).
     const fatiha = await prisma.sourate.findUnique({ where: { numero: 1 } });
     if (fatiha) {
@@ -179,7 +352,8 @@ async function main() {
     console.log(`  ✓ Leçon ${i + 1}: ${bp.titre} — ${bp.steps.length} étapes`);
   });
   const fatihaCount = blueprints.filter((b) => b.sourateNumero === 1).length;
-  console.log(`\n✓ Section 1: ${LETTERS.length} lettres sur ${LETTER_LESSONS} leçons + Al-Fatiha (${fatihaCount} leçons), ${stepsTotal} étapes`);
+  const harakaCount = blueprints.length - LETTER_LESSONS - fatihaCount;
+  console.log(`\n✓ Section 1: ${LETTERS.length} lettres sur ${LETTER_LESSONS} leçons + ${harakaCount} leçons de harakat + Al-Fatiha (${fatihaCount} leçons), ${stepsTotal} étapes`);
 }
 
 main()

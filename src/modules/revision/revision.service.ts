@@ -4,7 +4,8 @@ import { computeNextRevision, type RevisionQuality } from '../../core/revision.j
 import { scoreRecitation } from '../../core/arabic.js';
 import { transcribeAudio } from '../lessons/asr.client.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
-import type { Sourate, SourateRevision } from '@prisma/client';
+import { getLearnedLettreLessons } from '../me/learnedLettreLessons.js';
+import type { Sourate, SourateRevision, LettreRevision } from '@prisma/client';
 
 // En dessous de ce score, le verset récité est jugé "manqué" (aide affichée
 // côté front). Plus permissif que le seuil des leçons (70) : une session de
@@ -32,6 +33,21 @@ function serialize(
     nom: sourate.nom,
     nomArabe: sourate.nomArabe,
     nombreVersets: sourate.nombreVersets,
+    score: revision.score,
+    etat: revision.etat,
+    derniereRevision: revision.derniereRevision,
+    prochaineRevision: revision.prochaineRevision,
+  };
+}
+
+function serializeLettre(
+  revision: LettreRevision,
+  lesson: { id: string; titre: string; ordre: number },
+) {
+  return {
+    lessonId: lesson.id,
+    titre: lesson.titre,
+    ordre: lesson.ordre,
     score: revision.score,
     etat: revision.etat,
     derniereRevision: revision.derniereRevision,
@@ -109,6 +125,80 @@ export const revisionService = {
     });
 
     return serialize(updated, sourate);
+  },
+
+  /**
+   * GET /me/revisions/lettres — leçons d'alphabet/harakat complétées + état
+   * SRS. Même logique paresseuse que `list()` mais sur `LettreRevision`.
+   */
+  async listLettres(userId: string) {
+    const learned = await getLearnedLettreLessons(userId);
+    if (learned.length === 0) return { revisions: [] };
+
+    const lessonIds = learned.map((l) => l.id);
+    const existing = await prisma.lettreRevision.findMany({
+      where: { userId, lessonId: { in: lessonIds } },
+    });
+    const byId = new Map(existing.map((r) => [r.lessonId, r]));
+
+    const missing = learned.filter((l) => !byId.has(l.id));
+    if (missing.length > 0) {
+      const now = new Date();
+      await prisma.lettreRevision.createMany({
+        data: missing.map((l) => ({ userId, lessonId: l.id, prochaineRevision: now })),
+        skipDuplicates: true,
+      });
+      const created = await prisma.lettreRevision.findMany({
+        where: { userId, lessonId: { in: missing.map((l) => l.id) } },
+      });
+      for (const r of created) byId.set(r.lessonId, r);
+    }
+
+    return {
+      revisions: learned
+        .map((l) => serializeLettre(byId.get(l.id)!, l))
+        .sort((a, b) => a.ordre - b.ordre),
+    };
+  },
+
+  /**
+   * POST /me/revisions/lettres/:lessonId/review — enregistre le résultat
+   * d'auto-évaluation d'une révision d'alphabet/harakat et recalcule le SRS.
+   */
+  async reviewLettre(userId: string, lessonId: string, quality: RevisionQuality) {
+    const lesson = await prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { id: true, titre: true, ordre: true, sourateNumero: true },
+    });
+    if (!lesson || lesson.sourateNumero !== null) {
+      throw new AppError('NOT_FOUND', 'Lettre lesson not found');
+    }
+
+    const learned = await getLearnedLettreLessons(userId);
+    if (!learned.some((l) => l.id === lesson.id)) {
+      throw new AppError('FORBIDDEN', 'Lesson not yet learned');
+    }
+
+    const now = new Date();
+    const current = await prisma.lettreRevision.upsert({
+      where: { userId_lessonId: { userId, lessonId: lesson.id } },
+      update: {},
+      create: { userId, lessonId: lesson.id, prochaineRevision: now },
+    });
+
+    const next = computeNextRevision(current, quality, now);
+    const updated = await prisma.lettreRevision.update({
+      where: { userId_lessonId: { userId, lessonId: lesson.id } },
+      data: {
+        score: next.score,
+        etat: next.etat,
+        intervalleJours: next.intervalleJours,
+        derniereRevision: now,
+        prochaineRevision: next.prochaineRevision,
+      },
+    });
+
+    return serializeLettre(updated, lesson);
   },
 
   /**

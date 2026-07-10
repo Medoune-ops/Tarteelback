@@ -17,6 +17,18 @@ export const revisionController = {
     return reply.send(result);
   },
 
+  async listLettres(req: FastifyRequest, reply: FastifyReply) {
+    const result = await revisionService.listLettres(req.auth!.sub);
+    return reply.send(result);
+  },
+
+  async reviewLettre(req: FastifyRequest, reply: FastifyReply) {
+    const { lessonId } = req.params as { lessonId: string };
+    const body = parse(reviewSchema, req.body ?? {});
+    const result = await revisionService.reviewLettre(req.auth!.sub, lessonId, body.quality);
+    return reply.send(result);
+  },
+
   /**
    * POST /me/revisions/versets/:versetId/recite — multipart upload de
    * l'enregistrement (champ `audio`). ASR serveur + scoring ; jamais de cœur.
