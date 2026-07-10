@@ -6,7 +6,8 @@ import { revisionController } from './revision.controller.js';
  * Révision des sourates ET des leçons d'alphabet/harakat apprises, monté sous /me :
  *   - SRS sourates : GET /revisions, POST /revisions/:idOrNumero/review (score, planning) ;
  *   - SRS alphabet/harakat : GET /revisions/lettres, POST /revisions/lettres/:lessonId/review ;
- *   - Vocal : POST /revisions/versets/:versetId/recite (récitation notée Whisper).
+ *   - Vocal : POST /revisions/versets/:versetId/recite (récitation notée Whisper) ;
+ *     POST /revisions/lettres/steps/:stepId/recite (prononciation d'une lettre).
  * AUCUN cœur n'est jamais en jeu ici (contrairement au moteur de leçon).
  */
 export async function revisionRoutes(app: FastifyInstance) {
@@ -40,6 +41,19 @@ export async function revisionRoutes(app: FastifyInstance) {
     '/revisions/lettres/:lessonId/review',
     { schema: { ...sec, summary: "Enregistre le résultat d'une révision alphabet/harakat (SRS)" } },
     revisionController.reviewLettre,
+  );
+
+  app.post(
+    '/revisions/lettres/steps/:stepId/recite',
+    {
+      schema: {
+        ...sec,
+        summary:
+          'Prononciation d\'une lettre/syllabe notée par Whisper ASR (multipart "audio"). Jamais de cœur en jeu. 503 si ASR non configuré.',
+        consumes: ['multipart/form-data'],
+      },
+    },
+    revisionController.reciteLettre,
   );
 
   app.post(

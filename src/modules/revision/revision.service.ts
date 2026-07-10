@@ -14,6 +14,9 @@ const FLUENT_THRESHOLD = 60;
 // Au-dessus de ce score (sans atteindre la fluidité) : hésitation plutôt
 // qu'oubli total — nuance renvoyée au front via `verdict`.
 const HESITANT_THRESHOLD = 30;
+// Lettres/syllabes isolées : audio très court → transcription Whisper plus
+// bruitée que sur un verset. Seuil de réussite plus permissif pour compenser.
+const LETTER_FLUENT_THRESHOLD = 50;
 
 /** Résout une sourate par cuid OU par numero (même dispatch que content.service.ts). */
 async function resolveSourate(idOrNumero: string): Promise<Sourate> {
@@ -217,6 +220,37 @@ export const revisionService = {
     const transcription = await transcribeAudio(audio, filename, mimetype);
     const score = scoreRecitation(verset.texteArabe, transcription);
     const fluide = score >= FLUENT_THRESHOLD;
+    const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
+    return { score, transcription, fluide, verdict };
+  },
+
+  /**
+   * POST /me/revisions/lettres/steps/:stepId/recite — prononciation d'une
+   * lettre/syllabe (flashcard alphabet/harakat) jugée par Whisper. Le texte
+   * attendu reste côté serveur (payload de l'étape) — anti-triche, comme pour
+   * les versets. Jamais de cœur en jeu.
+   */
+  async reciteLettreStep(stepId: string, audio: Buffer, filename: string, mimetype: string) {
+    const step = await prisma.lessonStep.findUnique({
+      where: { id: stepId },
+      select: { type: true, payload: true, lesson: { select: { sourateNumero: true } } },
+    });
+    if (!step || step.lesson.sourateNumero !== null || step.type !== 'discovery') {
+      throw new AppError('NOT_FOUND', 'Lettre step not found');
+    }
+    const payload = step.payload as { arabe?: string; ttsText?: string | null };
+    // L'utilisateur peut prononcer le NOM de la lettre ("bā" → بَاء, ttsText)
+    // ou son SON/glyphe (arabe) : on score contre les deux et on garde le max.
+    const candidates = [payload.ttsText, payload.arabe].filter(
+      (t): t is string => typeof t === 'string' && t.length > 0,
+    );
+    if (candidates.length === 0) {
+      throw new AppError('VALIDATION_ERROR', 'Step has no expected text');
+    }
+
+    const transcription = await transcribeAudio(audio, filename, mimetype);
+    const score = Math.max(...candidates.map((t) => scoreRecitation(t, transcription)));
+    const fluide = score >= LETTER_FLUENT_THRESHOLD;
     const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
     return { score, transcription, fluide, verdict };
   },

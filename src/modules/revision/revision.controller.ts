@@ -30,6 +30,26 @@ export const revisionController = {
   },
 
   /**
+   * POST /me/revisions/lettres/steps/:stepId/recite — multipart upload de la
+   * prononciation d'une lettre/syllabe (champ `audio`). ASR + scoring serveur.
+   */
+  async reciteLettre(req: FastifyRequest, reply: FastifyReply) {
+    const { stepId } = req.params as { stepId: string };
+    const file = await req.file();
+    if (!file) {
+      throw new AppError('VALIDATION_ERROR', 'Multipart field "audio" is required');
+    }
+    const audio = await file.toBuffer();
+    const result = await revisionService.reciteLettreStep(
+      stepId,
+      audio,
+      file.filename || 'recording',
+      file.mimetype || 'application/octet-stream',
+    );
+    return reply.send(result);
+  },
+
+  /**
    * POST /me/revisions/versets/:versetId/recite — multipart upload de
    * l'enregistrement (champ `audio`). ASR serveur + scoring ; jamais de cœur.
    */
