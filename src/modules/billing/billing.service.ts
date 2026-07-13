@@ -7,6 +7,8 @@ import { repairStreak } from '../../core/streak.js';
 import { userRepository } from '../me/user.repository.js';
 import { GEM_PACKS } from '../../core/gems.js';
 import { MAX_HEARTS } from '../../core/hearts.js';
+import { isFamilyPlan, recomputePremium } from '../../core/household.js';
+import { householdService } from '../household/household.service.js';
 import type { SubscribeInput, BuyGemsInput, BuyHeartsInput } from './billing.schemas.js';
 
 /**
@@ -29,13 +31,25 @@ function charge(amount: number, paymentToken?: string): { ok: boolean; ref: stri
 }
 
 export const billingService = {
-  /** POST /billing/subscribe — activate premium for 1 month / 1 year. */
+  /**
+   * POST /billing/subscribe — active un abonnement premium (1 mois / 1 an),
+   * individuel OU familial. Familial : active l'abonnement du FOYER (créé si
+   * besoin) → tous les membres deviennent premium. Individuel : prolonge le
+   * premium PERSONNEL puis recalcule le premium effectif.
+   */
   async subscribe(userId: string, input: SubscribeInput) {
     const now = new Date();
     const user = await userRepository.getOrThrow(userId);
 
-    const isYearly = input.plan === 'annuel';
-    const amount = isYearly ? env.PREMIUM_PRICE_YEARLY : env.PREMIUM_PRICE_MONTHLY;
+    const family = isFamilyPlan(input.plan);
+    const isYearly = input.plan === 'annuel' || input.plan === 'famille_annuel';
+    const amount = family
+      ? isYearly
+        ? env.PREMIUM_PRICE_FAMILY_YEARLY
+        : env.PREMIUM_PRICE_FAMILY_MONTHLY
+      : isYearly
+        ? env.PREMIUM_PRICE_YEARLY
+        : env.PREMIUM_PRICE_MONTHLY;
 
     const result = charge(amount, input.paymentToken);
     if (!result.ok) {
@@ -51,17 +65,31 @@ export const billingService = {
       throw new AppError('PAYMENT_FAILED', 'Payment was declined');
     }
 
-    // Extend from the later of now / current premiumUntil.
-    const base =
-      user.premiumUntil && user.premiumUntil > now ? user.premiumUntil : now;
-    const premiumUntil = new Date(base);
-    if (isYearly) premiumUntil.setFullYear(premiumUntil.getFullYear() + 1);
-    else premiumUntil.setMonth(premiumUntil.getMonth() + 1);
+    let premiumUntil: Date;
+    if (family) {
+      // Active/étend l'abonnement du foyer → recalcule tous les membres.
+      premiumUntil = await householdService.activateSubscription(userId, input.plan, isYearly, now);
+    } else {
+      // Prolonge le premium PERSONNEL depuis la date la plus tardive.
+      const base =
+        user.personalPremiumUntil && user.personalPremiumUntil > now
+          ? user.personalPremiumUntil
+          : now;
+      premiumUntil = new Date(base);
+      if (isYearly) premiumUntil.setFullYear(premiumUntil.getFullYear() + 1);
+      else premiumUntil.setMonth(premiumUntil.getMonth() + 1);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { personalPremiumUntil: premiumUntil },
+      });
+      await recomputePremium(userId, now);
+    }
 
-    const [updated] = await prisma.$transaction([
+    // Cœurs pleins pour l'abonné qui paie + trace de la transaction.
+    await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },
-        data: { isPremium: true, premiumUntil, hearts: env.MAX_HEARTS, lastHeartLossAt: null },
+        data: { hearts: MAX_HEARTS, lastHeartLossAt: null },
       }),
       prisma.transaction.create({
         data: {
@@ -77,7 +105,7 @@ export const billingService = {
 
     return {
       isPremium: true,
-      premiumUntil: updated.premiumUntil,
+      premiumUntil,
       plan: input.plan,
       providerRef: result.ref,
     };

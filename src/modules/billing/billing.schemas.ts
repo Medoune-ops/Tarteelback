@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 export const subscribeSchema = z
   .object({
-    plan: z.enum(['mensuel', 'annuel']),
+    // Plans individuels (mensuel/annuel) et familiaux (jusqu'à 5 comptes).
+    plan: z.enum(['mensuel', 'annuel', 'famille_mensuel', 'famille_annuel']),
     // Mock provider token; in a real Stripe flow this would be a PaymentMethod id.
     paymentToken: z.string().optional(),
   })

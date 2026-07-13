@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { verifyPassword } from '../../core/password.js';
 import { computeHearts } from '../../core/hearts.js';
-import { isPremiumActive } from '../../core/premium.js';
+import { familyPremiumUntil, resolveEffectiveUntil } from '../../core/household.js';
 import { settleStreak } from '../../core/streak.js';
 import { userRepository } from './user.repository.js';
 import type { UpdateMeInput, UpdateSettingsInput } from './me.schemas.js';
@@ -19,13 +19,18 @@ import { applyOnboardingStart } from './onboardingStart.js';
  * and every "sync" endpoint stay consistent. Returns the up-to-date user.
  */
 export async function syncUserState(user: User, now: Date = new Date()): Promise<User> {
-  const premium = isPremiumActive(user, now);
+  // Premium EFFECTIF = personnel OU familial (foyer). On matérialise le résultat
+  // dans isPremium/premiumUntil pour que tous les contrôles existants restent
+  // valables, et on gère l'expiration silencieuse des deux sources.
+  const familyUntil = await familyPremiumUntil(user.id, now);
+  const effectiveUntil = resolveEffectiveUntil(user.personalPremiumUntil, familyUntil, now);
+  const premium = effectiveUntil != null;
 
   const data: Record<string, unknown> = {};
 
-  // Premium expiry: silently downgrade.
-  if (user.isPremium && !premium) {
-    data.isPremium = false;
+  if (user.isPremium !== premium) data.isPremium = premium;
+  if ((user.premiumUntil?.getTime() ?? null) !== (effectiveUntil?.getTime() ?? null)) {
+    data.premiumUntil = effectiveUntil;
   }
 
   // Hearts.

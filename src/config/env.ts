@@ -79,6 +79,9 @@ const EnvSchema = z.object({
 
   PREMIUM_PRICE_MONTHLY: z.coerce.number().default(1.52),
   PREMIUM_PRICE_YEARLY: z.coerce.number().default(15.24),
+  // Plan familial (jusqu'à 5 comptes premium sous un même foyer).
+  PREMIUM_PRICE_FAMILY_MONTHLY: z.coerce.number().default(3.99),
+  PREMIUM_PRICE_FAMILY_YEARLY: z.coerce.number().default(39.99),
   STREAK_REPAIR_PRICE: z.coerce.number().default(0.87),
   // Prix d'un refill complet des cœurs payé avec de l'argent (paiement mock).
   HEART_REFILL_PRICE: z.coerce.number().default(0.99),
