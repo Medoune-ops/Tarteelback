@@ -8,19 +8,24 @@ import { contentController } from './content.controller.js';
 export async function contentRoutes(app: FastifyInstance) {
   app.get(
     '/sections',
-    { schema: { tags: ['content'], summary: 'Full learning path (PARCOURS_SECTIONS)' } },
+    { schema: { tags: ['content'], summary: 'Full learning path (PARCOURS_SECTIONS, label in ?lang / Accept-Language)' } },
     contentController.sections,
   );
 
   app.get(
     '/sections/:id/lessons',
-    { schema: { tags: ['content'], summary: 'Lessons of a section' } },
+    { schema: { tags: ['content'], summary: 'Lessons of a section (step text in ?lang / Accept-Language)' } },
     contentController.sectionLessons,
   );
 
   app.get(
     '/lessons/:id',
-    { schema: { tags: ['content'], summary: 'Lesson with its step sequence (no answer keys)' } },
+    {
+      schema: {
+        tags: ['content'],
+        summary: 'Lesson with its step sequence (no answer keys, text in ?lang / Accept-Language)',
+      },
+    },
     contentController.lesson,
   );
 
