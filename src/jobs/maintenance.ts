@@ -12,6 +12,7 @@ import { redis } from '../config/redis.js';
 import { withLock } from '../core/lock.js';
 import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
 import { sendDueDailyReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
+import { householdService } from '../modules/household/household.service.js';
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
 
@@ -40,6 +41,14 @@ export async function downgradeExpiredPremium(now: Date = new Date()) {
   });
 }
 
+/** Expire les abonnements familiaux échus (+ recompute des membres) et marque
+ *  les invitations dépassées. À exécuter avant downgradeExpiredPremium. */
+export async function expireHouseholds(now: Date = new Date()) {
+  return withLock('job:expire-households', LOCK_TTL_MS, async () => {
+    return householdService.expireDue(now);
+  });
+}
+
 /** Send all due push reminders (daily learning + streak alerts). */
 export async function runReminders(now: Date = new Date()) {
   return withLock('job:reminders', LOCK_TTL_MS, async () => {
@@ -53,13 +62,16 @@ export async function runReminders(now: Date = new Date()) {
 
 /** Run every due maintenance job. Returns a summary. */
 export async function runAllMaintenance(now: Date = new Date()) {
+  // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
+  // avant le downgrade global.
+  const households = await expireHouseholds(now);
   const [tokens, premium, rollover, reminders] = await Promise.all([
     purgeRefreshTokens(now),
     downgradeExpiredPremium(now),
     runWeeklyRollover(now),
     runReminders(now),
   ]);
-  return { tokens, premium, rollover, reminders };
+  return { households, tokens, premium, rollover, reminders };
 }
 
 // CLI entrypoint. `pathToFileURL` (et non une concaténation `file://`) pour que
@@ -91,6 +103,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         return purgeRefreshTokens();
       case 'downgrade-premium':
         return downgradeExpiredPremium();
+      case 'expire-households':
+        return expireHouseholds();
       case 'rollover':
         return runWeeklyRollover();
       case 'reminders':

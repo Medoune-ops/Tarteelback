@@ -146,8 +146,14 @@ model User {
   voiceEnabled   Boolean   @default(true)
 
   // Premium
+  // `isPremium`/`premiumUntil` = premium EFFECTIF (personnel OU familial),
+  // matérialisé par syncUserState pour que tous les contrôles existants
+  // (isPremiumActive) restent valables sans changement.
   isPremium    Boolean   @default(false)
   premiumUntil DateTime?
+  // Abonnement PERSONNEL de ce compte (indépendant du plan familial). Sert de
+  // source pour recalculer le premium effectif. Rétro-rempli = premiumUntil.
+  personalPremiumUntil DateTime?
 
   // Stats / hearts / streak (kept on User for atomic 1-1 updates)
   // Single XP counter — resets to 0 every week alongside the league rollover
@@ -216,7 +222,65 @@ model User {
   activityDays      ActivityDay[]
   gemTransactions   GemTransaction[]
 
+  // Plan familial (foyer) : un compte possède au plus un foyer (owner) et
+  // appartient à au plus un foyer (membership).
+  ownedHousehold    Household?            @relation("HouseholdOwner")
+  householdMember   HouseholdMember?
+  sentInvitations   HouseholdInvitation[] @relation("InvitedBy")
+
   @@index([weeklyXp])
+}
+
+/// Foyer (plan familial). Un propriétaire (owner), jusqu'à HOUSEHOLD_MAX_MEMBERS
+/// membres (owner inclus). Quand `subscriptionActive` et `subscriptionUntil` est
+/// dans le futur, TOUS les membres bénéficient du premium (matérialisé sur
+/// chaque User via recomputePremium).
+model Household {
+  id                 String    @id @default(cuid())
+  ownerId            String    @unique
+  owner              User      @relation("HouseholdOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  subscriptionActive Boolean   @default(false)
+  subscriptionUntil  DateTime?
+  plan               String? // "famille_mensuel" | "famille_annuel"
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  members     HouseholdMember[]
+  invitations HouseholdInvitation[]
+}
+
+/// Appartenance d'un compte à un foyer. Un compte appartient à AU PLUS un foyer
+/// (userId unique). Le propriétaire a aussi une ligne membre (role "owner").
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  userId      String    @unique
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String    @default("member") // "owner" | "member"
+  joinedAt    DateTime  @default(now())
+
+  @@unique([householdId, userId])
+  @@index([householdId])
+}
+
+/// Invitation à rejoindre un foyer (par email). Expire après INVITE_TTL_DAYS.
+model HouseholdInvitation {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  email       String // email invité (minuscules)
+  token       String    @unique @default(cuid())
+  status      String    @default("pending") // pending | accepted | declined | expired | cancelled
+  invitedById String
+  invitedBy   User      @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  respondedAt DateTime?
+
+  @@index([householdId])
+  @@index([email])
+  @@index([status])
 }
 
 /// One row per LOCAL day the user was active (completed at least one lesson).
