@@ -16,10 +16,29 @@
 //  in the user's timezone) is the source of truth for recomputation on app
 //  open — we never trust a client-sent date.
 //
-//  i18n. A verse's meaning is shown in the USER's language. So translations
-//  live in `VersetTraduction` keyed by `langue`, not as a single column on
-//  `Verset`. Transliteration is treated the same way (it can differ per script
-//  convention / language).
+//  i18n — TWO patterns coexist, pick deliberately for any NEW text field:
+//
+//   1) Separate table keyed by `langue` (VersetTraduction, VersetTranslitteration).
+//      Use this when a language could be ADDED later without a migration, or
+//      when there can be multiple sources/variants per language.
+//
+//   2) `Json` column shaped `{ fr: string, en: string, ... }`, resolved by
+//      `resolveI18n()` in content.serializer.ts given the request's `lang`.
+//      Use this for short UI-ish text authored alongside the content itself
+//      (Section.titre/sousTitre, Lesson.titre, LessonStep.payload.consigne).
+//
+//   ⚠️ RULE: any NEW text field a user reads (titles, labels, consignes,
+//   generated copy) MUST use one of these two patterns from the day it's
+//   added — never a plain `String` "for now". Retrofitting i18n onto a
+//   String column later means: a Prisma migration, re-running every content
+//   generator, AND remembering to actually deploy the serializer change
+//   (see git history: the {fr,en} migration shipped to the DB once before
+//   the code that resolves it was ever committed — the API served raw JSON
+//   as visible text for a while as a result). Decide the shape up front.
+//
+//   Whichever pattern you pick, update content.serializer.ts's `resolveI18n`
+//   call sites AND double-check with `git push` + a live `curl` against the
+//   deployed API — a passing local typecheck does not mean it's live.
 // =============================================================================
 
 generator client {
