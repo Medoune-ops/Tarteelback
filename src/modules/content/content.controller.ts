@@ -6,19 +6,22 @@ import { contentService } from './content.service.js';
 export const contentController = {
   async sections(req: FastifyRequest, reply: FastifyReply) {
     const claims = await tryAuth(req); // personalised node states when logged in
-    const sections = await contentService.getSections(claims?.sub ?? null);
+    const lang = resolveLang(req, env.DEFAULT_LANG);
+    const sections = await contentService.getSections(claims?.sub ?? null, lang);
     return reply.send({ sections });
   },
 
   async sectionLessons(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
-    const lessons = await contentService.getLessonsForSection(id);
+    const lang = resolveLang(req, env.DEFAULT_LANG);
+    const lessons = await contentService.getLessonsForSection(id, lang);
     return reply.send({ lessons });
   },
 
   async lesson(req: FastifyRequest, reply: FastifyReply) {
     const { id } = req.params as { id: string };
-    const lesson = await contentService.getLesson(id);
+    const lang = resolveLang(req, env.DEFAULT_LANG);
+    const lesson = await contentService.getLesson(id, lang);
     return reply.send({ lesson });
   },
 

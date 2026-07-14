@@ -8,15 +8,17 @@
  *     (regroupement 1-2 versets, discovery + ordering + matching + written) via
  *     le module partagé prisma/lessonBuilder.ts.
  *
- * Recrée entièrement les leçons de la section (deleteMany + createMany), donc
- * idempotent. Protégé par withRetry (coupures du Postgres free-tier Render).
+ * UPSERT en place par (sectionId, ordre) / (lessonId, ordre) — jamais de
+ * deleteMany+recreate, pour préserver Lesson.id/LessonStep.id (donc
+ * LessonProgress/LettreRevision des utilisateurs réels). Idempotent.
+ * Protégé par withRetry (coupures du Postgres free-tier Render).
  *
  *   DATABASE_URL="…" npx tsx prisma/generateAlphabet.ts
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import {
-  FR, buildGroupSteps, groupVerses, loadVersets, withRetry,
+  FR, buildGroupSteps, groupVerses, i18n, loadVersets, withRetry,
   makeMatchingPairs, makeOrderingItems, pickDistractors, shuffle, type StepRow,
 } from './lessonBuilder.js';
 
@@ -29,34 +31,34 @@ const LETTER_LESSONS = 7;
 // Les 28 lettres. `letterKey` = clé audio locale bundlée côté front ;
 // `ttsText` = fallback expo-speech.
 const LETTERS = [
-  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  letterKey: 'alif',  ttsText: 'أَلِف' },
-  { g: 'ب', nom: 'Bā',    son: 'b',                            letterKey: 'ba',    ttsText: 'بَاء' },
-  { g: 'ت', nom: 'Tā',    son: 't',                            letterKey: 'ta',    ttsText: 'تَاء' },
-  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       letterKey: 'tha',   ttsText: 'ثَاء' },
-  { g: 'ج', nom: 'Jīm',   son: 'dj',                           letterKey: 'jeem',  ttsText: 'جِيم' },
-  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                letterKey: 'ha',    ttsText: 'حَاء' },
-  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    letterKey: 'kha',   ttsText: 'خَاء' },
-  { g: 'د', nom: 'Dāl',   son: 'd',                            letterKey: 'dal',   ttsText: 'دَال' },
-  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        letterKey: 'dhal',  ttsText: 'ذَال' },
-  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      letterKey: 'ra',    ttsText: 'رَاء' },
-  { g: 'ز', nom: 'Zāy',   son: 'z',                            letterKey: 'zay',   ttsText: 'زَاي' },
-  { g: 'س', nom: 'Sīn',   son: 's',                            letterKey: 'sin',   ttsText: 'سِين' },
-  { g: 'ش', nom: 'Shīn',  son: 'ch',                           letterKey: 'shin',  ttsText: 'شِين' },
-  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 letterKey: 'sad',   ttsText: 'صَاد' },
-  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 letterKey: 'dad',   ttsText: 'ضَاد' },
-  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 letterKey: 'ta2',   ttsText: 'طَاء' },
-  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 letterKey: 'dha2',  ttsText: 'ظَاء' },
-  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         letterKey: 'ayn',   ttsText: 'عَيْن' },
-  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              letterKey: 'ghayn', ttsText: 'غَيْن' },
-  { g: 'ف', nom: 'Fā',    son: 'f',                            letterKey: 'fa',    ttsText: 'فَاء' },
-  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   letterKey: 'qaf',   ttsText: 'قَاف' },
-  { g: 'ك', nom: 'Kāf',   son: 'k',                            letterKey: 'kaf',   ttsText: 'كَاف' },
-  { g: 'ل', nom: 'Lām',   son: 'l',                            letterKey: 'lam',   ttsText: 'لَام' },
-  { g: 'م', nom: 'Mīm',   son: 'm',                            letterKey: 'mim',   ttsText: 'مِيم' },
-  { g: 'ن', nom: 'Nūn',   son: 'n',                            letterKey: 'nun',   ttsText: 'نُون' },
-  { g: 'ه', nom: 'Hā',    son: 'h léger',                      letterKey: 'ha2',   ttsText: 'هَاء' },
-  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       letterKey: 'waw',   ttsText: 'وَاو' },
-  { g: 'ي', nom: 'Yā',    son: 'y / î',                        letterKey: 'ya',    ttsText: 'يَاء' },
+  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  sonEn: 'a / long â',                letterKey: 'alif',  ttsText: 'أَلِف' },
+  { g: 'ب', nom: 'Bā',    son: 'b',                            sonEn: 'b',                          letterKey: 'ba',    ttsText: 'بَاء' },
+  { g: 'ت', nom: 'Tā',    son: 't',                            sonEn: 't',                          letterKey: 'ta',    ttsText: 'تَاء' },
+  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       sonEn: 'th (as in "think")',         letterKey: 'tha',   ttsText: 'ثَاء' },
+  { g: 'ج', nom: 'Jīm',   son: 'dj',                           sonEn: 'j (as in "jam")',            letterKey: 'jeem',  ttsText: 'جِيم' },
+  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                sonEn: 'strong breathy h',           letterKey: 'ha',    ttsText: 'حَاء' },
+  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    sonEn: 'kh (like Spanish "jota")',   letterKey: 'kha',   ttsText: 'خَاء' },
+  { g: 'د', nom: 'Dāl',   son: 'd',                            sonEn: 'd',                          letterKey: 'dal',   ttsText: 'دَال' },
+  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        sonEn: 'th (as in "this")',          letterKey: 'dhal',  ttsText: 'ذَال' },
+  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      sonEn: 'rolled r',                   letterKey: 'ra',    ttsText: 'رَاء' },
+  { g: 'ز', nom: 'Zāy',   son: 'z',                            sonEn: 'z',                          letterKey: 'zay',   ttsText: 'زَاي' },
+  { g: 'س', nom: 'Sīn',   son: 's',                            sonEn: 's',                          letterKey: 'sin',   ttsText: 'سِين' },
+  { g: 'ش', nom: 'Shīn',  son: 'ch',                           sonEn: 'sh',                         letterKey: 'shin',  ttsText: 'شِين' },
+  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 sonEn: 'emphatic s',                 letterKey: 'sad',   ttsText: 'صَاد' },
+  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 sonEn: 'emphatic d',                 letterKey: 'dad',   ttsText: 'ضَاد' },
+  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 sonEn: 'emphatic t',                 letterKey: 'ta2',   ttsText: 'طَاء' },
+  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 sonEn: 'emphatic z',                 letterKey: 'dha2',  ttsText: 'ظَاء' },
+  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         sonEn: 'guttural "ʿa" sound',        letterKey: 'ayn',   ttsText: 'عَيْن' },
+  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              sonEn: 'gh (like French rolled r)',  letterKey: 'ghayn', ttsText: 'غَيْن' },
+  { g: 'ف', nom: 'Fā',    son: 'f',                            sonEn: 'f',                          letterKey: 'fa',    ttsText: 'فَاء' },
+  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   sonEn: 'guttural q',                 letterKey: 'qaf',   ttsText: 'قَاف' },
+  { g: 'ك', nom: 'Kāf',   son: 'k',                            sonEn: 'k',                          letterKey: 'kaf',   ttsText: 'كَاف' },
+  { g: 'ل', nom: 'Lām',   son: 'l',                            sonEn: 'l',                          letterKey: 'lam',   ttsText: 'لَام' },
+  { g: 'م', nom: 'Mīm',   son: 'm',                            sonEn: 'm',                          letterKey: 'mim',   ttsText: 'مِيم' },
+  { g: 'ن', nom: 'Nūn',   son: 'n',                            sonEn: 'n',                          letterKey: 'nun',   ttsText: 'نُون' },
+  { g: 'ه', nom: 'Hā',    son: 'h léger',                      sonEn: 'light h',                    letterKey: 'ha2',   ttsText: 'هَاء' },
+  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       sonEn: 'w / oo',                     letterKey: 'waw',   ttsText: 'وَاو' },
+  { g: 'ي', nom: 'Yā',    son: 'y / î',                        sonEn: 'y / long î',                 letterKey: 'ya',    ttsText: 'يَاء' },
 ];
 
 type Letter = typeof LETTERS[number];
@@ -72,12 +74,25 @@ const HARAKA_LETTERS = LETTERS.filter((l) =>
   ['ba', 'ta', 'jeem', 'dal', 'ra', 'sin', 'fa', 'kaf', 'lam', 'mim', 'nun'].includes(l.letterKey),
 );
 
-interface Haraka { nom: string; sigle: string; son: string; suffix: string; combine: (g: string) => string }
+interface Haraka {
+  nom: string; sigle: string;
+  son: string; sonEn: string;
+  suffix: string; suffixEn: string;
+  combine: (g: string) => string;
+}
 
-const FATHA: Haraka  = { nom: 'Fatha',  sigle: 'َ', son: 'a',  suffix: 'a',  combine: (g) => g + 'َ' };
-const KASRA: Haraka  = { nom: 'Kasra',  sigle: 'ِ', son: 'i',  suffix: 'i',  combine: (g) => g + 'ِ' };
-const DAMMA: Haraka  = { nom: 'Damma',  sigle: 'ُ', son: 'ou', suffix: 'ou', combine: (g) => g + 'ُ' };
-const SUKUN: Haraka  = { nom: 'Sukun',  sigle: 'ْ', son: '(aucune voyelle)', suffix: '',   combine: (g) => g + 'ْ' };
+const FATHA: Haraka = {
+  nom: 'Fatha', sigle: 'َ', son: 'a', sonEn: 'a', suffix: 'a', suffixEn: 'a', combine: (g) => g + 'َ',
+};
+const KASRA: Haraka = {
+  nom: 'Kasra', sigle: 'ِ', son: 'i', sonEn: 'i', suffix: 'i', suffixEn: 'i', combine: (g) => g + 'ِ',
+};
+const DAMMA: Haraka = {
+  nom: 'Damma', sigle: 'ُ', son: 'ou', sonEn: 'u', suffix: 'ou', suffixEn: 'u', combine: (g) => g + 'ُ',
+};
+const SUKUN: Haraka = {
+  nom: 'Sukun', sigle: 'ْ', son: '(aucune voyelle)', sonEn: '(no vowel)', suffix: '', suffixEn: '', combine: (g) => g + 'ْ',
+};
 
 /** Étape d'intro : met en avant LE signe enseigné dans cette leçon (glyphe seul, en grand). */
 function makeHarakaIntro(ordre: number, h: Haraka): StepRow {
@@ -87,7 +102,10 @@ function makeHarakaIntro(ordre: number, h: Haraka): StepRow {
     payload: {
       arabe: h.sigle,
       translitteration: h.nom,
-      traduction: `Nouveau signe : le ${h.nom} — il donne le son « ${h.son} »`,
+      traduction: i18n(
+        `Nouveau signe : le ${h.nom} — il donne le son « ${h.son} »`,
+        `New sign: ${h.nom} — it gives the sound "${h.sonEn}"`,
+      ),
       audioUrl: null,
       ttsText: h === SUKUN ? undefined : h.combine('ا'),
     },
@@ -108,7 +126,7 @@ function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
       payload: {
         arabe: syll,
         translitteration: h.suffix ? `${L.nom.toLowerCase()}${h.suffix}` : `${L.nom.toLowerCase()} (sans voyelle)`,
-        traduction: `${h.nom} → son « ${h.son} »`,
+        traduction: i18n(`${h.nom} → son « ${h.son} »`, `${h.nom} → sound "${h.sonEn}"`),
         audioUrl: null,
         ttsText,
       },
@@ -121,7 +139,15 @@ function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
     steps.push({
       ordre: ordre++,
       type: 'written',
-      payload: { consigne: `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${h.suffix} » ?`, arabe: '', options, bonneReponse },
+      payload: {
+        consigne: i18n(
+          `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${h.suffix} » ?`,
+          `Which syllable is pronounced "${L.nom.toLowerCase()}${h.suffixEn}"?`,
+        ),
+        arabe: '',
+        options,
+        bonneReponse,
+      },
     });
   }
   if (letters.length >= 2) {
@@ -148,7 +174,10 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
       payload: {
         arabe: t.sigle,
         translitteration: `Tanwin ${t.suffix}`,
-        traduction: `Nouveau signe : le tanwin « ${t.sigle} » — il donne le son « ${t.suffix} »`,
+        traduction: i18n(
+          `Nouveau signe : le tanwin « ${t.sigle} » — il donne le son « ${t.suffix} »`,
+          `New sign: tanwin "${t.sigle}" — it gives the sound "${t.suffix}"`,
+        ),
         audioUrl: null,
         ttsText: t.combine('ا'),
       },
@@ -161,7 +190,7 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
         payload: {
           arabe: syll,
           translitteration: `${L.nom.toLowerCase()}${t.suffix}`,
-          traduction: `Tanwin « ${t.sigle} » → son « ${t.suffix} »`,
+          traduction: i18n(`Tanwin « ${t.sigle} » → son « ${t.suffix} »`, `Tanwin "${t.sigle}" → sound "${t.suffix}"`),
           audioUrl: null,
           ttsText: syll,
         },
@@ -174,7 +203,15 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
       steps.push({
         ordre: ordre++,
         type: 'written',
-        payload: { consigne: `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${t.suffix} » ?`, arabe: '', options, bonneReponse },
+        payload: {
+          consigne: i18n(
+            `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${t.suffix} » ?`,
+            `Which syllable is pronounced "${L.nom.toLowerCase()}${t.suffix}"?`,
+          ),
+          arabe: '',
+          options,
+          bonneReponse,
+        },
       });
     }
   }
@@ -195,7 +232,7 @@ function buildHarakaSummarySteps(letters: Letter[]): StepRow[] {
       payload: {
         arabe: h.sigle,
         translitteration: h.nom,
-        traduction: `Donne le son « ${h.son} »`,
+        traduction: i18n(`Donne le son « ${h.son} »`, `Gives the sound "${h.sonEn}"`),
         audioUrl: null,
         ttsText: h === SUKUN ? undefined : h.combine('ا'),
       },
@@ -218,7 +255,12 @@ function buildHarakaSummarySteps(letters: Letter[]): StepRow[] {
     steps.push({
       ordre: ordre++,
       type: 'written',
-      payload: { consigne: 'Comment se prononce cette syllabe ?', arabe: m.arabe, options, bonneReponse },
+      payload: {
+        consigne: i18n('Comment se prononce cette syllabe ?', 'How is this syllable pronounced?'),
+        arabe: m.arabe,
+        options,
+        bonneReponse,
+      },
     });
   }
   return steps;
@@ -254,7 +296,14 @@ function buildLetterSteps(group: Letter[]): StepRow[] {
     steps.push({
       ordre: ordre++,
       type: 'discovery',
-      payload: { arabe: L.g, translitteration: L.nom, traduction: `Son : « ${L.son} »`, audioUrl: null, letterKey: L.letterKey, ttsText: L.ttsText },
+      payload: {
+        arabe: L.g,
+        translitteration: L.nom,
+        traduction: i18n(`Son : « ${L.son} »`, `Sound: "${L.sonEn}"`),
+        audioUrl: null,
+        letterKey: L.letterKey,
+        ttsText: L.ttsText,
+      },
     });
     const distract = pickDistractors(allNames, L.nom, 3);
     const shuffled = shuffle([{ correct: true, text: L.nom }, ...distract.map((t) => ({ correct: false, text: t }))]);
@@ -264,7 +313,7 @@ function buildLetterSteps(group: Letter[]): StepRow[] {
     steps.push({
       ordre: ordre++,
       type: 'written',
-      payload: { consigne: 'Quelle lettre est-ce ?', arabe: L.g, options, bonneReponse },
+      payload: { consigne: i18n('Quelle lettre est-ce ?', 'Which letter is this?'), arabe: L.g, options, bonneReponse },
     });
   }
   // Remise en ordre alphabétique (position = rang dans le groupe, déjà trié).
@@ -272,7 +321,7 @@ function buildLetterSteps(group: Letter[]): StepRow[] {
     const items = group.map((L, i) => ({ position: i + 1, texteArabe: L.g }));
     steps.push(makeOrderingItems(ordre++, items, {
       arabe: group.map((l) => l.g).join(' '),
-      consigne: 'Remets les lettres dans l’ordre alphabétique',
+      consigne: i18n('Remets les lettres dans l’ordre alphabétique', 'Put the letters back in alphabetical order'),
     }));
   }
   // Association glyphe ↔ nom (récap).
@@ -332,20 +381,61 @@ async function main() {
     return bps;
   }, 'Alphabet — collecte');
 
-  // 3) Recréer entièrement les leçons de la section.
+  // 3) UPSERT en place par (sectionId, ordre) / (lessonId, ordre) — jamais de
+  // deleteMany+recreate : ça préserverait le CONTENU mais changerait les ids
+  // (Lesson.id, LessonStep.id), cassant LessonProgress/LettreRevision déjà
+  // enregistrés pour des utilisateurs réels. Seules les positions en surplus
+  // (au-delà du nouveau nombre de blueprints/steps) sont supprimées.
   const stepsTotal = await withRetry(async () => {
-    await prisma.lesson.deleteMany({ where: { sectionId: section.id } });
-    const created = await prisma.lesson.createManyAndReturn({
-      data: blueprints.map((bp, i) => ({ sectionId: section.id, ordre: i + 1, titre: bp.titre, sourateNumero: bp.sourateNumero })),
+    const existingLessons = await prisma.lesson.findMany({
+      where: { sectionId: section.id },
       select: { id: true, ordre: true },
     });
-    const idByOrdre = new Map(created.map((l) => [l.ordre, l.id]));
-    const allSteps = blueprints.flatMap((bp, i) => {
-      const lessonId = idByOrdre.get(i + 1)!;
-      return bp.steps.map((s) => ({ lessonId, ordre: s.ordre, type: s.type, payload: s.payload }));
-    });
-    if (allSteps.length > 0) await prisma.lessonStep.createMany({ data: allSteps });
-    return allSteps.length;
+    const lessonIdByOrdre = new Map(existingLessons.map((l) => [l.ordre, l.id]));
+
+    let total = 0;
+    for (let i = 0; i < blueprints.length; i++) {
+      const bp = blueprints[i]!;
+      const ordre = i + 1;
+      const lesson = await prisma.lesson.upsert({
+        where: { sectionId_ordre: { sectionId: section.id, ordre } },
+        update: { titre: bp.titre, sourateNumero: bp.sourateNumero },
+        create: { sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero },
+      });
+      lessonIdByOrdre.set(ordre, lesson.id);
+
+      const existingSteps = await prisma.lessonStep.findMany({
+        where: { lessonId: lesson.id },
+        select: { id: true, ordre: true },
+      });
+      const stepIdByOrdre = new Map(existingSteps.map((s) => [s.ordre, s.id]));
+
+      for (const s of bp.steps) {
+        await prisma.lessonStep.upsert({
+          where: { lessonId_ordre: { lessonId: lesson.id, ordre: s.ordre } },
+          update: { type: s.type, payload: s.payload },
+          create: { lessonId: lesson.id, ordre: s.ordre, type: s.type, payload: s.payload },
+        });
+        total++;
+      }
+      // Supprime les étapes en surplus (positions au-delà du nouveau compte).
+      const staleStepOrdres = [...stepIdByOrdre.keys()].filter((o) => o > bp.steps.length);
+      if (staleStepOrdres.length > 0) {
+        await prisma.lessonStep.deleteMany({
+          where: { lessonId: lesson.id, ordre: { in: staleStepOrdres } },
+        });
+      }
+    }
+
+    // Supprime les leçons en surplus (positions au-delà du nouveau compte de blueprints).
+    const staleLessonOrdres = [...lessonIdByOrdre.keys()].filter((o) => o > blueprints.length);
+    if (staleLessonOrdres.length > 0) {
+      await prisma.lesson.deleteMany({
+        where: { sectionId: section.id, ordre: { in: staleLessonOrdres } },
+      });
+    }
+
+    return total;
   }, 'Alphabet — écriture');
 
   blueprints.forEach((bp, i) => {

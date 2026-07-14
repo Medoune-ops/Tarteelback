@@ -81,6 +81,11 @@ export async function withRetry<T>(fn: () => Promise<T>, label: string, tries = 
 
 export interface StepRow { ordre: number; type: StepType; payload: Prisma.InputJsonValue }
 
+/** Texte traduisible d'un champ de payload (consigne, texte pédagogique…) — résolu à la lecture par `serializeLesson`. */
+export function i18n(fr: string, en: string): { fr: string; en: string } {
+  return { fr, en };
+}
+
 export interface VersetData {
   id: string;
   numero: number;
@@ -112,7 +117,7 @@ export function makeDiscovery(ordre: number, v: VersetData): StepRow {
 export function makeOrderingItems(
   ordre: number,
   items: Array<{ position: number; texteArabe: string }>,
-  opts?: { arabe?: string; consigne?: string },
+  opts?: { arabe?: string; consigne?: { fr: string; en: string } },
 ): StepRow {
   const payload: Record<string, unknown> = { mots: items };
   if (opts?.arabe) payload.arabe = opts.arabe;
@@ -138,7 +143,13 @@ export function makeWritten(ordre: number, v: VersetData, pool: string[]): StepR
   return {
     ordre,
     type: 'written',
-    payload: { consigne: 'Que signifie ce verset ?', arabe: v.texteArabe, translitteration: v.translit, options, bonneReponse },
+    payload: {
+      consigne: i18n('Que signifie ce verset ?', 'What does this verse mean?'),
+      arabe: v.texteArabe,
+      translitteration: v.translit,
+      options,
+      bonneReponse,
+    },
   };
 }
 

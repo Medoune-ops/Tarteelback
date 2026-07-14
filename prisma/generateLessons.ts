@@ -6,9 +6,11 @@
  *   - regroupement 1-2 versets par leçon (seuil LONG_VERSE_THRESHOLD)
  *   - étapes : discovery + ordering + matching + written
  *
- * Pour chaque section hizb : supprime TOUTES les leçons existantes et les recrée
- * dynamiquement. Idempotent. Chaque section est protégée par withRetry (le
- * Postgres free-tier de Render coupe parfois la connexion pendant un seed long).
+ * Pour chaque section hizb : UPSERT en place par (sectionId, ordre) / (lessonId,
+ * ordre) — jamais de deleteMany+recreate, pour préserver Lesson.id/LessonStep.id
+ * (donc LessonProgress/SourateRevision des utilisateurs réels). Idempotent.
+ * Chaque section est protégée par withRetry (le Postgres free-tier de Render
+ * coupe parfois la connexion pendant un seed long).
  *
  *   DATABASE_URL="…" npx tsx prisma/generateLessons.ts
  *
@@ -57,22 +59,65 @@ async function main() {
         }
       }
 
-      // 2) Supprimer les leçons existantes (cascade steps + progress).
-      await prisma.lesson.deleteMany({ where: { sectionId: section.id } });
-
-      // 3) Recréer en lot : leçons puis étapes (2-3 allers-retours par section).
-      const createdLessons = await prisma.lesson.createManyAndReturn({
-        data: blueprints.map((bp, i) => ({ sectionId: section.id, ordre: i + 1, titre: bp.titre, sourateNumero: bp.sourateNumero })),
+      // 2) UPSERT en place — voir le commentaire d'en-tête du fichier : jamais
+      // de deleteMany+recreate, ça préserve Lesson.id/LessonStep.id (donc
+      // LessonProgress/SourateRevision réels). Seules les positions en
+      // surplus (au-delà du nouveau compte) sont supprimées. Les leçons
+      // d'une même section sont indépendantes entre elles → traitées en
+      // parallèle par lots pour réduire le temps d'aller-retour réseau vers
+      // la base distante (au lieu d'un upsert séquentiel leçon par leçon).
+      const CONCURRENCY = 8;
+      const existingLessons = await prisma.lesson.findMany({
+        where: { sectionId: section.id },
         select: { id: true, ordre: true },
       });
-      const idByOrdre = new Map(createdLessons.map((l) => [l.ordre, l.id]));
-      const allSteps = blueprints.flatMap((bp, i) => {
-        const lessonId = idByOrdre.get(i + 1)!;
-        return bp.steps.map((s) => ({ lessonId, ordre: s.ordre, type: s.type, payload: s.payload }));
-      });
-      if (allSteps.length > 0) await prisma.lessonStep.createMany({ data: allSteps });
+      const lessonIdByOrdre = new Map(existingLessons.map((l) => [l.ordre, l.id]));
 
-      return { lessons: blueprints.length, steps: allSteps.length };
+      let stepsTotal = 0;
+      for (let batchStart = 0; batchStart < blueprints.length; batchStart += CONCURRENCY) {
+        const batch = blueprints.slice(batchStart, batchStart + CONCURRENCY);
+        const batchSteps = await Promise.all(
+          batch.map(async (bp, k) => {
+            const ordre = batchStart + k + 1;
+            const lesson = await prisma.lesson.upsert({
+              where: { sectionId_ordre: { sectionId: section.id, ordre } },
+              update: { titre: bp.titre, sourateNumero: bp.sourateNumero },
+              create: { sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero },
+            });
+            lessonIdByOrdre.set(ordre, lesson.id);
+
+            const existingSteps = await prisma.lessonStep.findMany({
+              where: { lessonId: lesson.id },
+              select: { ordre: true },
+            });
+            const stepOrdres = new Set(existingSteps.map((s) => s.ordre));
+
+            await Promise.all(
+              bp.steps.map((s) =>
+                prisma.lessonStep.upsert({
+                  where: { lessonId_ordre: { lessonId: lesson.id, ordre: s.ordre } },
+                  update: { type: s.type, payload: s.payload },
+                  create: { lessonId: lesson.id, ordre: s.ordre, type: s.type, payload: s.payload },
+                }),
+              ),
+            );
+
+            const staleStepOrdres = [...stepOrdres].filter((o) => o > bp.steps.length);
+            if (staleStepOrdres.length > 0) {
+              await prisma.lessonStep.deleteMany({ where: { lessonId: lesson.id, ordre: { in: staleStepOrdres } } });
+            }
+            return bp.steps.length;
+          }),
+        );
+        stepsTotal += batchSteps.reduce((a, b) => a + b, 0);
+      }
+
+      const staleLessonOrdres = [...lessonIdByOrdre.keys()].filter((o) => o > blueprints.length);
+      if (staleLessonOrdres.length > 0) {
+        await prisma.lesson.deleteMany({ where: { sectionId: section.id, ordre: { in: staleLessonOrdres } } });
+      }
+
+      return { lessons: blueprints.length, steps: stepsTotal };
     }, `Hizb ${section.hizb} (section ${section.ordre})`);
 
     totalLessons += lessons;

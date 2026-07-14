@@ -12,7 +12,7 @@ export const contentService = {
    * everyone, near-immutable); only the per-user PROGRESS overlay is fetched
    * fresh and applied on top, so the heavy content query is served from cache.
    */
-  async getSections(userId: string | null) {
+  async getSections(userId: string | null, lang: string) {
     const sections = await cached('sections', () => contentRepository.listSections());
 
     const progress = new Map<string, LessonState>();
@@ -21,23 +21,23 @@ export const contentService = {
       const rows = await contentRepository.progressForUser(userId, lessonIds);
       for (const r of rows) progress.set(r.lessonId, r.etat);
     }
-    return serializeSections(sections, progress);
+    return serializeSections(sections, progress, lang);
   },
 
-  async getLessonsForSection(sectionId: string) {
-    return cached(`section:${sectionId}:lessons`, async () => {
+  async getLessonsForSection(sectionId: string, lang: string) {
+    return cached(`section:${sectionId}:lessons:${lang}`, async () => {
       const section = await contentRepository.getSection(sectionId);
       if (!section) throw new AppError('NOT_FOUND', 'Section not found');
       const lessons = await contentRepository.listLessonsForSection(sectionId);
-      return lessons.map(serializeLesson);
+      return lessons.map((l) => serializeLesson(l, lang, env.DEFAULT_LANG));
     });
   },
 
-  async getLesson(lessonId: string) {
-    return cached(`lesson:${lessonId}`, async () => {
+  async getLesson(lessonId: string, lang: string) {
+    return cached(`lesson:${lessonId}:${lang}`, async () => {
       const lesson = await contentRepository.getLesson(lessonId);
       if (!lesson) throw new AppError('NOT_FOUND', 'Lesson not found');
-      return serializeLesson(lesson);
+      return serializeLesson(lesson, lang, env.DEFAULT_LANG);
     });
   },
 

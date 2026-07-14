@@ -14,6 +14,11 @@ const COMPLETED_ICONS = ['star', 'book', 'pen'] as const;
 const LOCKED_ICONS = ['note', 'moon', 'trophy', 'kaaba', 'crescent'] as const;
 const ALIGNS = ['left', 'right', 'center'] as const;
 
+/** Label du nœud actif du parcours ("Leçon N" / "Lesson N"), résolu selon `lang`. */
+function activeNodeLabel(index: number, lang: string): string {
+  return lang === 'fr' ? `Leçon ${index}` : `Lesson ${index}`;
+}
+
 type ProgressMap = Map<string, LessonState>;
 
 interface DbLessonLite {
@@ -50,6 +55,7 @@ function buildNodes(
   section: DbSection,
   progress: ProgressMap,
   sectionIsActive: boolean,
+  lang: string,
 ) {
   // First non-completed index within this section.
   let activeIndex = -1;
@@ -72,7 +78,7 @@ function buildNodes(
     return {
       id: `${section.id}-n${i + 1}`,
       lessonId: state === 'locked' ? null : lesson.id,
-      label: state === 'active' ? `Leçon ${i + 1}` : undefined,
+      label: state === 'active' ? activeNodeLabel(i + 1, lang) : undefined,
       icon,
       align: state === 'active' ? 'center' : ALIGNS[i % ALIGNS.length]!,
       state,
@@ -80,7 +86,7 @@ function buildNodes(
   });
 }
 
-export function serializeSections(sections: DbSection[], progress: ProgressMap) {
+export function serializeSections(sections: DbSection[], progress: ProgressMap, lang: string) {
   // The "active" section is the first whose lessons aren't all completed.
   const firstUnfinished = sections.findIndex((s) =>
     s.lessons.some((l) => (progress.get(l.id) ?? 'locked') !== 'completed'),
@@ -102,20 +108,41 @@ export function serializeSections(sections: DbSection[], progress: ProgressMap) 
       nomArabe: link.sourate.nomArabe,
       nombreVersets: link.sourate.nombreVersets,
     })),
-    nodes: buildNodes(s, progress, idx === firstUnfinished),
+    nodes: buildNodes(s, progress, idx === firstUnfinished, lang),
   }));
 }
+
+/**
+ * Texte traduisible d'un payload de step : soit une string simple (contenu
+ * pré-i18n encore en base, ou champ qui n'a jamais eu besoin de traduction),
+ * soit un objet `{ fr, en, ... }` produit par les générateurs de contenu.
+ * `resolveI18n` accepte les deux pour ne jamais casser les leçons déjà stockées.
+ */
+type I18nText = string | Partial<Record<string, string>>;
+
+function resolveI18n(value: I18nText, lang: string, defaultLang: string): string {
+  if (typeof value === 'string') return value;
+  return value[lang] ?? value[defaultLang] ?? Object.values(value).find((v): v is string => !!v) ?? '';
+}
+
+// Champs de payload potentiellement traduisibles (texte pédagogique en dur,
+// PAS la traduction du verset qui est déjà i18n via VersetTraduction/`trad`).
+const I18N_PAYLOAD_FIELDS = ['consigne', 'traduction'] as const;
 
 /**
  * Lesson steps as returned by GET /lessons/:id.
  * ANTI-CHEAT: the correct answer key (`bonneReponse` on written steps) is
  * stripped — judging happens only server-side via POST .../answer.
  */
-export function serializeLesson(lesson: {
-  id: string;
-  titre: string;
-  steps: { id: string; ordre: number; type: string; payload: unknown }[];
-}) {
+export function serializeLesson(
+  lesson: {
+    id: string;
+    titre: string;
+    steps: { id: string; ordre: number; type: string; payload: unknown }[];
+  },
+  lang: string,
+  defaultLang: string,
+) {
   return {
     id: lesson.id,
     titre: lesson.titre,
@@ -123,6 +150,11 @@ export function serializeLesson(lesson: {
       const payload = { ...(step.payload as Record<string, unknown>) };
       // Never expose the answer key to the client.
       delete payload.bonneReponse;
+      for (const field of I18N_PAYLOAD_FIELDS) {
+        if (field in payload && payload[field] != null) {
+          payload[field] = resolveI18n(payload[field] as I18nText, lang, defaultLang);
+        }
+      }
       return {
         id: step.id,
         type: step.type,
