@@ -81,8 +81,24 @@ export async function withRetry<T>(fn: () => Promise<T>, label: string, tries = 
 
 export interface StepRow { ordre: number; type: StepType; payload: Prisma.InputJsonValue }
 
-/** Texte traduisible d'un champ de payload (consigne, texte pédagogique…) — résolu à la lecture par `serializeLesson`. */
-export function i18n(fr: string, en: string): { fr: string; en: string } {
+/** Forme stricte attendue par `resolveI18n()` (content.serializer.ts). */
+export type I18nText = { fr: string; en: string };
+
+/**
+ * Construit et VALIDE un texte bilingue (titre, consigne, texte pédagogique…),
+ * résolu à la lecture par `serializeLesson`/`serializeSections`. Fait planter
+ * le script de génération immédiatement si une des deux langues est
+ * vide/manquante — plutôt que de laisser passer silencieusement un titre non
+ * traduit en base (voir schema.prisma : c'est exactement ce qui s'est produit
+ * avant que cette validation existe). Tout générateur de contenu doit passer
+ * par cette fonction, jamais assigner une string nue à un champ i18n.
+ */
+export function i18n(fr: string, en: string): I18nText {
+  if (!fr?.trim() || !en?.trim()) {
+    throw new Error(
+      `i18n(): les deux langues sont obligatoires — reçu fr=${JSON.stringify(fr)} en=${JSON.stringify(en)}`,
+    );
+  }
   return { fr, en };
 }
 

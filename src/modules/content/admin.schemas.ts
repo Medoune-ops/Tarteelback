@@ -3,14 +3,24 @@ import { z } from 'zod';
 // All admin inputs are `.strict()` too — unknown keys are rejected so no stray
 // Prisma column can be injected even with an admin token.
 
+/**
+ * Texte i18n obligatoire — {fr, en}, jamais une string nue. Résolu à la
+ * lecture par `resolveI18n()` (content.serializer.ts) selon la langue de
+ * l'appelant. Voir schema.prisma pour la règle générale : tout NOUVEAU champ
+ * texte lu par l'utilisateur doit passer par ce schéma (ou une table séparée
+ * par langue), jamais un `z.string()` "en attendant" — c'est précisément ce
+ * relâchement qui a laissé passer des titres non traduits en production.
+ */
+const i18nText = z.object({ fr: z.string().min(1), en: z.string().min(1) }).strict();
+
 // ── Section ──
 export const sectionCreateSchema = z
   .object({
     ordre: z.number().int().positive(),
     hizb: z.number().int().nullable().optional(),
     kicker: z.string().min(1),
-    titre: z.string().min(1),
-    sousTitre: z.string().default(''),
+    titre: i18nText,
+    sousTitre: i18nText.optional(),
     couleur: z.string().min(1),
     degradeStart: z.string().min(1),
     degradeEnd: z.string().min(1),
@@ -25,7 +35,7 @@ export const lessonCreateSchema = z
   .object({
     sectionId: z.string().min(1),
     ordre: z.number().int().positive(),
-    titre: z.string().min(1),
+    titre: i18nText,
     iconType: z.string().default('star'),
   })
   .strict();
@@ -35,11 +45,11 @@ export const lessonUpdateSchema = lessonCreateSchema.partial();
 const discoveryPayload = z.object({
   arabe: z.string().min(1),
   translitteration: z.string().default(''),
-  traduction: z.string().default(''),
+  traduction: i18nText.optional(),
   audioUrl: z.string().url().nullable().optional(),
 });
 const writtenPayload = z.object({
-  consigne: z.string().min(1),
+  consigne: i18nText,
   arabe: z.string().min(1),
   translitteration: z.string().optional(),
   options: z.array(z.object({ id: z.string(), text: z.string() })).min(2),
@@ -48,7 +58,7 @@ const writtenPayload = z.object({
 const voicePayload = z.object({
   arabe: z.string().min(1),
   translitteration: z.string().default(''),
-  traduction: z.string().default(''),
+  traduction: i18nText.optional(),
   audioUrl: z.string().url().nullable().optional(),
   seuilReussite: z.number().int().min(0).max(100).default(70),
 });

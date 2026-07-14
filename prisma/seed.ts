@@ -23,6 +23,7 @@
 import 'dotenv/config';
 import { PrismaClient, type StepType } from '@prisma/client';
 import argon2 from 'argon2';
+import { i18n } from './lessonBuilder.js';
 
 const prisma = new PrismaClient();
 
@@ -38,11 +39,6 @@ const GRADIENTS: [string, string][] = [
 
 async function hash(pw: string) {
   return argon2.hash(pw, { type: argon2.argon2id });
-}
-
-/** Texte traduisible d'un champ Section.titre/sousTitre/Lesson.titre — résolu par content.serializer.ts selon `lang`. */
-function i18n(fr: string, en: string): { fr: string; en: string } {
-  return { fr, en };
 }
 
 async function seedUsers() {
