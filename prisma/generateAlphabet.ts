@@ -331,7 +331,7 @@ function buildLetterSteps(group: Letter[]): StepRow[] {
   return steps;
 }
 
-interface LessonBlueprint { titre: string; sourateNumero: number | null; steps: StepRow[] }
+interface LessonBlueprint { titre: { fr: string; en: string }; sourateNumero: number | null; steps: StepRow[] }
 
 async function main() {
   const section = await prisma.section.findFirst({ where: { hizb: null } });
@@ -344,12 +344,13 @@ async function main() {
   const blueprints = await withRetry(async () => {
     const bps: LessonBlueprint[] = [];
 
-    // 1) Leçons de lettres.
+    // 1) Leçons de lettres — les glyphes arabes sont identiques dans les deux langues.
     const chunks = chunkEven(LETTERS, LETTER_LESSONS);
     for (const group of chunks) {
       if (group.length === 0) continue;
+      const titreGlyphes = group.map((l) => l.g).join(' ');
       bps.push({
-        titre: group.map((l) => l.g).join(' '),
+        titre: i18n(titreGlyphes, titreGlyphes),
         sourateNumero: null,
         steps: buildLetterSteps(group),
       });
@@ -357,22 +358,25 @@ async function main() {
 
     // 1bis) Leçons de harakat — entre l'alphabet et Al-Fatiha : une fois les
     // lettres connues, on apprend ce qui leur donne leur son (fatha/kasra/
-    // damma/sukun/tanwin) avant d'aborder les versets.
-    bps.push({ titre: 'Fatha ـَ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, FATHA) });
-    bps.push({ titre: 'Kasra ـِ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, KASRA) });
-    bps.push({ titre: 'Damma ـُ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, DAMMA) });
-    bps.push({ titre: 'Soukoune ـْ', sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, SUKUN) });
-    bps.push({ titre: 'Tanwin ـً ـٍ ـٌ', sourateNumero: null, steps: buildTanwinSteps(HARAKA_LETTERS.slice(0, 6)) });
-    bps.push({ titre: 'Révision des signes', sourateNumero: null, steps: buildHarakaSummarySteps(HARAKA_LETTERS) });
+    // damma/sukun/tanwin) avant d'aborder les versets. Les noms de signes
+    // (Fatha, Kasra, Damma, Tanwin) sont des translittérations universelles ;
+    // seuls "Soukoune" et "Révision des signes" ont un équivalent anglais distinct.
+    bps.push({ titre: i18n('Fatha ـَ', 'Fatha ـَ'), sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, FATHA) });
+    bps.push({ titre: i18n('Kasra ـِ', 'Kasra ـِ'), sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, KASRA) });
+    bps.push({ titre: i18n('Damma ـُ', 'Damma ـُ'), sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, DAMMA) });
+    bps.push({ titre: i18n('Soukoune ـْ', 'Sukun ـْ'), sourateNumero: null, steps: buildSimpleHarakaSteps(HARAKA_LETTERS, SUKUN) });
+    bps.push({ titre: i18n('Tanwin ـً ـٍ ـٌ', 'Tanwin ـً ـٍ ـٌ'), sourateNumero: null, steps: buildTanwinSteps(HARAKA_LETTERS.slice(0, 6)) });
+    bps.push({ titre: i18n('Révision des signes', 'Signs review'), sourateNumero: null, steps: buildHarakaSummarySteps(HARAKA_LETTERS) });
 
-    // 2) Al-Fatiha au format standard (1-2 versets/leçon).
+    // 2) Al-Fatiha au format standard (1-2 versets/leçon) — "Al-Fātiha N" est un nom propre.
     const fatiha = await prisma.sourate.findUnique({ where: { numero: 1 } });
     if (fatiha) {
       const versets = await loadVersets(prisma, fatiha.id);
       for (const grp of groupVerses(versets)) {
         const nums = grp.map((v) => v.numero).join('-');
+        const titreFatiha = `Al-Fātiha ${nums}`;
         bps.push({
-          titre: `Al-Fātiha ${nums}`,
+          titre: i18n(titreFatiha, titreFatiha),
           sourateNumero: 1,
           steps: buildGroupSteps(grp, 1, pool),
         });
@@ -439,7 +443,7 @@ async function main() {
   }, 'Alphabet — écriture');
 
   blueprints.forEach((bp, i) => {
-    console.log(`  ✓ Leçon ${i + 1}: ${bp.titre} — ${bp.steps.length} étapes`);
+    console.log(`  ✓ Leçon ${i + 1}: ${bp.titre.fr} — ${bp.steps.length} étapes`);
   });
   const fatihaCount = blueprints.filter((b) => b.sourateNumero === 1).length;
   const harakaCount = blueprints.length - LETTER_LESSONS - fatihaCount;

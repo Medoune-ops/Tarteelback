@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma.js';
 /** A lettre/harakat lesson the user has completed, ready to be revised. */
 export interface LearnedLettreLesson {
   id: string;
-  titre: string;
+  titre: unknown;
   ordre: number;
 }
 

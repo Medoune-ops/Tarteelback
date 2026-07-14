@@ -295,8 +295,10 @@ model Section {
   ordre        Int    @unique
   hizb         Int? // null for the alphabet section
   kicker       String
-  titre        String
-  sousTitre    String
+  // {fr,en} translatable text — resolved by content.serializer.ts per `lang`.
+  // `kicker` stays a plain String: "SECTION N" is language-neutral.
+  titre        Json
+  sousTitre    Json
   couleur      String
   degradeStart String
   degradeEnd   String
@@ -327,7 +329,8 @@ model Lesson {
   sectionId     String
   section       Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   ordre         Int
-  titre         String
+  // {fr,en} translatable text — resolved by content.serializer.ts per `lang`.
+  titre         Json
   iconType      String  @default("star")
   // Numéro (1–114) de la sourate enseignée par cette leçon, si applicable.
   // Rempli au seed. Sert à marquer "déjà mémorisé" à l'onboarding (skip du
