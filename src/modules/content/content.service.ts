@@ -21,7 +21,7 @@ export const contentService = {
       const rows = await contentRepository.progressForUser(userId, lessonIds);
       for (const r of rows) progress.set(r.lessonId, r.etat);
     }
-    return serializeSections(sections, progress, lang);
+    return serializeSections(sections, progress, lang, env.DEFAULT_LANG);
   },
 
   async getLessonsForSection(sectionId: string, lang: string) {

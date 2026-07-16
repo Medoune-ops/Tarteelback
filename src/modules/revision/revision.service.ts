@@ -1,10 +1,12 @@
 import { prisma } from '../../config/prisma.js';
+import { env } from '../../config/env.js';
 import { AppError } from '../../core/errors.js';
 import { computeNextRevision, type RevisionQuality } from '../../core/revision.js';
 import { scoreRecitation } from '../../core/arabic.js';
 import { transcribeAudio } from '../lessons/asr.client.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
 import { getLearnedLettreLessons } from '../me/learnedLettreLessons.js';
+import { resolveI18n, type I18nText } from '../content/content.serializer.js';
 import type { Sourate, SourateRevision, LettreRevision } from '@prisma/client';
 
 // En dessous de ce score, le verset récité est jugé "manqué" (aide affichée
@@ -45,11 +47,13 @@ function serialize(
 
 function serializeLettre(
   revision: LettreRevision,
-  lesson: { id: string; titre: string; ordre: number },
+  lesson: { id: string; titre: I18nText; ordre: number },
+  lang: string,
+  defaultLang: string,
 ) {
   return {
     lessonId: lesson.id,
-    titre: lesson.titre,
+    titre: resolveI18n(lesson.titre, lang, defaultLang),
     ordre: lesson.ordre,
     score: revision.score,
     etat: revision.etat,
@@ -134,7 +138,7 @@ export const revisionService = {
    * GET /me/revisions/lettres — leçons d'alphabet/harakat complétées + état
    * SRS. Même logique paresseuse que `list()` mais sur `LettreRevision`.
    */
-  async listLettres(userId: string) {
+  async listLettres(userId: string, lang: string) {
     const learned = await getLearnedLettreLessons(userId);
     if (learned.length === 0) return { revisions: [] };
 
@@ -159,7 +163,7 @@ export const revisionService = {
 
     return {
       revisions: learned
-        .map((l) => serializeLettre(byId.get(l.id)!, l))
+        .map((l) => serializeLettre(byId.get(l.id)!, l, lang, env.DEFAULT_LANG))
         .sort((a, b) => a.ordre - b.ordre),
     };
   },
@@ -168,7 +172,7 @@ export const revisionService = {
    * POST /me/revisions/lettres/:lessonId/review — enregistre le résultat
    * d'auto-évaluation d'une révision d'alphabet/harakat et recalcule le SRS.
    */
-  async reviewLettre(userId: string, lessonId: string, quality: RevisionQuality) {
+  async reviewLettre(userId: string, lessonId: string, quality: RevisionQuality, lang: string) {
     const lesson = await prisma.lesson.findUnique({
       where: { id: lessonId },
       select: { id: true, titre: true, ordre: true, sourateNumero: true },
@@ -201,7 +205,7 @@ export const revisionService = {
       },
     });
 
-    return serializeLettre(updated, lesson);
+    return serializeLettre(updated, lesson, lang, env.DEFAULT_LANG);
   },
 
   /**

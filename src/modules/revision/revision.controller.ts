@@ -1,4 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { env } from '../../config/env.js';
+import { resolveLang } from '../../core/optionalAuth.js';
 import { parse } from '../../core/validate.js';
 import { AppError } from '../../core/errors.js';
 import { revisionService } from './revision.service.js';
@@ -18,14 +20,16 @@ export const revisionController = {
   },
 
   async listLettres(req: FastifyRequest, reply: FastifyReply) {
-    const result = await revisionService.listLettres(req.auth!.sub);
+    const lang = resolveLang(req, env.DEFAULT_LANG);
+    const result = await revisionService.listLettres(req.auth!.sub, lang);
     return reply.send(result);
   },
 
   async reviewLettre(req: FastifyRequest, reply: FastifyReply) {
     const { lessonId } = req.params as { lessonId: string };
     const body = parse(reviewSchema, req.body ?? {});
-    const result = await revisionService.reviewLettre(req.auth!.sub, lessonId, body.quality);
+    const lang = resolveLang(req, env.DEFAULT_LANG);
+    const result = await revisionService.reviewLettre(req.auth!.sub, lessonId, body.quality, lang);
     return reply.send(result);
   },
 
