@@ -12,10 +12,18 @@
  *  5. Leagues (Bronze…Émeraude) + a current week with fictional participants.
  *
  * Idempotent where practical (upserts on natural keys).
+ *
+ * ⚠️ DO NOT re-run against a database where `generateLessons.ts` has already
+ * run: `seedSections()` upserts ONE Lesson per SURAH at ordre=i+1, while
+ * generateLessons.ts regroups verses (1-2 per lesson) at the SAME ordre
+ * positions — re-running this file overwrites those lessons' `titre` with the
+ * wrong (ungrouped) label. Content/progress survive (only the label is wrong),
+ * but you must re-run `npm run seed:lessons` afterwards to fix it.
  */
 import 'dotenv/config';
 import { PrismaClient, type StepType } from '@prisma/client';
 import argon2 from 'argon2';
+import { i18n } from './lessonBuilder.js';
 
 const prisma = new PrismaClient();
 
@@ -96,22 +104,24 @@ async function seedSections() {
   for (const arr of byHizb.values()) arr.sort((a, b) => b.numero - a.numero);
 
   // Section 1 — Alphabet.
+  const alphabetTitre = i18n('Alphabet Arabe', 'Arabic Alphabet');
+  const alphabetSousTitre = i18n('Apprends à lire les 28 lettres', 'Learn to read the 28 letters');
   const alphabet = await prisma.section.upsert({
     where: { ordre: 1 },
-    update: {},
+    update: { titre: alphabetTitre, sousTitre: alphabetSousTitre },
     create: {
       ordre: 1,
       hizb: null,
       kicker: 'SECTION 1',
-      titre: 'Alphabet Arabe',
-      sousTitre: 'Apprends à lire les 28 lettres',
+      titre: alphabetTitre,
+      sousTitre: alphabetSousTitre,
       couleur: COLORS[0]!,
       degradeStart: GRADIENTS[0]![0],
       degradeEnd: GRADIENTS[0]![1],
       headerIcon: 'type',
     },
   });
-  await ensureLessons(alphabet.id, 10, 'Leçon');
+  await ensureLessons(alphabet.id, 10, i18n('Leçon', 'Lesson'));
   console.log('  ✓ section 1: Alphabet (10 lessons)');
 
   // Hizb sections in decreasing order: Section N = Hizb (62 − N).
@@ -121,15 +131,18 @@ async function seedSections() {
   for (const hizb of presentHizbs) {
     const list = byHizb.get(hizb)!;
     const colorIdx = ordre % COLORS.length;
+    // "Hizb N" est un terme technique universel (identique fr/en).
+    const titre = i18n(`Hizb ${hizb}`, `Hizb ${hizb}`);
+    const sub = sousTitre(list.map((s) => s.nom));
     const section = await prisma.section.upsert({
       where: { ordre },
-      update: {},
+      update: { titre, sousTitre: sub },
       create: {
         ordre,
         hizb,
         kicker: `SECTION ${ordre}`,
-        titre: `Hizb ${hizb}`,
-        sousTitre: sousTitre(list.map((s) => s.nom)),
+        titre,
+        sousTitre: sub,
         couleur: COLORS[colorIdx]!,
         degradeStart: GRADIENTS[colorIdx]![0],
         degradeEnd: GRADIENTS[colorIdx]![1],
@@ -143,12 +156,13 @@ async function seedSections() {
       data: list.map((s, i) => ({ sectionId: section.id, sourateId: s.id, ordre: i + 1 })),
     });
 
-    // One lesson per surah.
+    // One lesson per surah — surah names are proper nouns (identical fr/en).
     for (let i = 0; i < list.length; i++) {
+      const lessonTitre = i18n(list[i]!.nom, list[i]!.nom);
       await prisma.lesson.upsert({
         where: { sectionId_ordre: { sectionId: section.id, ordre: i + 1 } },
-        update: { titre: list[i]!.nom },
-        create: { sectionId: section.id, ordre: i + 1, titre: list[i]!.nom, iconType: 'star' },
+        update: { titre: lessonTitre },
+        create: { sectionId: section.id, ordre: i + 1, titre: lessonTitre, iconType: 'star' },
       });
     }
     ordre += 1;
@@ -156,20 +170,26 @@ async function seedSections() {
   console.log(`  ✓ ${presentHizbs.length} hizb section(s) built`);
 }
 
-async function ensureLessons(sectionId: string, count: number, prefix: string) {
+async function ensureLessons(sectionId: string, count: number, prefix: { fr: string; en: string }) {
   for (let i = 1; i <= count; i++) {
+    const titre = i18n(`${prefix.fr} ${i}`, `${prefix.en} ${i}`);
     await prisma.lesson.upsert({
       where: { sectionId_ordre: { sectionId, ordre: i } },
       update: {},
-      create: { sectionId, ordre: i, titre: `${prefix} ${i}`, iconType: 'star' },
+      create: { sectionId, ordre: i, titre, iconType: 'star' },
     });
   }
 }
 
-function sousTitre(noms: string[]): string {
-  if (noms.length === 0) return '';
-  if (noms.length <= 3) return noms.join(' · ');
-  return `${noms.slice(0, 3).join(' · ')} +${noms.length - 3}`;
+/** "·" et "+N" sont des séparateurs universels ; les noms de sourates sont des noms propres (identiques fr/en). */
+function sousTitre(noms: string[]): { fr: string; en: string } {
+  const text =
+    noms.length === 0
+      ? ''
+      : noms.length <= 3
+        ? noms.join(' · ')
+        : `${noms.slice(0, 3).join(' · ')} +${noms.length - 3}`;
+  return i18n(text, text);
 }
 
 /** Demo lesson: Basmala split into words, alternating discovery → written, then a voice step. */
@@ -249,7 +269,7 @@ async function seedDemoLesson() {
     },
   });
 
-  await prisma.lesson.update({ where: { id: lesson1.id }, data: { titre: 'Al-Fatiha · Basmala' } });
+  await prisma.lesson.update({ where: { id: lesson1.id }, data: { titre: i18n('Al-Fatiha · Basmala', 'Al-Fatiha · Basmala') } });
   for (const s of steps.slice(0, 25)) {
     await prisma.lessonStep.create({ data: { lessonId: lesson1.id, ordre: ordre++, type: s.type, payload: s.payload as object } });
   }

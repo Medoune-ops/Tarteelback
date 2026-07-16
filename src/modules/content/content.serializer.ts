@@ -1,4 +1,4 @@
-import type { LessonState, Prisma } from '@prisma/client';
+import type { LessonState } from '@prisma/client';
 
 /**
  * Serializers that reproduce the front "mirror" shapes:
@@ -14,6 +14,19 @@ const COMPLETED_ICONS = ['star', 'book', 'pen'] as const;
 const LOCKED_ICONS = ['note', 'moon', 'trophy', 'kaaba', 'crescent'] as const;
 const ALIGNS = ['left', 'right', 'center'] as const;
 
+/**
+ * Texte traduisible : soit une string simple (contenu pré-i18n encore en
+ * base, ou champ qui n'a jamais eu besoin de traduction), soit un objet
+ * `{ fr, en, ... }` produit par les générateurs de contenu. `resolveI18n`
+ * accepte les deux pour ne jamais casser le contenu déjà stocké.
+ */
+export type I18nText = string | Partial<Record<string, string>>;
+
+export function resolveI18n(value: I18nText, lang: string, defaultLang: string): string {
+  if (typeof value === 'string') return value;
+  return value[lang] ?? value[defaultLang] ?? Object.values(value).find((v): v is string => !!v) ?? '';
+}
+
 /** Label du nœud actif du parcours ("Leçon N" / "Lesson N"), résolu selon `lang`. */
 function activeNodeLabel(index: number, lang: string): string {
   return lang === 'fr' ? `Leçon ${index}` : `Lesson ${index}`;
@@ -21,30 +34,10 @@ function activeNodeLabel(index: number, lang: string): string {
 
 type ProgressMap = Map<string, LessonState>;
 
-/**
- * Texte traduisible : soit une string simple (contenu pré-i18n encore en
- * base), soit un objet `{ fr, en, ... }` produit par les générateurs de
- * contenu. Typé sur `Prisma.JsonValue` (le type réel d'une colonne `Json`) —
- * `resolveI18n` gère tous les cas pour ne jamais casser le contenu déjà
- * stocké avant l'introduction du champ i18n.
- */
-export type I18nText = Prisma.JsonValue;
-
-export function resolveI18n(value: I18nText, lang: string, defaultLang: string): string {
-  if (value == null) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'object' && !Array.isArray(value)) {
-    const dict = value as Partial<Record<string, string>>;
-    return dict[lang] ?? dict[defaultLang] ?? Object.values(dict).find((v): v is string => !!v) ?? '';
-  }
-  // number/boolean/array : contenu malformé, jamais attendu — évite un crash.
-  return String(value);
-}
-
 interface DbLessonLite {
   id: string;
   ordre: number;
-  titre: I18nText;
+  titre: unknown;
   iconType: string;
 }
 
@@ -53,8 +46,8 @@ interface DbSection {
   ordre: number;
   hizb: number | null;
   kicker: string;
-  titre: I18nText;
-  sousTitre: I18nText;
+  titre: unknown;
+  sousTitre: unknown;
   couleur: string;
   degradeStart: string;
   degradeEnd: string;
@@ -122,8 +115,8 @@ export function serializeSections(
     ordre: s.ordre,
     hizb: s.hizb,
     kicker: s.kicker,
-    titre: resolveI18n(s.titre, lang, defaultLang),
-    sousTitre: resolveI18n(s.sousTitre, lang, defaultLang),
+    titre: resolveI18n(s.titre as I18nText, lang, defaultLang),
+    sousTitre: resolveI18n(s.sousTitre as I18nText, lang, defaultLang),
     couleur: s.couleur,
     degrade: [s.degradeStart, s.degradeEnd] as [string, string],
     headerIcon: s.headerIcon,
@@ -149,7 +142,7 @@ const I18N_PAYLOAD_FIELDS = ['consigne', 'traduction'] as const;
 export function serializeLesson(
   lesson: {
     id: string;
-    titre: I18nText;
+    titre: unknown;
     steps: { id: string; ordre: number; type: string; payload: unknown }[];
   },
   lang: string,
@@ -157,7 +150,7 @@ export function serializeLesson(
 ) {
   return {
     id: lesson.id,
-    titre: resolveI18n(lesson.titre, lang, defaultLang),
+    titre: resolveI18n(lesson.titre as I18nText, lang, defaultLang),
     steps: lesson.steps.map((step) => {
       const payload = { ...(step.payload as Record<string, unknown>) };
       // Never expose the answer key to the client.

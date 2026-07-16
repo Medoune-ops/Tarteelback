@@ -19,7 +19,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import {
-  FR, buildGroupSteps, groupVerses, loadVersets, withRetry, type StepRow,
+  FR, buildGroupSteps, groupVerses, i18n, loadVersets, withRetry, type StepRow,
 } from './lessonBuilder.js';
 
 const prisma = new PrismaClient();
@@ -44,7 +44,8 @@ async function main() {
   for (const section of hizbSections) {
     const { lessons, steps } = await withRetry(async () => {
       // 1) Collecter les leçons (blueprints) pour toutes les sourates de la section.
-      type LessonBlueprint = { titre: string; steps: StepRow[]; sourateNumero: number };
+      // "Nom-de-sourate N" est un nom propre — identique dans les deux langues.
+      type LessonBlueprint = { titre: { fr: string; en: string }; steps: StepRow[]; sourateNumero: number };
       const blueprints: LessonBlueprint[] = [];
 
       for (const link of section.sourateLinks) {
@@ -55,7 +56,8 @@ async function main() {
         for (const group of groupVerses(versets)) {
           const built = buildGroupSteps(group, 1, pool);
           const nums = group.map((v) => v.numero).join('-');
-          blueprints.push({ titre: `${sourate.nom} ${nums}`, steps: built, sourateNumero: sourate.numero });
+          const titre = `${sourate.nom} ${nums}`;
+          blueprints.push({ titre: i18n(titre, titre), steps: built, sourateNumero: sourate.numero });
         }
       }
 
