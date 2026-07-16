@@ -8,6 +8,7 @@ import { env, isProd, isTest } from './config/env.js';
 import { prisma } from './config/prisma.js';
 import { redis } from './config/redis.js';
 import authPlugin from './plugins/auth.js';
+import adminAuthPlugin from './plugins/adminAuth.js';
 import errorHandler from './plugins/errorHandler.js';
 import { registerRoutes } from './routes.js';
 
@@ -88,6 +89,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         { name: 'rewards', description: 'Streak goal, podiums, daily chest' },
         { name: 'revision', description: 'SRS des sourates apprises + récitation notée par Whisper' },
         { name: 'referral', description: 'Parrainage : code de partage + cœurs bonus' },
+        { name: 'backoffice', description: 'Back-office web admin: auth, team, permissions, activity log' },
       ],
     },
   });
@@ -97,6 +99,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ── Core plugins ──
   await app.register(errorHandler);
   await app.register(authPlugin);
+  await app.register(adminAuthPlugin);
 
   // ── Liveness: cheap, never touches the DB (is the process up?). ──
   app.get('/health', { logLevel: 'warn' }, async () => ({

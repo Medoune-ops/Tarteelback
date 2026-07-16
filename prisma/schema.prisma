@@ -57,6 +57,19 @@ enum Role {
   admin
 }
 
+/// A section of the back-office web app an AdminUser can be granted access to.
+/// Kept as an enum (not a free-text string) so a typo can't silently grant no
+/// access — the granular ("view/edit") flag lives on AdminPermission.
+enum AdminModule {
+  overview
+  users
+  content
+  monetization
+  analytics
+  push_announcements
+  team
+}
+
 enum UserLevel {
   debutant
   alphabet
@@ -369,6 +382,97 @@ model RefreshToken {
   @@index([userId, deviceId])
   // Supports session listing/cleanup filtered by expiry.
   @@index([expiresAt])
+}
+
+// ─── Back-office (web admin panel) ────────────────────────────────────────────
+//
+// Deliberately separate from `User`/`Role`: back-office members are a distinct
+// population from mobile app users (different login surface, different JWT
+// audience — see plugins/adminAuth.ts — different session lifetime). Mixing
+// the two would mean every mobile-auth code path has to reason about whether
+// a "user" might secretly be able to open the back-office, which is exactly
+// the kind of privilege-escalation bug this split avoids.
+//
+// There is exactly one super-admin flag (`isOwner`): only an owner can invite
+// members, revoke them, or change anyone's password. Everyone else's access is
+// entirely described by their AdminPermission rows — no separate "role" enum,
+// because the back-office UI grants access per module (view/edit), not by a
+// fixed named role.
+
+/// A back-office account. Created exclusively by an owner (no self-signup) —
+/// see AdminAuthService.inviteMember. The owner hands the plaintext password
+/// to the member out of band (e.g. in person); it is never emailed.
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  displayName  String
+  // Only an owner can invite members / reset passwords / manage permissions.
+  // There is intentionally no multi-owner promotion flow yet — ownership is
+  // seeded, not grantable through the API.
+  isOwner      Boolean   @default(false)
+  disabledAt   DateTime? // soft "revoke access" without deleting history
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  permissions   AdminPermission[]
+  refreshTokens AdminRefreshToken[]
+  activityLogs  AdminActivityLog[]
+
+  @@index([disabledAt])
+}
+
+/// One row per (member, module): what they're allowed to do there. Absence of
+/// a row means no access at all (default-deny). `canEdit` implies `canView`
+/// is also true — enforced in AdminAuthService, not at the DB layer.
+model AdminPermission {
+  id          String      @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser   @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  module      AdminModule
+  canView     Boolean     @default(true)
+  canEdit     Boolean     @default(false)
+
+  @@unique([adminUserId, module])
+}
+
+/// Persistent back-office session — same "opaque + hashed" design as the
+/// mobile RefreshToken (see core/tokens.ts), but kept on its own model/table
+/// so mobile and back-office sessions can never be confused or cross-revoked.
+model AdminRefreshToken {
+  id          String    @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  deviceId    String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([adminUserId])
+  @@index([adminUserId, deviceId])
+  @@index([expiresAt])
+}
+
+/// Audit trail shown on the "Journal d'activité" screen: every login/logout
+/// and every mutating action taken from the back-office. Write-only from the
+/// app's perspective (no update/delete endpoint) so it stays trustworthy.
+model AdminActivityLog {
+  id          String    @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  // Machine-readable action key, e.g. "login", "logout", "user.ban",
+  // "monetization.price_updated". The UI renders a French label from this.
+  action      String
+  // Free-form context for the log line, e.g. { targetUserId, oldValue, newValue }.
+  // Kept as Json rather than a fixed column set — the set of loggable actions
+  // grows with every new back-office feature.
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([adminUserId, createdAt])
+  @@index([action])
 }
 
 // ─── Content (admin-managed) ─────────────────────────────────────────────────

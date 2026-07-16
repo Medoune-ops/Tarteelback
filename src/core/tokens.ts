@@ -18,6 +18,11 @@ export function refreshExpiry(now: Date = new Date()): Date {
   return new Date(now.getTime() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+/** Expiry date for a freshly issued back-office refresh token (shorter window). */
+export function adminRefreshExpiry(now: Date = new Date()): Date {
+  return new Date(now.getTime() + env.ADMIN_REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
 /** Compute avatar initials from a display name (e.g. "Yasmine A." -> "YA"). */
 export function initialsFrom(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);

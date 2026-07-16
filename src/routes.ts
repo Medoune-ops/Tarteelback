@@ -12,6 +12,7 @@ import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
+import { adminAuthRoutes } from './modules/adminAuth/adminAuth.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -34,4 +35,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(referralRoutes, { prefix: '/me' });
   // Plan familial (foyer : owner + jusqu'à 5 membres, premium partagé).
   await app.register(householdRoutes, { prefix: '/me' });
+  // Back-office web admin panel: separate population/auth from mobile `/auth`
+  // and from `/admin` (which is mobile-app content management) — see
+  // plugins/adminAuth.ts for why the JWT is fully isolated.
+  await app.register(adminAuthRoutes, { prefix: '/backoffice/auth' });
 }

@@ -30,6 +30,15 @@ const EnvSchema = z.object({
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(90),
 
+  // Back-office (web admin panel) — a *different* secret from the mobile app's,
+  // plus a distinct JWT audience (see plugins/adminAuth.ts), so a leaked mobile
+  // access token can never be replayed against back-office routes or vice versa.
+  JWT_ADMIN_ACCESS_SECRET: z.string().min(32),
+  ADMIN_ACCESS_TOKEN_TTL: z.string().default('15m'),
+  // Shorter-lived than the mobile 90-day window: back-office sessions carry
+  // more blast radius per compromised device (can ban users, edit prices...).
+  ADMIN_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(14),
+
   MAX_HEARTS: z.coerce.number().int().positive().default(5),
   HEART_REGEN_MS: z.coerce.number().int().positive().default(60 * 60 * 1000),
   PREMIUM_XP_MULTIPLIER: z.coerce.number().int().positive().default(2),
@@ -116,6 +125,10 @@ if (isProd) {
   if (weak.test(env.JWT_ACCESS_SECRET)) problems.push('JWT_ACCESS_SECRET looks like a default/placeholder');
   if (weak.test(env.JWT_REFRESH_SECRET)) problems.push('JWT_REFRESH_SECRET looks like a default/placeholder');
   if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) problems.push('JWT access and refresh secrets must differ');
+  if (weak.test(env.JWT_ADMIN_ACCESS_SECRET)) problems.push('JWT_ADMIN_ACCESS_SECRET looks like a default/placeholder');
+  if (env.JWT_ADMIN_ACCESS_SECRET === env.JWT_ACCESS_SECRET || env.JWT_ADMIN_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
+    problems.push('JWT_ADMIN_ACCESS_SECRET must differ from the mobile app secrets');
+  }
   if (env.CORS_ORIGINS.split(',').map((o) => o.trim()).includes('*')) {
     problems.push('CORS_ORIGINS=* is forbidden in production — set an explicit allow-list');
   }
