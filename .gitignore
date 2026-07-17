@@ -11,3 +11,4 @@ prisma/.cache/
 .claude/
 server.log
 *.bak
+.expo/
