@@ -46,4 +46,15 @@ export async function meRoutes(app: FastifyInstance) {
     { schema: { tags: ['me'], summary: 'Recompute & return streak', ...sec } },
     meController.refreshStreak,
   );
+
+  app.get(
+    '/pending-gift',
+    { schema: { tags: ['me'], summary: 'Unseen admin gift (hearts/gems/premium), if any', ...sec } },
+    meController.pendingGift,
+  );
+  app.post(
+    '/pending-gift/:id/ack',
+    { schema: { tags: ['me'], summary: 'Mark an admin gift as seen', ...sec } },
+    meController.ackPendingGift,
+  );
 }

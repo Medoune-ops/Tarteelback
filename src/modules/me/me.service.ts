@@ -168,4 +168,29 @@ export const meService = {
     }
     await prisma.user.delete({ where: { id: userId } });
   },
+
+  /**
+   * GET /me/pending-gift — cadeau admin (cœurs/gemmes/premium) pas encore vu.
+   * Le front poll cet endpoint toutes les ~15s tant que l'app est ouverte
+   * (fonctionne sur Expo Go, sans push/build natif) pour déclencher la modale
+   * cadeau animée en quasi temps réel après un octroi côté back-office. Un
+   * seul cadeau à la fois : le plus ancien non vu, s'il y en a plusieurs en
+   * attente (peu probable mais possible si l'app est restée fermée longtemps).
+   */
+  async getPendingGift(userId: string) {
+    const gift = await prisma.pendingGift.findFirst({
+      where: { userId, seenAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!gift) return { gift: null };
+    return { gift: { id: gift.id, kind: gift.kind, amount: gift.amount } };
+  },
+
+  /** POST /me/pending-gift/:id/ack — marque le cadeau vu, pour ne jamais rejouer son animation. */
+  async ackPendingGift(userId: string, giftId: string): Promise<void> {
+    await prisma.pendingGift.updateMany({
+      where: { id: giftId, userId, seenAt: null },
+      data: { seenAt: new Date() },
+    });
+  },
 };

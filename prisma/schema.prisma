@@ -248,10 +248,28 @@ model User {
   ownedHousehold    Household?            @relation("HouseholdOwner")
   householdMember   HouseholdMember?
   sentInvitations   HouseholdInvitation[] @relation("InvitedBy")
+  pendingGifts      PendingGift[]
 
   @@index([weeklyXp])
   @@index([bannedAt])
   @@index([createdAt])
+}
+
+/// Un cadeau admin (cœurs/gemmes/premium) en attente d'affichage côté client.
+/// Le front poll GET /me/pending-gift toutes les ~15s tant que l'app est
+/// ouverte (fonctionne sur Expo Go, pas besoin de push/build natif) ; dès
+/// qu'il en trouve un, il joue l'animation cadeau puis appelle
+/// POST /me/pending-gift/:id/ack pour le marquer vu (jamais rejoué).
+model PendingGift {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // 'hearts' | 'gems' | 'premium'
+  amount    Int
+  createdAt DateTime @default(now())
+  seenAt    DateTime?
+
+  @@index([userId, seenAt])
 }
 
 /// Foyer (plan familial). Un propriétaire (owner), jusqu'à HOUSEHOLD_MAX_MEMBERS
