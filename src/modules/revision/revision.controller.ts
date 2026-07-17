@@ -12,10 +12,21 @@ export const revisionController = {
     return reply.send(result);
   },
 
-  async review(req: FastifyRequest, reply: FastifyReply) {
+  async getSegments(req: FastifyRequest, reply: FastifyReply) {
     const { idOrNumero } = req.params as { idOrNumero: string };
+    const result = await revisionService.getSegments(req.auth!.sub, idOrNumero);
+    return reply.send(result);
+  },
+
+  async reviewSegment(req: FastifyRequest, reply: FastifyReply) {
+    const { idOrNumero, segmentIndex } = req.params as { idOrNumero: string; segmentIndex: string };
     const body = parse(reviewSchema, req.body ?? {});
-    const result = await revisionService.review(req.auth!.sub, idOrNumero, body.quality);
+    const result = await revisionService.reviewSegment(
+      req.auth!.sub,
+      idOrNumero,
+      Number(segmentIndex),
+      body.quality,
+    );
     return reply.send(result);
   },
 
@@ -66,6 +77,29 @@ export const revisionController = {
     const audio = await file.toBuffer();
     const result = await revisionService.reciteVerset(
       versetId,
+      audio,
+      file.filename || 'recording',
+      file.mimetype || 'application/octet-stream',
+    );
+    return reply.send(result);
+  },
+
+  /**
+   * POST /me/revisions/:idOrNumero/recite-range?debut=&fin= — récitation
+   * assemblée de plusieurs versets consécutifs (exercice de chaînage).
+   */
+  async reciteRange(req: FastifyRequest, reply: FastifyReply) {
+    const { idOrNumero } = req.params as { idOrNumero: string };
+    const { debut, fin } = req.query as { debut?: string; fin?: string };
+    const file = await req.file();
+    if (!file) {
+      throw new AppError('VALIDATION_ERROR', 'Multipart field "audio" is required');
+    }
+    const audio = await file.toBuffer();
+    const result = await revisionService.reciteVersetRange(
+      idOrNumero,
+      Number(debut),
+      Number(fin),
       audio,
       file.filename || 'recording',
       file.mimetype || 'application/octet-stream',

@@ -1,12 +1,22 @@
 import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
-import { computeNextRevision, type RevisionQuality } from '../../core/revision.js';
+import {
+  computeNextRevision, segmentCount, segmentVerseRange, type RevisionQuality,
+} from '../../core/revision.js';
 import { scoreRecitation } from '../../core/arabic.js';
 import { transcribeAudio } from '../lessons/asr.client.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
 import { getLearnedLettreLessons } from '../me/learnedLettreLessons.js';
 import { resolveI18n, type I18nText } from '../content/content.serializer.js';
-import type { Sourate, SourateRevision, LettreRevision } from '@prisma/client';
+import type { Sourate, SourateRevision, LettreRevision, RevisionState } from '@prisma/client';
+
+// Ordre de "gravité" d'un état SRS, du pire au meilleur — sert à dériver
+// l'état AGRÉGÉ d'une sourate à partir de ses segments (le pire segment
+// détermine l'état affiché en liste : on ne masque jamais un segment fragile
+// derrière des segments maîtrisés).
+const ETAT_SEVERITY: Record<RevisionState, number> = { difficile: 0, revoir: 1, maitrise: 2 };
+const worseEtat = (a: RevisionState, b: RevisionState) =>
+  ETAT_SEVERITY[a] <= ETAT_SEVERITY[b] ? a : b;
 
 // En dessous de ce score, le verset récité est jugé "manqué" (aide affichée
 // côté front). Plus permissif que le seuil des leçons (70) : une session de
@@ -28,19 +38,93 @@ async function resolveSourate(idOrNumero: string): Promise<Sourate> {
   return sourate;
 }
 
-function serialize(
+function serializeSegment(
   revision: SourateRevision,
+  sourate: { nombreVersets: number },
+) {
+  const { debut, fin } = segmentVerseRange(revision.segmentIndex, sourate.nombreVersets);
+  return {
+    segmentIndex: revision.segmentIndex,
+    debut,
+    fin,
+    score: revision.score,
+    etat: revision.etat,
+    derniereRevision: revision.derniereRevision,
+    prochaineRevision: revision.prochaineRevision,
+  };
+}
+
+/**
+ * Charge tous les segments d'une sourate pour un user, en créant (due
+ * immédiatement) les lignes qui n'existent pas encore — même logique paresseuse
+ * que l'ancien `list()`, mais une ligne par segment plutôt qu'une par sourate.
+ */
+async function getOrCreateSegments(
+  userId: string,
+  sourate: { id: string; nombreVersets: number },
+): Promise<SourateRevision[]> {
+  const total = segmentCount(sourate.nombreVersets);
+  const existing = await prisma.sourateRevision.findMany({
+    where: { userId, sourateId: sourate.id },
+  });
+  const byIndex = new Map(existing.map((r) => [r.segmentIndex, r]));
+
+  const missingIndexes = Array.from({ length: total }, (_, i) => i).filter(
+    (i) => !byIndex.has(i),
+  );
+  if (missingIndexes.length > 0) {
+    const now = new Date();
+    await prisma.sourateRevision.createMany({
+      data: missingIndexes.map((segmentIndex) => ({
+        userId, sourateId: sourate.id, segmentIndex, prochaineRevision: now,
+      })),
+      skipDuplicates: true,
+    });
+    const created = await prisma.sourateRevision.findMany({
+      where: { userId, sourateId: sourate.id, segmentIndex: { in: missingIndexes } },
+    });
+    for (const r of created) byIndex.set(r.segmentIndex, r);
+  }
+
+  return Array.from({ length: total }, (_, i) => byIndex.get(i)!);
+}
+
+/**
+ * Agrège les segments d'une sourate en une ligne pour l'écran liste : l'état
+ * affiché est le PIRE des segments (jamais masquer un segment fragile derrière
+ * des segments maîtrisés), la prochaine échéance est la plus proche.
+ */
+function aggregateSourate(
+  segments: SourateRevision[],
   sourate: { numero: number; nom: string; nomArabe: string; nombreVersets: number },
 ) {
+  const now = Date.now();
+  const segmentsTotal = segments.length;
+  const segmentsDue = segments.filter(
+    (s) => !s.prochaineRevision || s.prochaineRevision.getTime() <= now,
+  ).length;
+  const score = Math.round(segments.reduce((sum, s) => sum + s.score, 0) / segmentsTotal);
+  const etat = segments.reduce<RevisionState>((worst, s) => worseEtat(worst, s.etat), 'maitrise');
+  const prochaineDates = segments
+    .map((s) => s.prochaineRevision)
+    .filter((d): d is Date => d != null);
+  const derniereDates = segments
+    .map((s) => s.derniereRevision)
+    .filter((d): d is Date => d != null);
+
   return {
     numero: sourate.numero,
     nom: sourate.nom,
     nomArabe: sourate.nomArabe,
     nombreVersets: sourate.nombreVersets,
-    score: revision.score,
-    etat: revision.etat,
-    derniereRevision: revision.derniereRevision,
-    prochaineRevision: revision.prochaineRevision,
+    segmentsTotal,
+    segmentsDue,
+    score,
+    etat,
+    derniereRevision:
+      derniereDates.length > 0 ? new Date(Math.max(...derniereDates.map((d) => d.getTime()))) : null,
+    prochaineRevision:
+      prochaineDates.length > 0 ? new Date(Math.min(...prochaineDates.map((d) => d.getTime()))) : null,
   };
 }
 
@@ -63,47 +147,30 @@ function serializeLettre(
 
 export const revisionService = {
   /**
-   * GET /me/revisions — sourates apprises + état SRS. Crée une ligne
-   * `SourateRevision` par défaut (due immédiatement) pour toute sourate
-   * apprise qui n'en a pas encore.
+   * GET /me/revisions — sourates apprises + état SRS AGRÉGÉ (pire segment,
+   * score moyen, échéance la plus proche). Crée les lignes `SourateRevision`
+   * manquantes (une par segment, cf. `SEGMENT_SIZE`) pour toute sourate
+   * apprise pour la première fois.
    */
   async list(userId: string) {
     const learned = await getLearnedSourates(userId);
     if (learned.length === 0) return { revisions: [] };
 
-    const sourateIds = learned.map((s) => s.id);
-    const existing = await prisma.sourateRevision.findMany({
-      where: { userId, sourateId: { in: sourateIds } },
-    });
-    const byId = new Map(existing.map((r) => [r.sourateId, r]));
-
-    // Ne crée que les lignes manquantes (sourate apprise pour la 1re fois) —
-    // évite un upsert no-op sur chaque sourate à chaque chargement de la page.
-    const missing = learned.filter((s) => !byId.has(s.id));
-    if (missing.length > 0) {
-      const now = new Date();
-      await prisma.sourateRevision.createMany({
-        data: missing.map((s) => ({ userId, sourateId: s.id, prochaineRevision: now })),
-        skipDuplicates: true,
-      });
-      const created = await prisma.sourateRevision.findMany({
-        where: { userId, sourateId: { in: missing.map((s) => s.id) } },
-      });
-      for (const r of created) byId.set(r.sourateId, r);
+    const revisions = [];
+    for (const s of learned) {
+      const segments = await getOrCreateSegments(userId, s);
+      revisions.push(aggregateSourate(segments, s));
     }
 
-    return {
-      revisions: learned
-        .map((s) => serialize(byId.get(s.id)!, s))
-        .sort((a, b) => a.numero - b.numero),
-    };
+    return { revisions: revisions.sort((a, b) => a.numero - b.numero) };
   },
 
   /**
-   * POST /me/revisions/:idOrNumero/review — enregistre le résultat
-   * d'auto-évaluation d'une session de révision et recalcule le planning SRS.
+   * GET /me/revisions/:idOrNumero/segments — détail par bloc d'une sourate
+   * (nécessaire pour choisir quel segment réviser : les segments fragiles ne
+   * doivent jamais rester cachés derrière la moyenne affichée en liste).
    */
-  async review(userId: string, idOrNumero: string, quality: RevisionQuality) {
+  async getSegments(userId: string, idOrNumero: string) {
     const sourate = await resolveSourate(idOrNumero);
 
     const learned = await getLearnedSourates(userId);
@@ -111,16 +178,49 @@ export const revisionService = {
       throw new AppError('FORBIDDEN', 'Sourate not yet learned');
     }
 
+    const segments = await getOrCreateSegments(userId, sourate);
+    return {
+      numero: sourate.numero,
+      nom: sourate.nom,
+      nomArabe: sourate.nomArabe,
+      nombreVersets: sourate.nombreVersets,
+      segments: segments.map((r) => serializeSegment(r, sourate)),
+    };
+  },
+
+  /**
+   * POST /me/revisions/:idOrNumero/segments/:segmentIndex/review — enregistre
+   * le résultat d'auto-évaluation d'UN bloc de versets et recalcule son
+   * planning SRS indépendamment des autres segments de la sourate.
+   */
+  async reviewSegment(
+    userId: string,
+    idOrNumero: string,
+    segmentIndex: number,
+    quality: RevisionQuality,
+  ) {
+    const sourate = await resolveSourate(idOrNumero);
+
+    const learned = await getLearnedSourates(userId);
+    if (!learned.some((s) => s.id === sourate.id)) {
+      throw new AppError('FORBIDDEN', 'Sourate not yet learned');
+    }
+
+    const total = segmentCount(sourate.nombreVersets);
+    if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= total) {
+      throw new AppError('VALIDATION_ERROR', `segmentIndex must be between 0 and ${total - 1}`);
+    }
+
     const now = new Date();
     const current = await prisma.sourateRevision.upsert({
-      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      where: { userId_sourateId_segmentIndex: { userId, sourateId: sourate.id, segmentIndex } },
       update: {},
-      create: { userId, sourateId: sourate.id, prochaineRevision: now },
+      create: { userId, sourateId: sourate.id, segmentIndex, prochaineRevision: now },
     });
 
     const next = computeNextRevision(current, quality, now);
     const updated = await prisma.sourateRevision.update({
-      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      where: { userId_sourateId_segmentIndex: { userId, sourateId: sourate.id, segmentIndex } },
       data: {
         score: next.score,
         etat: next.etat,
@@ -130,7 +230,7 @@ export const revisionService = {
       },
     });
 
-    return serialize(updated, sourate);
+    return serializeSegment(updated, sourate);
   },
 
   /**
@@ -222,6 +322,44 @@ export const revisionService = {
 
     const transcription = await transcribeAudio(audio, filename, mimetype);
     const score = scoreRecitation(verset.texteArabe, transcription);
+    const fluide = score >= FLUENT_THRESHOLD;
+    const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
+    return { score, transcription, fluide, verdict };
+  },
+
+  /**
+   * POST /me/revisions/:idOrNumero/recite-range — récitation ASSEMBLÉE de
+   * plusieurs versets consécutifs (exercice de chaînage : après avoir récité
+   * quelques versets un par un, l'utilisateur les enchaîne d'un bloc pour
+   * consolider la transition entre eux). Score contre le texte concaténé des
+   * versets `debut..fin` (inclusifs, 1-based). Même seuils que `reciteVerset`.
+   */
+  async reciteVersetRange(
+    idOrNumero: string,
+    debut: number,
+    fin: number,
+    audio: Buffer,
+    filename: string,
+    mimetype: string,
+  ) {
+    const sourate = await resolveSourate(idOrNumero);
+    if (
+      !Number.isInteger(debut) || !Number.isInteger(fin) ||
+      debut < 1 || fin < debut || fin > sourate.nombreVersets
+    ) {
+      throw new AppError('VALIDATION_ERROR', 'Invalid verse range');
+    }
+
+    const versets = await prisma.verset.findMany({
+      where: { sourateId: sourate.id, numero: { gte: debut, lte: fin } },
+      orderBy: { numero: 'asc' },
+      select: { texteArabe: true },
+    });
+    if (versets.length === 0) throw new AppError('NOT_FOUND', 'No versets found in range');
+    const texteAttendu = versets.map((v) => v.texteArabe).join(' ');
+
+    const transcription = await transcribeAudio(audio, filename, mimetype);
+    const score = scoreRecitation(texteAttendu, transcription);
     const fluide = score >= FLUENT_THRESHOLD;
     const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
     return { score, transcription, fluide, verdict };

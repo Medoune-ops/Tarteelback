@@ -13,6 +13,31 @@ const MIN_INTERVAL_DAYS = 1;
 const MAX_INTERVAL_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Découpage en blocs de mémorisation : SEGMENT_SIZE versets CONSÉCUTIFS par
+ * bloc (0-based). Une sourate courte (≤ SEGMENT_SIZE versets, ex. Al-Fatiha)
+ * tient dans un seul segment ; une longue (ex. Al-Baqara, 286 versets) est
+ * découpée en plusieurs — chacun suivi par sa propre ligne SRS, pour isoler
+ * les segments fragiles des segments maîtrisés au lieu de tout traiter comme
+ * un bloc unique.
+ */
+export const SEGMENT_SIZE = 10;
+
+/** Nombre de segments d'une sourate de `nombreVersets` versets. */
+export function segmentCount(nombreVersets: number): number {
+  return Math.max(1, Math.ceil(nombreVersets / SEGMENT_SIZE));
+}
+
+/** Bornes (1-based, inclusives) des versets couverts par un segment donné. */
+export function segmentVerseRange(
+  segmentIndex: number,
+  nombreVersets: number,
+): { debut: number; fin: number } {
+  const debut = segmentIndex * SEGMENT_SIZE + 1;
+  const fin = Math.min(debut + SEGMENT_SIZE - 1, nombreVersets);
+  return { debut, fin };
+}
+
 export interface RevisionSrsState {
   score: number;
   intervalleJours: number;

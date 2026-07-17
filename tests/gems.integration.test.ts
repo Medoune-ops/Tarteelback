@@ -90,9 +90,12 @@ d('gems: review → heart gate (integration)', () => {
       create: { numero, nom: `S${numero}`, nomArabe: `س${numero}`, nombreVersets: 7, hizb: 1 },
     });
     await prisma.sourateRevision.upsert({
-      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      where: { userId_sourateId_segmentIndex: { userId, sourateId: sourate.id, segmentIndex: 0 } },
       update: { derniereRevision: new Date() },
-      create: { userId, sourateId: sourate.id, derniereRevision: new Date(), prochaineRevision: new Date() },
+      create: {
+        userId, sourateId: sourate.id, segmentIndex: 0,
+        derniereRevision: new Date(), prochaineRevision: new Date(),
+      },
     });
   }
 

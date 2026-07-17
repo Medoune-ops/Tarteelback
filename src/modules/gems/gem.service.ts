@@ -101,12 +101,15 @@ export const gemService = {
    * review session = +1 heart, free, max 2 per local day.
    *
    * Validated against the real review module: `numero` must reference a
-   * `SourateRevision` whose `derniereRevision` is very recent, i.e. the
-   * client just finished a real POST /me/revisions/:id/review for it — no
-   * more taking the client's word for it. `derniereRecompenseCoeur` marks
-   * which completion was already cashed in, so the SAME session can't be
-   * replayed for a second heart within the 10-minute window (only a fresh
-   * `derniereRevision` — i.e. a new POST .../review — unlocks another).
+   * `SourateRevision` segment whose `derniereRevision` is very recent, i.e.
+   * the client just finished a real POST .../segments/:i/review for it — no
+   * more taking the client's word for it. Revision is now tracked PER
+   * SEGMENT (cf. core/revision.ts), so this looks at the most recently
+   * reviewed segment of the sourate, whichever block that was.
+   * `derniereRecompenseCoeur` marks which completion was already cashed in,
+   * so the SAME session can't be replayed for a second heart within the
+   * 10-minute window (only a fresh `derniereRevision` — i.e. a new
+   * POST .../review — unlocks another).
    */
   async reviewRegainHeart(userId: string, numero: number) {
     const now = new Date();
@@ -116,8 +119,9 @@ export const gemService = {
     // like the other no-session cases below, not a 404.
     const sourate = await prisma.sourate.findUnique({ where: { numero } });
     const revision = sourate
-      ? await prisma.sourateRevision.findUnique({
-          where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      ? await prisma.sourateRevision.findFirst({
+          where: { userId, sourateId: sourate.id },
+          orderBy: { derniereRevision: 'desc' },
         })
       : null;
     const derniereRevision = revision?.derniereRevision;
@@ -141,6 +145,7 @@ export const gemService = {
         where: {
           userId,
           sourateId: sourate.id,
+          segmentIndex: revision.segmentIndex,
           derniereRevision,
           OR: [
             { derniereRecompenseCoeur: null },
