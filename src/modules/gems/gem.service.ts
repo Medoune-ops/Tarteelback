@@ -118,9 +118,13 @@ export const gemService = {
     // "nothing to claim" outcome from the caller's perspective, so it's a 409
     // like the other no-session cases below, not a 404.
     const sourate = await prisma.sourate.findUnique({ where: { numero } });
+    // `derniereRevision: { not: null }` exclut les segments jamais révisés —
+    // sans ça, Postgres trie NULL en premier sur un ORDER BY DESC et un
+    // segment neuf (jamais touché) l'emporterait à tort sur le segment que
+    // le client vient RÉELLEMENT de réviser.
     const revision = sourate
       ? await prisma.sourateRevision.findFirst({
-          where: { userId, sourateId: sourate.id },
+          where: { userId, sourateId: sourate.id, derniereRevision: { not: null } },
           orderBy: { derniereRevision: 'desc' },
         })
       : null;

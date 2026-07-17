@@ -141,6 +141,48 @@ d('gems: review → heart gate (integration)', () => {
     expect(r3.statusCode).toBe(409);
   });
 
+  it('finds the reviewed segment even when other segments of the same sourate were never touched', async () => {
+    // Regression guard: SourateRevision is now per-segment. A sourate with
+    // several segments has some rows with `derniereRevision: null` (never
+    // reviewed) sitting alongside the just-reviewed one — Postgres sorts
+    // NULLs FIRST on `ORDER BY ... DESC` by default, so a naive
+    // `findFirst({ orderBy: { derniereRevision: 'desc' } })` without
+    // excluding nulls would wrongly pick an untouched segment over the one
+    // the client actually just completed, and reject the heart claim.
+    const u = await registerUser(app);
+    await prisma.user.update({
+      where: { id: u.userId },
+      data: { hearts: 0, lastHeartLossAt: new Date() },
+    });
+    const numero = 9;
+    const sourate = await prisma.sourate.upsert({
+      where: { numero },
+      update: {},
+      create: { numero, nom: 'S9', nomArabe: 'س٩', nombreVersets: 25, hizb: 1 },
+    });
+    // Segments 0 et 2 : jamais révisés (derniereRevision null, comme les
+    // lignes lazy-créées par getOrCreateSegments). Segment 1 : revu à l'instant.
+    await prisma.sourateRevision.createMany({
+      data: [
+        { userId: u.userId, sourateId: sourate.id, segmentIndex: 0, prochaineRevision: new Date() },
+        { userId: u.userId, sourateId: sourate.id, segmentIndex: 2, prochaineRevision: new Date() },
+      ],
+    });
+    await prisma.sourateRevision.create({
+      data: {
+        userId: u.userId, sourateId: sourate.id, segmentIndex: 1,
+        derniereRevision: new Date(), prochaineRevision: new Date(),
+      },
+    });
+
+    const res = await app.inject({
+      method: 'POST', url: '/me/hearts/review-regain',
+      headers: authHeader(u.accessToken), payload: { numero },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hearts).toBe(1);
+  });
+
   it('rejects when no recently completed review session exists for the sourate', async () => {
     const u = await registerUser(app);
     const res = await app.inject({
