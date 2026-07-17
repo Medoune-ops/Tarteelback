@@ -84,15 +84,9 @@ async function applyHeartLoss(
   now: Date,
 ): Promise<HeartsState> {
   if (judgement.correct || !judgement.heartAtStake || premium) return synced;
-  // Re-read fresh right here rather than trusting the caller's `synced`: on
-  // the /answer-voice path, `synced` was captured BEFORE the multi-second ASR
-  // round trip, so it can be stale by the time we get here. Deciding `wasFull`
-  // from a stale snapshot could wrongly reset (or skip resetting) the heart
-  // regen anchor if a concurrent request already changed the heart count.
-  const current = await userRepository.getOrThrow(userId);
-  const wasFull = current.hearts >= MAX_HEARTS;
+  const wasFull = synced.hearts >= MAX_HEARTS;
   const res = await lessonRepository.decrementHeart(userId, wasFull ? now : null);
-  if (res.count === 0) return { hearts: current.hearts, lastHeartLossAt: current.lastHeartLossAt };
+  if (res.count === 0) return synced;
   // Re-read the authoritative value after the atomic decrement.
   const fresh = await userRepository.getOrThrow(userId);
   return { hearts: fresh.hearts, lastHeartLossAt: fresh.lastHeartLossAt };

@@ -676,13 +676,18 @@ model LessonProgress {
   @@index([lessonId, etat])
 }
 
-/// SRS data — feature coming later; model exists, endpoints are secondary.
+/// SRS data, désormais PAR SEGMENT (bloc de SEGMENT_SIZE versets consécutifs,
+/// cf. core/revision.ts) plutôt que par sourate entière : une sourate longue
+/// (ex. Al-Baqara, 286 versets) a plusieurs lignes, une par bloc, pour que les
+/// segments fragiles et maîtrisés soient suivis indépendamment.
 model SourateRevision {
   id                      String        @id @default(cuid())
   userId                  String
   user                    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourateId               String
   sourate                 Sourate       @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  // Index 0-based du bloc de versets au sein de la sourate (0 = versets 1..N).
+  segmentIndex            Int           @default(0)
   score                   Int           @default(0)
   etat                    RevisionState @default(revoir)
   prochaineRevision       DateTime?
@@ -693,8 +698,9 @@ model SourateRevision {
   // puisse pas être rejouée plusieurs fois (cf. gem.service.ts).
   derniereRecompenseCoeur DateTime?
 
-  @@unique([userId, sourateId])
+  @@unique([userId, sourateId, segmentIndex])
   @@index([userId])
+  @@index([sourateId])
 }
 
 /// SRS des leçons d'alphabet/harakat (Lesson.sourateNumero = null) — même
