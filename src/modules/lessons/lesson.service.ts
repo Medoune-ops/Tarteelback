@@ -305,7 +305,7 @@ export const lessonService = {
         update: {},
       });
 
-      return { u, gained, gemsGained, premium, firstCompletion, league };
+      return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
     });
 
     // Mirror the league XP into Redis AFTER the DB commit (best-effort; the DB
@@ -325,19 +325,27 @@ export const lessonService = {
       streak: result.u.streak,
       streakFrozen: result.u.streakFrozen,
       premium: result.premium,
+      doubleXpWasActive: result.doubleXp,
     };
   },
 
   /**
    * Same as `complete`, but returns the FLAT /me shape the RN store hydrates
-   * from (BACKEND.md: POST /lesson/complete → full user state). `complete`
-   * already credited XP/streak/league; here we just re-read and serialize.
+   * from (BACKEND.md: POST /lesson/complete → full user state), PLUS
+   * `xpGained`/`doubleXpWasActive` so the finish screen can show the ×2 badge
+   * without recomputing anything client-side (front used to diff xp
+   * before/after, which works but can't tell WHY the number is what it is).
+   * `complete` already credited XP/streak/league; here we just re-read/serialize.
    */
   async completeFlat(userId: string, lessonId: string, correctCount?: number, score?: number) {
-    await this.complete(userId, lessonId, correctCount, score);
+    const result = await this.complete(userId, lessonId, correctCount, score);
     const now = new Date();
     const user = await userRepository.getOrThrow(userId);
     const stats = await computeUserStats(userId);
-    return serializeUserFlat(user, stats, now);
+    return {
+      ...serializeUserFlat(user, stats, now),
+      xpGained: result.xpGained,
+      doubleXpWasActive: result.doubleXpWasActive,
+    };
   },
 };

@@ -125,6 +125,7 @@ enum GemReason {
   heart_refill // -350
   streak_freeze // -200
   double_xp // -100
+  admin_grant // back office: an owner/member manually granted gems to a user
 }
 
 enum TransactionStatus {
@@ -220,6 +221,13 @@ model User {
   referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id])
   referrals    User[]  @relation("UserReferrals")
 
+  // Soft-ban from the back office (src/modules/adminUsers). Non-null = the
+  // account is blocked from authenticating (see auth.service.login). Kept
+  // separate from `role` — banning is a moderation action, not a permission
+  // change. Reversible: /admin/users/:id/unban just clears both fields.
+  bannedAt     DateTime?
+  bannedReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -240,8 +248,28 @@ model User {
   ownedHousehold    Household?            @relation("HouseholdOwner")
   householdMember   HouseholdMember?
   sentInvitations   HouseholdInvitation[] @relation("InvitedBy")
+  pendingGifts      PendingGift[]
 
   @@index([weeklyXp])
+  @@index([bannedAt])
+  @@index([createdAt])
+}
+
+/// Un cadeau admin (cœurs/gemmes/premium) en attente d'affichage côté client.
+/// Le front poll GET /me/pending-gift toutes les ~15s tant que l'app est
+/// ouverte (fonctionne sur Expo Go, pas besoin de push/build natif) ; dès
+/// qu'il en trouve un, il joue l'animation cadeau puis appelle
+/// POST /me/pending-gift/:id/ack pour le marquer vu (jamais rejoué).
+model PendingGift {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // 'hearts' | 'gems' | 'premium'
+  amount    Int
+  createdAt DateTime @default(now())
+  seenAt    DateTime?
+
+  @@index([userId, seenAt])
 }
 
 /// Foyer (plan familial). Un propriétaire (owner), jusqu'à HOUSEHOLD_MAX_MEMBERS
@@ -490,12 +518,17 @@ model Section {
   degradeStart String
   degradeEnd   String
   headerIcon   String
+  // Back-office draft/published toggle. A draft section (and its lessons) is
+  // still returned to admin tooling but hidden from the public /sections
+  // listing — lets content be prepared ahead of its public release.
+  publie       Boolean @default(true)
 
   lessons      Lesson[]
   // Surahs shown as context badges on the section.
   sourateLinks SectionSourate[]
 
   @@index([hizb])
+  @@index([publie])
 }
 
 /// Join table: which surahs belong (contextually) to a section, in order.
@@ -640,6 +673,7 @@ model LessonProgress {
 
   @@unique([userId, lessonId])
   @@index([userId])
+  @@index([lessonId, etat])
 }
 
 /// SRS data, désormais PAR SEGMENT (bloc de SEGMENT_SIZE versets consécutifs,

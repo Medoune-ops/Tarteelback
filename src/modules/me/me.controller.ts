@@ -83,4 +83,17 @@ export const meController = {
       lastStreakValue: user.lastStreakValue,
     });
   },
+
+  /** GET /me/pending-gift — cadeau admin non vu, pollé par le client. */
+  async pendingGift(req: FastifyRequest, reply: FastifyReply) {
+    const result = await meService.getPendingGift(req.auth!.sub);
+    return reply.send(result);
+  },
+
+  /** POST /me/pending-gift/:id/ack — marque le cadeau vu. */
+  async ackPendingGift(req: FastifyRequest, reply: FastifyReply) {
+    const { id } = req.params as { id: string };
+    await meService.ackPendingGift(req.auth!.sub, id);
+    return reply.code(204).send();
+  },
 };

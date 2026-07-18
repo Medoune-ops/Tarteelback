@@ -89,6 +89,7 @@ export const authService = {
     }
     const ok = await verifyPassword(user.passwordHash, input.password);
     if (!ok) throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password');
+    if (user.bannedAt) throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
 
     const tokens = await issueTokens(user, input.deviceId, sign);
     return { user, tokens };
@@ -112,6 +113,11 @@ export const authService = {
 
     const user = await authRepository.findUserById(record.userId);
     if (!user) throw new AppError('UNAUTHENTICATED', 'User no longer exists');
+    if (user.bannedAt) {
+      // A ban must kill existing sessions too, not just block new logins.
+      await authRepository.revokeAll(user.id, new Date());
+      throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
+    }
 
     // Rotation: invalidate the old token, mint a new pair.
     await authRepository.revokeRefreshToken(record.id, new Date());

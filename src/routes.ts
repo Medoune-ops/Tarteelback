@@ -13,6 +13,10 @@ import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
 import { adminAuthRoutes } from './modules/adminAuth/adminAuth.routes.js';
+import { adminUsersRoutes } from './modules/adminUsers/adminUsers.routes.js';
+import { adminContentRoutes } from './modules/adminContent/adminContent.routes.js';
+import { adminMonetisationRoutes } from './modules/adminMonetisation/adminMonetisation.routes.js';
+import { adminAnalyticsRoutes } from './modules/adminAnalytics/adminAnalytics.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -39,4 +43,12 @@ export async function registerRoutes(app: FastifyInstance) {
   // and from `/admin` (which is mobile-app content management) — see
   // plugins/adminAuth.ts for why the JWT is fully isolated.
   await app.register(adminAuthRoutes, { prefix: '/backoffice/auth' });
+  // User moderation & grants (list/search, ban, grant hearts/gems/premium).
+  await app.register(adminUsersRoutes, { prefix: '/backoffice/users' });
+  // Content overview: sections with lesson/completion stats, publish toggle.
+  await app.register(adminContentRoutes, { prefix: '/backoffice/content' });
+  // Monetization: premium/MRR/ARPU KPIs and the transaction ledger.
+  await app.register(adminMonetisationRoutes, { prefix: '/backoffice/monetisation' });
+  // Analytics: signups/DAU/WAU/streak/rétention KPIs + signups timeseries.
+  await app.register(adminAnalyticsRoutes, { prefix: '/backoffice/analytics' });
 }
