@@ -395,4 +395,64 @@ export const revisionService = {
     const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
     return { score, transcription, fluide, verdict };
   },
+
+  /**
+   * POST /me/revisions/lettres/:lessonId/recite-range — récitation ASSEMBLÉE
+   * de plusieurs lettres/syllabes CONSÉCUTIVES d'une même leçon alphabet
+   * (`ordre` des steps `debut..fin`, inclusifs, 1-based). Même principe de
+   * chaînage que `reciteVersetRange` : en avançant dans la leçon lettre par
+   * lettre, chaque nouvelle prononciation est vérifiée en même temps que
+   * toutes les précédentes — on ne "perd" jamais une lettre déjà vue derrière
+   * la nouvelle. Score contre DEUX candidats concaténés (glyphes `arabe` et
+   * noms `ttsText`, comme `reciteLettreStep`) et garde le meilleur : on ne
+   * sait pas laquelle des deux lectures l'utilisateur choisit de prononcer,
+   * mais elle doit être la MÊME sur toute la séquence pour scorer haut.
+   */
+  async reciteLettreRange(
+    lessonId: string,
+    debut: number,
+    fin: number,
+    audio: Buffer,
+    filename: string,
+    mimetype: string,
+  ) {
+    const lesson = await prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { id: true, sourateNumero: true },
+    });
+    if (!lesson || lesson.sourateNumero !== null) {
+      throw new AppError('NOT_FOUND', 'Lettre lesson not found');
+    }
+    const total = await prisma.lessonStep.count({ where: { lessonId, type: 'discovery' } });
+    if (
+      !Number.isInteger(debut) || !Number.isInteger(fin) ||
+      debut < 1 || fin < debut || fin > total
+    ) {
+      throw new AppError('VALIDATION_ERROR', 'Invalid step range');
+    }
+
+    const steps = await prisma.lessonStep.findMany({
+      where: { lessonId, type: 'discovery', ordre: { gte: debut, lte: fin } },
+      orderBy: { ordre: 'asc' },
+    });
+    if (steps.length === 0) throw new AppError('NOT_FOUND', 'No steps found in range');
+
+    const payloads = steps.map((s) => s.payload as { arabe?: string; ttsText?: string | null });
+    const join = (pick: (p: { arabe?: string; ttsText?: string | null }) => unknown) =>
+      payloads
+        .map(pick)
+        .filter((t): t is string => typeof t === 'string' && t.length > 0)
+        .join(' ');
+    const arabeJoined = join((p) => p.arabe);
+    const ttsJoined = join((p) => p.ttsText);
+    if (!arabeJoined && !ttsJoined) {
+      throw new AppError('VALIDATION_ERROR', 'Steps have no expected text');
+    }
+
+    const transcription = await transcribeAudio(audio, filename, mimetype);
+    const score = Math.max(scoreRecitation(arabeJoined, transcription), scoreRecitation(ttsJoined, transcription));
+    const fluide = score >= LETTER_FLUENT_THRESHOLD;
+    const verdict = fluide ? 'fluide' : score >= HESITANT_THRESHOLD ? 'hesitant' : 'oublie';
+    return { score, transcription, fluide, verdict };
+  },
 };

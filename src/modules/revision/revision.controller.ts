@@ -85,6 +85,30 @@ export const revisionController = {
   },
 
   /**
+   * POST /me/revisions/lettres/:lessonId/recite-range?debut=&fin= —
+   * prononciation assemblée de plusieurs lettres/syllabes consécutives d'une
+   * leçon alphabet (exercice de chaînage, `debut`/`fin` = ordre des steps).
+   */
+  async reciteLettreRange(req: FastifyRequest, reply: FastifyReply) {
+    const { lessonId } = req.params as { lessonId: string };
+    const { debut, fin } = req.query as { debut?: string; fin?: string };
+    const file = await req.file();
+    if (!file) {
+      throw new AppError('VALIDATION_ERROR', 'Multipart field "audio" is required');
+    }
+    const audio = await file.toBuffer();
+    const result = await revisionService.reciteLettreRange(
+      lessonId,
+      Number(debut),
+      Number(fin),
+      audio,
+      file.filename || 'recording',
+      file.mimetype || 'application/octet-stream',
+    );
+    return reply.send(result);
+  },
+
+  /**
    * POST /me/revisions/:idOrNumero/recite-range?debut=&fin= — récitation
    * assemblée de plusieurs versets consécutifs (exercice de chaînage).
    */

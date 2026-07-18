@@ -145,3 +145,116 @@ d('revision: per-segment SRS (integration)', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+d('revision: chained lettre recitation (integration)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  /** Minimal multipart/form-data body with a single `audio` file field. */
+  function multipartAudio() {
+    const boundary = '----testboundary123';
+    const body = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="audio"; filename="rec.wav"',
+      'Content-Type: audio/wav',
+      '',
+      'fake-audio-bytes',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n');
+    return {
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(body),
+    };
+  }
+
+  /** An alphabet lesson (sourateNumero: null) with 3 ordered `discovery` letter steps. */
+  async function makeAlphabetLesson() {
+    const section = await prisma.section.create({
+      data: {
+        ordre: Math.floor(Math.random() * 1e9),
+        kicker: 'T', titre: 'T', sousTitre: '', couleur: '#000',
+        degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x',
+      },
+    });
+    const lesson = await prisma.lesson.create({
+      data: { sectionId: section.id, ordre: 1, titre: 'Alphabet test', sourateNumero: null },
+    });
+    await prisma.lessonStep.createMany({
+      data: [
+        { lessonId: lesson.id, ordre: 1, type: 'discovery', payload: { arabe: 'ب', ttsText: 'بَاء' } },
+        { lessonId: lesson.id, ordre: 2, type: 'discovery', payload: { arabe: 'ت', ttsText: 'تَاء' } },
+        { lessonId: lesson.id, ordre: 3, type: 'discovery', payload: { arabe: 'ث', ttsText: 'ثَاء' } },
+      ],
+    });
+    return lesson;
+  }
+
+  it('404s on an unknown lesson', async () => {
+    const u = await registerUser(app);
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: '/me/revisions/lettres/does-not-exist/recite-range?debut=1&fin=2',
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on a sourate lesson (not an alphabet lesson)', async () => {
+    const u = await registerUser(app);
+    const section = await prisma.section.create({
+      data: {
+        ordre: Math.floor(Math.random() * 1e9),
+        kicker: 'T', titre: 'T', sousTitre: '', couleur: '#000',
+        degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x',
+      },
+    });
+    const lesson = await prisma.lesson.create({
+      data: { sectionId: section.id, ordre: 1, titre: 'Sourate lesson', sourateNumero: 1 },
+    });
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/lettres/${lesson.id}/recite-range?debut=1&fin=1`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects an invalid step range (fin before debut)', async () => {
+    const u = await registerUser(app);
+    const lesson = await makeAlphabetLesson();
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/lettres/${lesson.id}/recite-range?debut=3&fin=1`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a range beyond the lesson\'s actual step count', async () => {
+    const u = await registerUser(app);
+    const lesson = await makeAlphabetLesson(); // 3 steps
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/lettres/${lesson.id}/recite-range?debut=10&fin=12`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('reaches ASR scoring for a valid chained range (503 when ASR is not configured)', async () => {
+    const u = await registerUser(app);
+    const lesson = await makeAlphabetLesson();
+    const mp = multipartAudio();
+    // debut=1 each time (cumulative from the start) is how the front chains
+    // "syllable N" into "everything recited so far" as the learner advances.
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/lettres/${lesson.id}/recite-range?debut=1&fin=3`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('SERVICE_UNAVAILABLE');
+  });
+});
