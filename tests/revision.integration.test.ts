@@ -146,6 +146,90 @@ d('revision: per-segment SRS (integration)', () => {
   });
 });
 
+d('revision: chained verse recitation spans the whole sourate (integration)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  /** Minimal multipart/form-data body with a single `audio` file field. */
+  function multipartAudio() {
+    const boundary = '----testboundary123';
+    const body = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="audio"; filename="rec.wav"',
+      'Content-Type: audio/wav',
+      '',
+      'fake-audio-bytes',
+      `--${boundary}--`,
+      '',
+    ].join('\r\n');
+    return {
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(body),
+    };
+  }
+
+  it('accepts a range crossing a segment boundary (recitation is NOT capped at 10 verses)', async () => {
+    const u = await registerUser(app);
+    const numero = 8;
+    // 24 verses -> 3 SEGMENT_SIZE (10) blocks: 1-10, 11-20, 21-24.
+    const sourate = await makeLearnedSourate(u.userId, numero, SEGMENT_SIZE * 2 + 4);
+    await prisma.verset.createMany({
+      data: Array.from({ length: sourate.nombreVersets }, (_, i) => ({
+        sourateId: sourate.id, numero: i + 1, texteArabe: `verset ${i + 1}`,
+      })),
+    });
+
+    // 8..13 straddles the segment-0/segment-1 boundary (verse 10/11): if
+    // recite-range were wrongly bounded by SEGMENT_SIZE this would be
+    // rejected as invalid instead of reaching the ASR call.
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/recite-range?debut=8&fin=13`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(503); // reaches transcribeAudio(); ASR isn't configured in tests.
+    expect(res.json().error.code).toBe('SERVICE_UNAVAILABLE');
+  });
+
+  it('accepts a "from the start" range spanning the entire sourate', async () => {
+    const u = await registerUser(app);
+    const numero = 9;
+    const sourate = await makeLearnedSourate(u.userId, numero, SEGMENT_SIZE * 2 + 4);
+    await prisma.verset.createMany({
+      data: Array.from({ length: sourate.nombreVersets }, (_, i) => ({
+        sourateId: sourate.id, numero: i + 1, texteArabe: `verset ${i + 1}`,
+      })),
+    });
+
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/recite-range?debut=1&fin=${sourate.nombreVersets}`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('rejects a range beyond the sourate\'s actual verse count', async () => {
+    const u = await registerUser(app);
+    const numero = 10;
+    const sourate = await makeLearnedSourate(u.userId, numero, SEGMENT_SIZE * 2 + 4);
+    await prisma.verset.createMany({
+      data: Array.from({ length: sourate.nombreVersets }, (_, i) => ({
+        sourateId: sourate.id, numero: i + 1, texteArabe: `verset ${i + 1}`,
+      })),
+    });
+
+    const mp = multipartAudio();
+    const res = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/recite-range?debut=1&fin=${sourate.nombreVersets + 5}`,
+      headers: { ...authHeader(u.accessToken), ...mp.headers }, payload: mp.payload,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 d('revision: chained lettre recitation (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
