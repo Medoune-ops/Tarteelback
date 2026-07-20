@@ -70,6 +70,19 @@ export async function revisionRoutes(app: FastifyInstance) {
   );
 
   app.post(
+    '/revisions/lettres/:lessonId/recite-range',
+    {
+      schema: {
+        ...sec,
+        summary:
+          'Prononciation ASSEMBLÉE de plusieurs lettres/syllabes consécutives (?debut=&fin=, ordre des steps), notée par Whisper ASR (multipart "audio") — exercice de chaînage. Jamais de cœur en jeu.',
+        consumes: ['multipart/form-data'],
+      },
+    },
+    revisionController.reciteLettreRange,
+  );
+
+  app.post(
     '/revisions/versets/:versetId/recite',
     {
       schema: {
