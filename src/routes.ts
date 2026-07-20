@@ -17,6 +17,7 @@ import { adminUsersRoutes } from './modules/adminUsers/adminUsers.routes.js';
 import { adminContentRoutes } from './modules/adminContent/adminContent.routes.js';
 import { adminMonetisationRoutes } from './modules/adminMonetisation/adminMonetisation.routes.js';
 import { adminAnalyticsRoutes } from './modules/adminAnalytics/adminAnalytics.routes.js';
+import { adminGiftsRoutes } from './modules/adminGifts/adminGifts.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -51,4 +52,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminMonetisationRoutes, { prefix: '/backoffice/monetisation' });
   // Analytics: signups/DAU/WAU/streak/rétention KPIs + signups timeseries.
   await app.register(adminAnalyticsRoutes, { prefix: '/backoffice/analytics' });
+  // Bulk gifting: grant hearts/gems/premium to a segment or a list of users at once.
+  await app.register(adminGiftsRoutes, { prefix: '/backoffice/gifts' });
 }
