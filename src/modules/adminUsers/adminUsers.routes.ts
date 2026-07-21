@@ -21,4 +21,5 @@ export async function adminUsersRoutes(app: FastifyInstance) {
   app.post('/:id/grant-hearts', { schema: { ...sec, summary: 'Grant hearts (capped at MAX_HEARTS)' } }, adminUsersController.grantHearts);
   app.post('/:id/grant-gems', { schema: { ...sec, summary: 'Grant gems (ledgered)' } }, adminUsersController.grantGems);
   app.post('/:id/grant-premium', { schema: { ...sec, summary: 'Grant Premium for N days or lifetime' } }, adminUsersController.grantPremium);
+  app.post('/:id/revoke-granted-premium', { schema: { ...sec, summary: 'Revoke Premium — no-op if the user actually paid for it' } }, adminUsersController.revokeGrantedPremium);
 }

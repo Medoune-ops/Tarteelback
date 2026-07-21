@@ -40,4 +40,8 @@ export const adminUsersController = {
     const input = parse(grantPremiumSchema, req.body);
     return reply.send(await adminUsersService.grantPremium(idParam(req), input.durationDays));
   },
+
+  async revokeGrantedPremium(req: FastifyRequest, reply: FastifyReply) {
+    return reply.send(await adminUsersService.revokeGrantedPremium(idParam(req)));
+  },
 };

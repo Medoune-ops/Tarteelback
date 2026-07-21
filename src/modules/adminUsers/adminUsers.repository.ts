@@ -92,4 +92,32 @@ export const adminUsersRepository = {
       data: { isPremium: true, premiumUntil, personalPremiumUntil: premiumUntil },
     });
   },
+
+  /** true if this user has ever actually PAID for premium (vs. only received it as an admin grant). */
+  async hasPaidPremium(id: string): Promise<boolean> {
+    const paid = await prisma.transaction.findFirst({
+      where: { userId: id, type: 'premium_subscription', statut: 'success' },
+      select: { id: true },
+    });
+    return paid !== null;
+  },
+
+  /** Ids of currently-premium users who have never actually paid — the ones a bulk "free premium" revoke may touch. */
+  async idsWithUnpaidPremium(): Promise<string[]> {
+    const rows = await prisma.user.findMany({
+      where: {
+        isPremium: true,
+        transactions: { none: { type: 'premium_subscription', statut: 'success' } },
+      },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  },
+
+  revokePremium(id: string) {
+    return prisma.user.update({
+      where: { id },
+      data: { isPremium: false, premiumUntil: null, personalPremiumUntil: null },
+    });
+  },
 };

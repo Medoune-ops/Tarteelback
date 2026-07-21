@@ -107,4 +107,26 @@ export const adminUsersService = {
     await notifyGrant(userId, user.language, 'premium', durationDays === 'lifetime' ? 0 : durationDays);
     return serializeAdminUser({ ...updated, leagueMemberships: [] });
   },
+
+  /**
+   * Revokes Premium — but ONLY if this user never actually paid for it (no
+   * successful `premium_subscription` Transaction). Used to "turn off" an
+   * event-style free-Premium-for-all without touching real subscribers.
+   * Silently no-ops (returns unchanged) if the user paid — this is a bulk
+   * safety net, not a per-user override for real subscriptions.
+   */
+  async revokeGrantedPremium(userId: string) {
+    const user = await adminUsersRepository.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'User not found');
+    if (!user.isPremium) return serializeAdminUser({ ...user, leagueMemberships: [] });
+    const hasPaid = await adminUsersRepository.hasPaidPremium(userId);
+    if (hasPaid) return serializeAdminUser({ ...user, leagueMemberships: [] });
+    const updated = await adminUsersRepository.revokePremium(userId);
+    return serializeAdminUser({ ...updated, leagueMemberships: [] });
+  },
+
+  /** Ids of premium users eligible for a bulk "turn off free premium" pass (excludes real subscribers). */
+  idsWithUnpaidPremium() {
+    return adminUsersRepository.idsWithUnpaidPremium();
+  },
 };

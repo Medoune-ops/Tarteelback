@@ -42,3 +42,6 @@ export type BanUserInput = z.infer<typeof banUserSchema>;
 export type GrantHeartsInput = z.infer<typeof grantHeartsSchema>;
 export type GrantGemsInput = z.infer<typeof grantGemsSchema>;
 export type GrantPremiumInput = z.infer<typeof grantPremiumSchema>;
+
+/** GET /admin/users/:id/premium-source — a user is only "revocable" if their Premium has no paid transaction behind it. */
+export type PremiumSource = 'paid' | 'admin_grant' | 'none';
