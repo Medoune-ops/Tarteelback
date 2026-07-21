@@ -331,7 +331,10 @@ function buildLetterSteps(group: Letter[]): StepRow[] {
   return steps;
 }
 
-interface LessonBlueprint { titre: { fr: string; en: string }; sourateNumero: number | null; steps: StepRow[] }
+interface LessonBlueprint {
+  titre: { fr: string; en: string }; sourateNumero: number | null; steps: StepRow[];
+  versetDebut?: number; versetFin?: number;
+}
 
 async function main() {
   const section = await prisma.section.findFirst({ where: { hizb: null } });
@@ -379,6 +382,8 @@ async function main() {
           titre: i18n(titreFatiha, titreFatiha),
           sourateNumero: 1,
           steps: buildGroupSteps(grp, 1, pool),
+          versetDebut: grp[0].numero,
+          versetFin: grp[grp.length - 1]!.numero,
         });
       }
     }
@@ -403,8 +408,14 @@ async function main() {
       const ordre = i + 1;
       const lesson = await prisma.lesson.upsert({
         where: { sectionId_ordre: { sectionId: section.id, ordre } },
-        update: { titre: bp.titre, sourateNumero: bp.sourateNumero },
-        create: { sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero },
+        update: {
+          titre: bp.titre, sourateNumero: bp.sourateNumero,
+          versetDebut: bp.versetDebut ?? null, versetFin: bp.versetFin ?? null,
+        },
+        create: {
+          sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero,
+          versetDebut: bp.versetDebut ?? null, versetFin: bp.versetFin ?? null,
+        },
       });
       lessonIdByOrdre.set(ordre, lesson.id);
 

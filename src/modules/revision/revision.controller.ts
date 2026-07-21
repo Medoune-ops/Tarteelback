@@ -4,7 +4,7 @@ import { AppError } from '../../core/errors.js';
 import { env } from '../../config/env.js';
 import { resolveLang } from '../../core/optionalAuth.js';
 import { revisionService } from './revision.service.js';
-import { reviewSchema } from './revision.schemas.js';
+import { reviewSchema, guidedAdvanceSchema } from './revision.schemas.js';
 
 export const revisionController = {
   async list(req: FastifyRequest, reply: FastifyReply) {
@@ -27,6 +27,19 @@ export const revisionController = {
       Number(segmentIndex),
       body.quality,
     );
+    return reply.send(result);
+  },
+
+  async getGuided(req: FastifyRequest, reply: FastifyReply) {
+    const { idOrNumero } = req.params as { idOrNumero: string };
+    const result = await revisionService.getGuided(req.auth!.sub, idOrNumero);
+    return reply.send(result);
+  },
+
+  async advanceGuided(req: FastifyRequest, reply: FastifyReply) {
+    const { idOrNumero } = req.params as { idOrNumero: string };
+    const body = parse(guidedAdvanceSchema, req.body ?? {});
+    const result = await revisionService.advanceGuided(req.auth!.sub, idOrNumero, body.quality);
     return reply.send(result);
   },
 

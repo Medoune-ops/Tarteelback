@@ -45,7 +45,10 @@ async function main() {
     const { lessons, steps } = await withRetry(async () => {
       // 1) Collecter les leçons (blueprints) pour toutes les sourates de la section.
       // "Nom-de-sourate N" est un nom propre — identique dans les deux langues.
-      type LessonBlueprint = { titre: { fr: string; en: string }; steps: StepRow[]; sourateNumero: number };
+      type LessonBlueprint = {
+        titre: { fr: string; en: string }; steps: StepRow[]; sourateNumero: number;
+        versetDebut: number; versetFin: number;
+      };
       const blueprints: LessonBlueprint[] = [];
 
       for (const link of section.sourateLinks) {
@@ -57,7 +60,13 @@ async function main() {
           const built = buildGroupSteps(group, 1, pool);
           const nums = group.map((v) => v.numero).join('-');
           const titre = `${sourate.nom} ${nums}`;
-          blueprints.push({ titre: i18n(titre, titre), steps: built, sourateNumero: sourate.numero });
+          blueprints.push({
+            titre: i18n(titre, titre),
+            steps: built,
+            sourateNumero: sourate.numero,
+            versetDebut: group[0].numero,
+            versetFin: group[group.length - 1]!.numero,
+          });
         }
       }
 
@@ -83,8 +92,14 @@ async function main() {
             const ordre = batchStart + k + 1;
             const lesson = await prisma.lesson.upsert({
               where: { sectionId_ordre: { sectionId: section.id, ordre } },
-              update: { titre: bp.titre, sourateNumero: bp.sourateNumero },
-              create: { sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero },
+              update: {
+                titre: bp.titre, sourateNumero: bp.sourateNumero,
+                versetDebut: bp.versetDebut, versetFin: bp.versetFin,
+              },
+              create: {
+                sectionId: section.id, ordre, titre: bp.titre, sourateNumero: bp.sourateNumero,
+                versetDebut: bp.versetDebut, versetFin: bp.versetFin,
+              },
             });
             lessonIdByOrdre.set(ordre, lesson.id);
 

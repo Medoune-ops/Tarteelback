@@ -3,6 +3,7 @@ import { AppError } from '../../core/errors.js';
 import {
   computeNextRevision, segmentCount, segmentVerseRange, type RevisionQuality,
 } from '../../core/revision.js';
+import { computeChainStep, type ChainLesson } from '../../core/revisionChain.js';
 import { scoreRecitation } from '../../core/arabic.js';
 import { transcribeAudio } from '../lessons/asr.client.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
@@ -36,6 +37,25 @@ async function resolveSourate(idOrNumero: string): Promise<Sourate> {
     : await prisma.sourate.findUnique({ where: { id: idOrNumero } });
   if (!sourate) throw new AppError('NOT_FOUND', 'Sourate not found');
   return sourate;
+}
+
+/**
+ * Charge les leçons de versets d'une sourate, triées par `Lesson.ordre`
+ * (donc dans l'ordre RÉEL d'apprentissage), pour piloter le chaînage
+ * progressif. Les leçons sans `versetDebut`/`versetFin` (contenu jamais
+ * régénéré depuis l'ajout de ces colonnes) sont ignorées plutôt que de
+ * planter la révision guidée.
+ */
+async function loadChainLessons(sourateNumero: number): Promise<ChainLesson[]> {
+  const lessons = await prisma.lesson.findMany({
+    where: { sourateNumero },
+    orderBy: { ordre: 'asc' },
+    select: { ordre: true, versetDebut: true, versetFin: true },
+  });
+  return lessons
+    .filter((l): l is typeof l & { versetDebut: number; versetFin: number } =>
+      l.versetDebut != null && l.versetFin != null)
+    .map((l) => ({ ordre: l.ordre, versetDebut: l.versetDebut, versetFin: l.versetFin }));
 }
 
 function serializeSegment(
@@ -231,6 +251,95 @@ export const revisionService = {
     });
 
     return serializeSegment(updated, sourate);
+  },
+
+  /**
+   * GET /me/revisions/:idOrNumero/guided — prochain pas de la RÉVISION GUIDÉE
+   * (chaînage progressif verset par verset, cf. core/revisionChain.ts) : rejoue
+   * l'ordre réel d'apprentissage (Lesson.ordre + versetDebut/versetFin) plutôt
+   * que les blocs arithmétiques de 10 versets du SRS classique. Crée le
+   * curseur `SourateChainProgress` s'il n'existe pas encore (démarre à 0).
+   */
+  async getGuided(userId: string, idOrNumero: string) {
+    const sourate = await resolveSourate(idOrNumero);
+
+    const learned = await getLearnedSourates(userId);
+    if (!learned.some((s) => s.id === sourate.id)) {
+      throw new AppError('FORBIDDEN', 'Sourate not yet learned');
+    }
+
+    const lessons = await loadChainLessons(sourate.numero);
+    const progress = await prisma.sourateChainProgress.upsert({
+      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      update: {},
+      create: { userId, sourateId: sourate.id },
+    });
+
+    const chain = computeChainStep(lessons, progress.lessonsConsolidees);
+    if (progress.terminee !== chain.terminee) {
+      await prisma.sourateChainProgress.update({
+        where: { userId_sourateId: { userId, sourateId: sourate.id } },
+        data: { terminee: chain.terminee },
+      });
+    }
+
+    return {
+      numero: sourate.numero,
+      nom: sourate.nom,
+      nomArabe: sourate.nomArabe,
+      lessonsTotal: chain.lessonsTotal,
+      lessonsConsolidees: chain.lessonsConsolidees,
+      terminee: chain.terminee,
+      step: chain.step,
+    };
+  },
+
+  /**
+   * POST /me/revisions/:idOrNumero/guided/advance — clôture le cycle courant
+   * de la révision guidée. `facile`/`difficile` avance le curseur d'une leçon
+   * (le bloc assemblé devient le nouveau bloc consolidé) ; `oublie` répète le
+   * même cycle (on ne fait jamais grossir le bloc sur un échec — l'utilisateur
+   * doit d'abord souder les versets déjà en jeu avant d'en ajouter d'autres).
+   */
+  async advanceGuided(userId: string, idOrNumero: string, quality: RevisionQuality) {
+    const sourate = await resolveSourate(idOrNumero);
+
+    const learned = await getLearnedSourates(userId);
+    if (!learned.some((s) => s.id === sourate.id)) {
+      throw new AppError('FORBIDDEN', 'Sourate not yet learned');
+    }
+
+    const lessons = await loadChainLessons(sourate.numero);
+    const progress = await prisma.sourateChainProgress.upsert({
+      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      update: {},
+      create: { userId, sourateId: sourate.id },
+    });
+
+    const current = computeChainStep(lessons, progress.lessonsConsolidees);
+    if (current.terminee || !current.step) {
+      throw new AppError('VALIDATION_ERROR', 'Chaînage déjà terminé pour cette sourate');
+    }
+
+    const nextCount = quality === 'oublie'
+      ? progress.lessonsConsolidees
+      : progress.lessonsConsolidees + 1;
+
+    const next = computeChainStep(lessons, nextCount);
+    const updated = await prisma.sourateChainProgress.update({
+      where: { userId_sourateId: { userId, sourateId: sourate.id } },
+      data: { lessonsConsolidees: next.lessonsConsolidees, terminee: next.terminee },
+    });
+
+    return {
+      numero: sourate.numero,
+      nom: sourate.nom,
+      nomArabe: sourate.nomArabe,
+      lessonsTotal: next.lessonsTotal,
+      lessonsConsolidees: updated.lessonsConsolidees,
+      terminee: next.terminee,
+      step: next.step,
+    };
   },
 
   /**

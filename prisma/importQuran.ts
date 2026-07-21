@@ -12,7 +12,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
-import { QuranClient } from './quranClient.js';
+import { QuranClient, type QVerse } from './quranClient.js';
 
 const prisma = new PrismaClient();
 
@@ -93,60 +93,74 @@ async function main() {
       },
     });
 
-    // Write PER VERSE (no giant per-surah transaction). Even the largest surah
-    // (Al-Baqarah, 286 verses) never hits a transaction timeout on a
-    // high-latency remote DB, since each verse is an independent, small,
-    // idempotent set of writes — the import stays fully resumable.
-    for (const v of verses) {
-      const traductions: { langue: string; texte: string; source: string }[] = [];
-      const translitterations: { langue: string; texte: string; source: string }[] = [];
-      for (const t of v.translations ?? []) {
-        const text = stripHtml(t.text);
-        if (t.resource_id === translitId) {
-          translitterations.push({ langue: 'la', texte: text, source: `quran.com#${translitId}` });
-        } else {
-          const lang = translationLang.get(t.resource_id);
-          if (lang) traductions.push({ langue: lang, texte: text, source: `quran.com#${t.resource_id}` });
-        }
-      }
-
-      const verset = await prisma.verset.upsert({
-        where: { sourateId_numero: { sourateId: sourate.id, numero: v.verse_number } },
-        create: {
-          sourateId: sourate.id,
-          numero: v.verse_number,
-          texteArabe: v.text_uthmani,
-          audioUrl: v.audio?.url ?? null,
-        },
-        update: { texteArabe: v.text_uthmani, audioUrl: v.audio?.url ?? null },
-      });
-      await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id } });
-      await prisma.versetTranslitteration.deleteMany({ where: { versetId: verset.id } });
-      if (traductions.length) {
-        await prisma.versetTraduction.createMany({ data: traductions.map((t) => ({ versetId: verset.id, ...t })) });
-      }
-      if (translitterations.length) {
-        await prisma.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
-      }
-
-      // Word-by-word audio (so the UI plays exactly the word shown).
-      await prisma.versetMot.deleteMany({ where: { versetId: verset.id } });
-      if (v.words.length) {
-        await prisma.versetMot.createMany({
-          data: v.words.map((w) => ({
-            versetId: verset.id,
-            position: w.position,
-            texteArabe: w.text_uthmani,
-            audioUrl: w.audioUrl,
-          })),
-        });
-      }
+    // Write verses in small CONCURRENT batches rather than one strictly
+    // sequential loop: each verse's writes are independent and idempotent, so
+    // the only real cost against a high-latency remote DB is round-trip
+    // count, not row count. Batches keep the import resumable (no giant
+    // per-surah transaction) while cutting wall-clock time roughly by
+    // `VERSE_CONCURRENCY` for a network-bound remote database.
+    const VERSE_CONCURRENCY = 8;
+    for (let i = 0; i < verses.length; i += VERSE_CONCURRENCY) {
+      const batch = verses.slice(i, i + VERSE_CONCURRENCY);
+      await Promise.all(batch.map((v) => importVerset(sourate.id, v, translitId, translationLang)));
     }
 
     console.log(`  ✓ ${ch.id.toString().padStart(3)} ${ch.name_simple} (hizb ${hizb}, ${verses.length} verses)`);
   }
 
   console.log('✅ Quran import complete.');
+}
+
+/** Writes one verse (text/audio, translations, transliteration, word-by-word). */
+async function importVerset(
+  sourateId: string,
+  v: QVerse,
+  translitId: number,
+  translationLang: Map<number, string>,
+): Promise<void> {
+  const traductions: { langue: string; texte: string; source: string }[] = [];
+  const translitterations: { langue: string; texte: string; source: string }[] = [];
+  for (const t of v.translations ?? []) {
+    const text = stripHtml(t.text);
+    if (t.resource_id === translitId) {
+      translitterations.push({ langue: 'la', texte: text, source: `quran.com#${translitId}` });
+    } else {
+      const lang = translationLang.get(t.resource_id);
+      if (lang) traductions.push({ langue: lang, texte: text, source: `quran.com#${t.resource_id}` });
+    }
+  }
+
+  const verset = await prisma.verset.upsert({
+    where: { sourateId_numero: { sourateId, numero: v.verse_number } },
+    create: {
+      sourateId,
+      numero: v.verse_number,
+      texteArabe: v.text_uthmani,
+      audioUrl: v.audio?.url ?? null,
+    },
+    update: { texteArabe: v.text_uthmani, audioUrl: v.audio?.url ?? null },
+  });
+  await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id } });
+  await prisma.versetTranslitteration.deleteMany({ where: { versetId: verset.id } });
+  if (traductions.length) {
+    await prisma.versetTraduction.createMany({ data: traductions.map((t) => ({ versetId: verset.id, ...t })) });
+  }
+  if (translitterations.length) {
+    await prisma.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
+  }
+
+  // Word-by-word audio (so the UI plays exactly the word shown).
+  await prisma.versetMot.deleteMany({ where: { versetId: verset.id } });
+  if (v.words.length) {
+    await prisma.versetMot.createMany({
+      data: v.words.map((w) => ({
+        versetId: verset.id,
+        position: w.position,
+        texteArabe: w.text_uthmani,
+        audioUrl: w.audioUrl,
+      })),
+    });
+  }
 }
 
 /** Quran.com translations may contain footnote <sup> tags — strip them. */
