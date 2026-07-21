@@ -15,6 +15,11 @@ export const billingController = {
     return reply.send(result);
   },
 
+  async cancelSubscription(req: FastifyRequest, reply: FastifyReply) {
+    const result = await billingService.cancelSubscription(req.auth!.sub);
+    return reply.send(result);
+  },
+
   async buyGems(req: FastifyRequest, reply: FastifyReply) {
     const input = parse(buyGemsSchema, req.body);
     const result = await billingService.buyGems(req.auth!.sub, input);

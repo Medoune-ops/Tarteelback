@@ -25,6 +25,29 @@ d('billing & streak repair (integration)', () => {
     expect(status.json().transactions.length).toBe(1);
   });
 
+  it('cancel ends the personal subscription immediately', async () => {
+    const u = await registerUser(app);
+    await app.inject({
+      method: 'POST', url: '/billing/subscribe',
+      headers: authHeader(u.accessToken), payload: { plan: 'annuel' },
+    });
+
+    const cancel = await app.inject({ method: 'POST', url: '/billing/cancel', headers: authHeader(u.accessToken) });
+    expect(cancel.statusCode).toBe(200);
+    expect(cancel.json().isPremium).toBe(false);
+    expect(cancel.json().premiumUntil).toBeNull();
+
+    const status = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
+    expect(status.json().isPremium).toBe(false);
+  });
+
+  it('cancel fails when there is no personal subscription to cancel', async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({ method: 'POST', url: '/billing/cancel', headers: authHeader(u.accessToken) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('NO_PERSONAL_SUBSCRIPTION');
+  });
+
   it('repair-streak restores lastStreakValue', async () => {
     const u = await registerUser(app);
     // Simulate a broken streak: lastStreakValue=12, streak=0.

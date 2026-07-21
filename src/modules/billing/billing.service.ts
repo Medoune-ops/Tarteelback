@@ -111,6 +111,31 @@ export const billingService = {
     };
   },
 
+  /**
+   * POST /billing/cancel — annule l'abonnement PERSONNEL de ce compte (effet
+   * immédiat : pas d'auto-renouvellement simulé dans ce mock, donc rien à
+   * laisser courir jusqu'à une fin de période). Si le premium effectif de
+   * l'utilisateur vient uniquement d'un plan familial (pas d'abonnement
+   * personnel actif), il n'y a rien à annuler ici — il doit quitter le foyer
+   * (cf. household.service.ts) pour perdre ce premium.
+   */
+  async cancelSubscription(userId: string) {
+    const now = new Date();
+    const user = await userRepository.getOrThrow(userId);
+    if (!user.personalPremiumUntil || user.personalPremiumUntil.getTime() <= now.getTime()) {
+      throw new AppError('NO_PERSONAL_SUBSCRIPTION', 'No personal subscription to cancel');
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { personalPremiumUntil: null },
+    });
+    await recomputePremium(userId, now);
+
+    const updated = await userRepository.getOrThrow(userId);
+    return { isPremium: updated.isPremium, premiumUntil: updated.premiumUntil };
+  },
+
   /** GET /billing/status. */
   async status(userId: string) {
     const user = await userRepository.getOrThrow(userId);

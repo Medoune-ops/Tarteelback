@@ -8,6 +8,7 @@ export async function billingRoutes(app: FastifyInstance) {
 
   app.post('/subscribe', { schema: { ...sec, summary: 'Activate premium (mock payment)' } }, billingController.subscribe);
   app.get('/status', { schema: { ...sec, summary: 'Premium status & transactions' } }, billingController.status);
+  app.post('/cancel', { schema: { ...sec, summary: "Cancel this account's personal premium subscription" } }, billingController.cancelSubscription);
   app.post('/repair-streak', { schema: { ...sec, summary: 'Pay to restore the broken streak' } }, billingController.repairStreak);
   app.post('/gems', { schema: { ...sec, summary: 'Buy a gem pack (mock payment)' } }, billingController.buyGems);
   app.post('/hearts', { schema: { ...sec, summary: 'Buy a full heart refill with money (mock payment)' } }, billingController.buyHearts);
