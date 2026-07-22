@@ -58,6 +58,39 @@ async function loadChainLessons(sourateNumero: number): Promise<ChainLesson[]> {
     .map((l) => ({ ordre: l.ordre, versetDebut: l.versetDebut, versetFin: l.versetFin }));
 }
 
+/**
+ * Nombre de leçons de CETTE sourate (dans l'ordre du chaînage) déjà
+ * complétées par l'utilisateur dans "Apprendre" — plafonne le chaînage
+ * progressif : on ne propose jamais d'assembler des versets que l'utilisateur
+ * n'a pas encore appris. Contrairement à `getLearnedSourates` (SRS classique,
+ * qui exige la sourate ENTIÈREMENT apprise), la révision guidée doit
+ * accompagner l'apprentissage EN COURS, pas seulement s'activer après coup.
+ */
+async function countLearnedChainLessons(userId: string, sourateNumero: number): Promise<number> {
+  const lessons = await prisma.lesson.findMany({
+    where: { sourateNumero, versetDebut: { not: null } },
+    orderBy: { ordre: 'asc' },
+    select: { id: true },
+  });
+  if (lessons.length === 0) return 0;
+
+  const completed = await prisma.lessonProgress.findMany({
+    where: { userId, etat: 'completed', lessonId: { in: lessons.map((l) => l.id) } },
+    select: { lessonId: true },
+  });
+  const done = new Set(completed.map((c) => c.lessonId));
+
+  // Compte le préfixe consécutif appris depuis le début — une leçon plus
+  // loin complétée hors-ordre (ne devrait pas arriver, le parcours est
+  // linéaire) ne fait pas "sauter" le chaînage en avant.
+  let count = 0;
+  for (const l of lessons) {
+    if (!done.has(l.id)) break;
+    count++;
+  }
+  return count;
+}
+
 function serializeSegment(
   revision: SourateRevision,
   sourate: { nombreVersets: number },
@@ -259,12 +292,18 @@ export const revisionService = {
    * l'ordre réel d'apprentissage (Lesson.ordre + versetDebut/versetFin) plutôt
    * que les blocs arithmétiques de 10 versets du SRS classique. Crée le
    * curseur `SourateChainProgress` s'il n'existe pas encore (démarre à 0).
+   *
+   * Contrairement au SRS classique (`getLearnedSourates`, qui exige la
+   * sourate ENTIÈREMENT apprise), la révision guidée doit accompagner
+   * l'apprentissage EN COURS : accessible dès la 1ère leçon de la sourate
+   * complétée, et son avancée est plafonnée par `countLearnedChainLessons`
+   * pour ne jamais assembler des versets pas encore vus dans "Apprendre".
    */
   async getGuided(userId: string, idOrNumero: string) {
     const sourate = await resolveSourate(idOrNumero);
 
-    const learned = await getLearnedSourates(userId);
-    if (!learned.some((s) => s.id === sourate.id)) {
+    const learnedCount = await countLearnedChainLessons(userId, sourate.numero);
+    if (learnedCount === 0) {
       throw new AppError('FORBIDDEN', 'Sourate not yet learned');
     }
 
@@ -275,11 +314,12 @@ export const revisionService = {
       create: { userId, sourateId: sourate.id },
     });
 
-    const chain = computeChainStep(lessons, progress.lessonsConsolidees);
-    if (progress.terminee !== chain.terminee) {
+    const capped = Math.min(progress.lessonsConsolidees, learnedCount);
+    const chain = computeChainStep(lessons, capped);
+    if (progress.terminee !== chain.terminee || progress.lessonsConsolidees !== capped) {
       await prisma.sourateChainProgress.update({
         where: { userId_sourateId: { userId, sourateId: sourate.id } },
-        data: { terminee: chain.terminee },
+        data: { lessonsConsolidees: capped, terminee: chain.terminee },
       });
     }
 
@@ -300,12 +340,15 @@ export const revisionService = {
    * (le bloc assemblé devient le nouveau bloc consolidé) ; `oublie` répète le
    * même cycle (on ne fait jamais grossir le bloc sur un échec — l'utilisateur
    * doit d'abord souder les versets déjà en jeu avant d'en ajouter d'autres).
+   * Ne peut jamais avancer au-delà de `countLearnedChainLessons` : si
+   * l'utilisateur a rattrapé le curseur (dernière leçon apprise déjà
+   * consolidée), il doit d'abord apprendre la suite dans "Apprendre".
    */
   async advanceGuided(userId: string, idOrNumero: string, quality: RevisionQuality) {
     const sourate = await resolveSourate(idOrNumero);
 
-    const learned = await getLearnedSourates(userId);
-    if (!learned.some((s) => s.id === sourate.id)) {
+    const learnedCount = await countLearnedChainLessons(userId, sourate.numero);
+    if (learnedCount === 0) {
       throw new AppError('FORBIDDEN', 'Sourate not yet learned');
     }
 
@@ -316,14 +359,17 @@ export const revisionService = {
       create: { userId, sourateId: sourate.id },
     });
 
-    const current = computeChainStep(lessons, progress.lessonsConsolidees);
+    const currentCount = Math.min(progress.lessonsConsolidees, learnedCount);
+    const current = computeChainStep(lessons, currentCount);
     if (current.terminee || !current.step) {
       throw new AppError('VALIDATION_ERROR', 'Chaînage déjà terminé pour cette sourate');
     }
 
-    const nextCount = quality === 'oublie'
-      ? progress.lessonsConsolidees
-      : progress.lessonsConsolidees + 1;
+    const wanted = quality === 'oublie' ? currentCount : currentCount + 1;
+    // Plafonné : ne jamais dépasser ce que l'utilisateur a réellement appris —
+    // s'il vient de rattraper son retard, il doit d'abord apprendre la
+    // prochaine leçon dans "Apprendre" avant de pouvoir avancer plus loin.
+    const nextCount = Math.min(wanted, learnedCount);
 
     const next = computeChainStep(lessons, nextCount);
     const updated = await prisma.sourateChainProgress.update({

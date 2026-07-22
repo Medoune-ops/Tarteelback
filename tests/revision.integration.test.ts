@@ -236,10 +236,17 @@ d('revision: chained verse recitation spans the whole sourate (integration)', ()
  * revision (chaînage progressif) needs, unlike `makeLearnedSourate`'s single
  * lesson. Ranges default to 2,2,2,1 verses (last one solo, e.g. a long verse).
  */
+/**
+ * `lessonsApprises` (défaut = toutes) contrôle combien des leçons créées sont
+ * marquées `completed` pour `userId` — sert à tester le plafonnement du
+ * chaînage guidé par l'apprentissage RÉEL en cours (cf. countLearnedChainLessons),
+ * pas seulement le cas "sourate entièrement apprise".
+ */
 async function makeChainedSourate(
   userId: string,
   numero: number,
   ranges: Array<[number, number]> = [[1, 2], [3, 4], [5, 6], [7, 7]],
+  lessonsApprises: number = ranges.length,
 ) {
   const nombreVersets = ranges[ranges.length - 1]![1];
   const sourate = await prisma.sourate.create({
@@ -262,9 +269,11 @@ async function makeChainedSourate(
         sourateNumero: numero, versetDebut, versetFin,
       },
     });
-    await prisma.lessonProgress.create({
-      data: { userId, lessonId: lesson.id, etat: 'completed', score: 100, completedAt: new Date() },
-    });
+    if (i < lessonsApprises) {
+      await prisma.lessonProgress.create({
+        data: { userId, lessonId: lesson.id, etat: 'completed', score: 100, completedAt: new Date() },
+      });
+    }
   }
   return sourate;
 }
@@ -390,6 +399,54 @@ d('revision: guided chaining (integration)', () => {
       method: 'GET', url: `/me/revisions/${numero}/guided`, headers: authHeader(u.accessToken),
     });
     expect(res.statusCode).toBe(403);
+  });
+
+  it('is accessible as soon as the FIRST lesson is learned — not the whole sourate', async () => {
+    const u = await registerUser(app);
+    const numero = 26;
+    // Only lesson 1 of 4 completed (learning still in progress).
+    await makeChainedSourate(u.userId, numero, undefined, 1);
+
+    const res = await app.inject({
+      method: 'GET', url: `/me/revisions/${numero}/guided`, headers: authHeader(u.accessToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ lessonsTotal: 4, lessonsConsolidees: 0, terminee: false });
+  });
+
+  it('advance is capped by what the user has actually learned so far', async () => {
+    const u = await registerUser(app);
+    const numero = 27;
+    // Only 2 of 4 lessons learned so far (still learning in "Apprendre").
+    await makeChainedSourate(u.userId, numero, undefined, 2);
+
+    // First advance: consolidates lesson 1 -> allowed (only 1 learned lesson consumed).
+    const first = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().lessonsConsolidees).toBe(1);
+
+    // Second advance would need lesson 2 learned -> allowed (exactly the cap).
+    const second = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().lessonsConsolidees).toBe(2);
+
+    // Third advance would require lesson 3, which the user hasn't learned yet
+    // in "Apprendre" — the chain must NOT progress past the learned cap.
+    const third = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    expect(third.statusCode).toBe(200);
+    expect(third.json().lessonsConsolidees).toBe(2); // unchanged: capped
+
+    const persisted = await prisma.sourateChainProgress.findFirst({ where: { userId: u.userId } });
+    expect(persisted?.lessonsConsolidees).toBe(2);
   });
 });
 

@@ -6,6 +6,8 @@ import { adminRoutes } from './modules/content/admin.routes.js';
 import { lessonRoutes, lessonFlatRoutes } from './modules/lessons/lesson.routes.js';
 import { leagueRoutes } from './modules/leagues/league.routes.js';
 import { billingRoutes } from './modules/billing/billing.routes.js';
+import { dexpayWebhookRoutes } from './modules/billing/dexpay.webhook.js';
+import { dexpayPagesRoutes } from './modules/billing/dexpay.pages.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
 import { gemRoutes } from './modules/gems/gem.routes.js';
@@ -29,6 +31,11 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(lessonFlatRoutes, { prefix: '/lesson' });
   await app.register(leagueRoutes, { prefix: '/leagues' });
   await app.register(billingRoutes, { prefix: '/billing' });
+  // Webhook DexPay — PAS de Bearer token (signature HMAC vérifiée à la place),
+  // monté séparément de billingRoutes pour ne pas hériter de son hook `authenticate`.
+  await app.register(dexpayWebhookRoutes, { prefix: '/billing' });
+  // Pages HTML de repli success_url/failure_url — publiques, jamais authentifiées.
+  await app.register(dexpayPagesRoutes, { prefix: '/billing' });
   await app.register(notificationRoutes, { prefix: '/me/notifications' });
   // Rewards mounted under /me so the front's GET /me/podiums etc. line up.
   await app.register(rewardRoutes, { prefix: '/me' });

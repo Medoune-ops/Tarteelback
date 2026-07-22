@@ -15,6 +15,12 @@ export const billingController = {
     return reply.send(result);
   },
 
+  async getTransaction(req: FastifyRequest, reply: FastifyReply) {
+    const { reference } = req.params as { reference: string };
+    const result = await billingService.getTransaction(req.auth!.sub, reference);
+    return reply.send(result);
+  },
+
   async buyGems(req: FastifyRequest, reply: FastifyReply) {
     const input = parse(buyGemsSchema, req.body);
     const result = await billingService.buyGems(req.auth!.sub, input);
