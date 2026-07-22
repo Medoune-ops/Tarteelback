@@ -163,8 +163,8 @@ model User {
   // `isPremium`/`premiumUntil` = premium EFFECTIF (personnel OU familial),
   // matérialisé par syncUserState pour que tous les contrôles existants
   // (isPremiumActive) restent valables sans changement.
-  isPremium    Boolean   @default(false)
-  premiumUntil DateTime?
+  isPremium            Boolean   @default(false)
+  premiumUntil         DateTime?
   // Abonnement PERSONNEL de ce compte (indépendant du plan familial). Sert de
   // source pour recalculer le premium effectif. Rétro-rempli = premiumUntil.
   personalPremiumUntil DateTime?
@@ -234,6 +234,7 @@ model User {
   refreshTokens     RefreshToken[]
   lessonProgress    LessonProgress[]
   sourateRevisions  SourateRevision[]
+  chainProgress     SourateChainProgress[]
   lettreRevisions   LettreRevision[]
   leagueMemberships LeagueMembership[]
   transactions      Transaction[]
@@ -245,10 +246,10 @@ model User {
 
   // Plan familial (foyer) : un compte possède au plus un foyer (owner) et
   // appartient à au plus un foyer (membership).
-  ownedHousehold    Household?            @relation("HouseholdOwner")
-  householdMember   HouseholdMember?
-  sentInvitations   HouseholdInvitation[] @relation("InvitedBy")
-  pendingGifts      PendingGift[]
+  ownedHousehold  Household?            @relation("HouseholdOwner")
+  householdMember HouseholdMember?
+  sentInvitations HouseholdInvitation[] @relation("InvitedBy")
+  pendingGifts    PendingGift[]
 
   @@index([weeklyXp])
   @@index([bannedAt])
@@ -261,12 +262,12 @@ model User {
 /// qu'il en trouve un, il joue l'animation cadeau puis appelle
 /// POST /me/pending-gift/:id/ack pour le marquer vu (jamais rejoué).
 model PendingGift {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   kind      String // 'hearts' | 'gems' | 'premium'
   amount    Int
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   seenAt    DateTime?
 
   @@index([userId, seenAt])
@@ -506,8 +507,8 @@ model AdminActivityLog {
 // ─── Content (admin-managed) ─────────────────────────────────────────────────
 
 model Section {
-  id           String @id @default(cuid())
-  ordre        Int    @unique
+  id           String  @id @default(cuid())
+  ordre        Int     @unique
   hizb         Int? // null for the alphabet section
   kicker       String
   // {fr,en} translatable text — resolved by content.serializer.ts per `lang`.
@@ -557,6 +558,14 @@ model Lesson {
   // point de départ) et, plus tard, aux révisions. null pour les leçons de
   // lettres de l'alphabet.
   sourateNumero Int?
+  // Plage de versets (1-based, inclusive) enseignée par cette leçon — 1 ou 2
+  // versets consécutifs selon `groupVerses` (lessonBuilder.ts). Rempli au seed
+  // pour les leçons de sourates ; null pour les leçons de lettres de
+  // l'alphabet. Permet à la révision guidée de rejouer l'ordre RÉEL
+  // d'apprentissage (cf. core/revisionChain.ts), indépendamment du découpage
+  // arithmétique par blocs de 10 utilisé par le SRS classique (SourateRevision).
+  versetDebut   Int?
+  versetFin     Int?
 
   steps     LessonStep[]
   progress  LessonProgress[]
@@ -595,9 +604,10 @@ model Sourate {
   // Revelation place, useful metadata from quran.com (makkah/madinah).
   revelation    String?
 
-  versets      Verset[]
-  sectionLinks SectionSourate[]
-  revisions    SourateRevision[]
+  versets       Verset[]
+  sectionLinks  SectionSourate[]
+  revisions     SourateRevision[]
+  chainProgress SourateChainProgress[]
 
   @@index([hizb])
 }
@@ -701,6 +711,27 @@ model SourateRevision {
   @@unique([userId, sourateId, segmentIndex])
   @@index([userId])
   @@index([sourateId])
+}
+
+/// Curseur de la RÉVISION GUIDÉE (chaînage progressif) d'une sourate, séparé
+/// du SRS classique (SourateRevision, blocs de SEGMENT_SIZE) : ici on rejoue
+/// l'ordre RÉEL d'apprentissage leçon par leçon (`Lesson.ordre`, 1-2 versets
+/// enseignés à la fois via `versetDebut`/`versetFin`), en faisant grossir un
+/// bloc consolidé jusqu'à couvrir toute la sourate. `lessonsConsolidees`
+/// compte combien de leçons (dans l'ordre) sont déjà intégrées au bloc
+/// consolidé ; la prochaine étape apprend/réintègre la leçon suivante.
+model SourateChainProgress {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourateId          String
+  sourate            Sourate  @relation(fields: [sourateId], references: [id], onDelete: Cascade)
+  lessonsConsolidees Int      @default(0)
+  terminee           Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, sourateId])
+  @@index([userId])
 }
 
 /// SRS des leçons d'alphabet/harakat (Lesson.sourateNumero = null) — même

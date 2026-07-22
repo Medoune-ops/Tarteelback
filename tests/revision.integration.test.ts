@@ -230,6 +230,169 @@ d('revision: chained verse recitation spans the whole sourate (integration)', ()
   });
 });
 
+/**
+ * A sourate learned in full (like `makeLearnedSourate`) but taught by SEVERAL
+ * lessons with real `versetDebut`/`versetFin` ranges — the shape the guided
+ * revision (chaînage progressif) needs, unlike `makeLearnedSourate`'s single
+ * lesson. Ranges default to 2,2,2,1 verses (last one solo, e.g. a long verse).
+ */
+async function makeChainedSourate(
+  userId: string,
+  numero: number,
+  ranges: Array<[number, number]> = [[1, 2], [3, 4], [5, 6], [7, 7]],
+) {
+  const nombreVersets = ranges[ranges.length - 1]![1];
+  const sourate = await prisma.sourate.create({
+    data: { numero, nom: `S${numero}`, nomArabe: `س${numero}`, nombreVersets, hizb: 1 },
+  });
+  const section = await prisma.section.create({
+    data: {
+      ordre: Math.floor(Math.random() * 1e9),
+      kicker: 'T', titre: 'T', sousTitre: '', couleur: '#000',
+      degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x',
+    },
+  });
+  await prisma.sectionSourate.create({ data: { sectionId: section.id, sourateId: sourate.id, ordre: 1 } });
+
+  for (let i = 0; i < ranges.length; i++) {
+    const [versetDebut, versetFin] = ranges[i]!;
+    const lesson = await prisma.lesson.create({
+      data: {
+        sectionId: section.id, ordre: i + 1, titre: `Leçon ${i + 1}`,
+        sourateNumero: numero, versetDebut, versetFin,
+      },
+    });
+    await prisma.lessonProgress.create({
+      data: { userId, lessonId: lesson.id, etat: 'completed', score: 100, completedAt: new Date() },
+    });
+  }
+  return sourate;
+}
+
+d('revision: guided chaining (integration)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  it('GET .../guided starts with no consolidated block and the first lesson as "nouveaux versets"', async () => {
+    const u = await registerUser(app);
+    const numero = 20;
+    await makeChainedSourate(u.userId, numero);
+
+    const res = await app.inject({
+      method: 'GET', url: `/me/revisions/${numero}/guided`, headers: authHeader(u.accessToken),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      lessonsTotal: 4,
+      lessonsConsolidees: 0,
+      terminee: false,
+      step: {
+        blocConsolide: null,
+        nouveauxVersets: { debut: 1, fin: 2 },
+        blocAssemble: { debut: 1, fin: 2 },
+        lessonIndex: 0,
+      },
+    });
+  });
+
+  it('POST .../guided/advance with "facile" grows the consolidated block by one lesson', async () => {
+    const u = await registerUser(app);
+    const numero = 21;
+    await makeChainedSourate(u.userId, numero);
+
+    const advance = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    expect(advance.statusCode).toBe(200);
+    expect(advance.json()).toMatchObject({
+      lessonsConsolidees: 1,
+      terminee: false,
+      step: {
+        blocConsolide: { debut: 1, fin: 2 },
+        nouveauxVersets: { debut: 3, fin: 4 },
+        blocAssemble: { debut: 1, fin: 4 },
+        lessonIndex: 1,
+      },
+    });
+
+    const persisted = await prisma.sourateChainProgress.findFirst({ where: { userId: u.userId } });
+    expect(persisted?.lessonsConsolidees).toBe(1);
+  });
+
+  it('POST .../guided/advance with "oublie" repeats the current cycle instead of advancing', async () => {
+    const u = await registerUser(app);
+    const numero = 22;
+    await makeChainedSourate(u.userId, numero);
+
+    // Advance once to lesson 2, then fail it.
+    await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    const forgot = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'oublie' },
+    });
+    expect(forgot.statusCode).toBe(200);
+    expect(forgot.json()).toMatchObject({
+      lessonsConsolidees: 1,
+      step: { blocConsolide: { debut: 1, fin: 2 }, nouveauxVersets: { debut: 3, fin: 4 } },
+    });
+  });
+
+  it('reaching the last lesson marks the chain as "terminee"', async () => {
+    const u = await registerUser(app);
+    const numero = 23;
+    await makeChainedSourate(u.userId, numero); // 4 lessons
+
+    let last;
+    for (let i = 0; i < 4; i++) {
+      last = await app.inject({
+        method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+        headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+      });
+    }
+    expect(last!.json()).toMatchObject({ lessonsConsolidees: 4, terminee: true, step: null });
+
+    const after = await app.inject({
+      method: 'GET', url: `/me/revisions/${numero}/guided`, headers: authHeader(u.accessToken),
+    });
+    expect(after.json()).toMatchObject({ terminee: true, step: null });
+  });
+
+  it('rejects advancing a chain that is already terminee', async () => {
+    const u = await registerUser(app);
+    const numero = 24;
+    await makeChainedSourate(u.userId, numero, [[1, 2]]); // single lesson
+
+    await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    const again = await app.inject({
+      method: 'POST', url: `/me/revisions/${numero}/guided/advance`,
+      headers: authHeader(u.accessToken), payload: { quality: 'facile' },
+    });
+    expect(again.statusCode).toBe(400);
+  });
+
+  it('rejects guided revision for a sourate the user has not learned', async () => {
+    const u = await registerUser(app);
+    const numero = 25;
+    await prisma.sourate.create({
+      data: { numero, nom: 'S25', nomArabe: 'س٢٥', nombreVersets: 4, hizb: 1 },
+    });
+
+    const res = await app.inject({
+      method: 'GET', url: `/me/revisions/${numero}/guided`, headers: authHeader(u.accessToken),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
 d('revision: chained lettre recitation (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });

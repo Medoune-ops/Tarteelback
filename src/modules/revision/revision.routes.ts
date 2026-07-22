@@ -7,6 +7,9 @@ import { revisionController } from './revision.controller.js';
  *   - SRS sourates, PAR SEGMENT (bloc de versets, cf. core/revision.ts) :
  *     GET /revisions (vue agrégée), GET /revisions/:idOrNumero/segments (détail
  *     par bloc), POST /revisions/:idOrNumero/segments/:segmentIndex/review ;
+ *   - Révision GUIDÉE (chaînage progressif verset par verset, rejoue l'ordre
+ *     réel d'apprentissage — cf. core/revisionChain.ts) : GET
+ *     /revisions/:idOrNumero/guided, POST /revisions/:idOrNumero/guided/advance ;
  *   - SRS alphabet/harakat : GET /revisions/lettres, POST /revisions/lettres/:lessonId/review ;
  *   - Vocal : POST /revisions/versets/:versetId/recite (récitation notée Whisper) ;
  *     POST /revisions/lettres/steps/:stepId/recite (prononciation d'une lettre).
@@ -42,6 +45,30 @@ export async function revisionRoutes(app: FastifyInstance) {
     '/revisions/:idOrNumero/segments/:segmentIndex/review',
     { schema: { ...sec, summary: "Enregistre le résultat d'une session de révision pour UN segment (SRS)" } },
     revisionController.reviewSegment,
+  );
+
+  app.get(
+    '/revisions/:idOrNumero/guided',
+    {
+      schema: {
+        ...sec,
+        summary:
+          'Prochain pas de la révision GUIDÉE (chaînage progressif verset par verset, rejoue l\'ordre réel d\'apprentissage)',
+      },
+    },
+    revisionController.getGuided,
+  );
+
+  app.post(
+    '/revisions/:idOrNumero/guided/advance',
+    {
+      schema: {
+        ...sec,
+        summary:
+          'Clôture le cycle courant de la révision guidée : "facile"/"difficile" avance le curseur, "oublie" répète le cycle',
+      },
+    },
+    revisionController.advanceGuided,
   );
 
   app.get(
