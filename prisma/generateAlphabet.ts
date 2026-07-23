@@ -31,34 +31,34 @@ const LETTER_LESSONS = 7;
 // Les 28 lettres. `letterKey` = clé audio locale bundlée côté front ;
 // `ttsText` = fallback expo-speech.
 const LETTERS = [
-  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  sonEn: 'a / long â',                letterKey: 'alif',  ttsText: 'أَلِف' },
-  { g: 'ب', nom: 'Bā',    son: 'b',                            sonEn: 'b',                          letterKey: 'ba',    ttsText: 'بَاء' },
-  { g: 'ت', nom: 'Tā',    son: 't',                            sonEn: 't',                          letterKey: 'ta',    ttsText: 'تَاء' },
-  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       sonEn: 'th (as in "think")',         letterKey: 'tha',   ttsText: 'ثَاء' },
-  { g: 'ج', nom: 'Jīm',   son: 'dj',                           sonEn: 'j (as in "jam")',            letterKey: 'jeem',  ttsText: 'جِيم' },
-  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                sonEn: 'strong breathy h',           letterKey: 'ha',    ttsText: 'حَاء' },
-  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    sonEn: 'kh (like Spanish "jota")',   letterKey: 'kha',   ttsText: 'خَاء' },
-  { g: 'د', nom: 'Dāl',   son: 'd',                            sonEn: 'd',                          letterKey: 'dal',   ttsText: 'دَال' },
-  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        sonEn: 'th (as in "this")',          letterKey: 'dhal',  ttsText: 'ذَال' },
-  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      sonEn: 'rolled r',                   letterKey: 'ra',    ttsText: 'رَاء' },
-  { g: 'ز', nom: 'Zāy',   son: 'z',                            sonEn: 'z',                          letterKey: 'zay',   ttsText: 'زَاي' },
-  { g: 'س', nom: 'Sīn',   son: 's',                            sonEn: 's',                          letterKey: 'sin',   ttsText: 'سِين' },
-  { g: 'ش', nom: 'Shīn',  son: 'ch',                           sonEn: 'sh',                         letterKey: 'shin',  ttsText: 'شِين' },
-  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 sonEn: 'emphatic s',                 letterKey: 'sad',   ttsText: 'صَاد' },
-  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 sonEn: 'emphatic d',                 letterKey: 'dad',   ttsText: 'ضَاد' },
-  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 sonEn: 'emphatic t',                 letterKey: 'ta2',   ttsText: 'طَاء' },
-  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 sonEn: 'emphatic z',                 letterKey: 'dha2',  ttsText: 'ظَاء' },
-  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         sonEn: 'guttural "ʿa" sound',        letterKey: 'ayn',   ttsText: 'عَيْن' },
-  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              sonEn: 'gh (like French rolled r)',  letterKey: 'ghayn', ttsText: 'غَيْن' },
-  { g: 'ف', nom: 'Fā',    son: 'f',                            sonEn: 'f',                          letterKey: 'fa',    ttsText: 'فَاء' },
-  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   sonEn: 'guttural q',                 letterKey: 'qaf',   ttsText: 'قَاف' },
-  { g: 'ك', nom: 'Kāf',   son: 'k',                            sonEn: 'k',                          letterKey: 'kaf',   ttsText: 'كَاف' },
-  { g: 'ل', nom: 'Lām',   son: 'l',                            sonEn: 'l',                          letterKey: 'lam',   ttsText: 'لَام' },
-  { g: 'م', nom: 'Mīm',   son: 'm',                            sonEn: 'm',                          letterKey: 'mim',   ttsText: 'مِيم' },
-  { g: 'ن', nom: 'Nūn',   son: 'n',                            sonEn: 'n',                          letterKey: 'nun',   ttsText: 'نُون' },
-  { g: 'ه', nom: 'Hā',    son: 'h léger',                      sonEn: 'light h',                    letterKey: 'ha2',   ttsText: 'هَاء' },
-  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       sonEn: 'w / oo',                     letterKey: 'waw',   ttsText: 'وَاو' },
-  { g: 'ي', nom: 'Yā',    son: 'y / î',                        sonEn: 'y / long î',                 letterKey: 'ya',    ttsText: 'يَاء' },
+  { g: 'ا', nom: 'Alif',  son: 'a / â long',                  sonEn: 'a / long â',                letterKey: 'alif',  ttsText: 'أَلِف', consonne: 'a' },
+  { g: 'ب', nom: 'Bā',    son: 'b',                            sonEn: 'b',                          letterKey: 'ba',    ttsText: 'بَاء', consonne: 'b' },
+  { g: 'ت', nom: 'Tā',    son: 't',                            sonEn: 't',                          letterKey: 'ta',    ttsText: 'تَاء', consonne: 't' },
+  { g: 'ث', nom: 'Thā',   son: 'th (anglais « think »)',       sonEn: 'th (as in "think")',         letterKey: 'tha',   ttsText: 'ثَاء', consonne: 'th' },
+  { g: 'ج', nom: 'Jīm',   son: 'dj',                           sonEn: 'j (as in "jam")',            letterKey: 'jeem',  ttsText: 'جِيم', consonne: 'dj' },
+  { g: 'ح', nom: 'Ḥā',    son: 'h aspiré fort',                sonEn: 'strong breathy h',           letterKey: 'ha',    ttsText: 'حَاء', consonne: 'h' },
+  { g: 'خ', nom: 'Khā',   son: 'kh (jota)',                    sonEn: 'kh (like Spanish "jota")',   letterKey: 'kha',   ttsText: 'خَاء', consonne: 'kh' },
+  { g: 'د', nom: 'Dāl',   son: 'd',                            sonEn: 'd',                          letterKey: 'dal',   ttsText: 'دَال', consonne: 'd' },
+  { g: 'ذ', nom: 'Dhāl',  son: 'dh (anglais « this »)',        sonEn: 'th (as in "this")',          letterKey: 'dhal',  ttsText: 'ذَال', consonne: 'dh' },
+  { g: 'ر', nom: 'Rā',    son: 'r roulé',                      sonEn: 'rolled r',                   letterKey: 'ra',    ttsText: 'رَاء', consonne: 'r' },
+  { g: 'ز', nom: 'Zāy',   son: 'z',                            sonEn: 'z',                          letterKey: 'zay',   ttsText: 'زَاي', consonne: 'z' },
+  { g: 'س', nom: 'Sīn',   son: 's',                            sonEn: 's',                          letterKey: 'sin',   ttsText: 'سِين', consonne: 's' },
+  { g: 'ش', nom: 'Shīn',  son: 'ch',                           sonEn: 'sh',                         letterKey: 'shin',  ttsText: 'شِين', consonne: 'ch' },
+  { g: 'ص', nom: 'Ṣād',   son: 's emphatique',                 sonEn: 'emphatic s',                 letterKey: 'sad',   ttsText: 'صَاد', consonne: 's' },
+  { g: 'ض', nom: 'Ḍād',   son: 'd emphatique',                 sonEn: 'emphatic d',                 letterKey: 'dad',   ttsText: 'ضَاد', consonne: 'd' },
+  { g: 'ط', nom: 'Ṭā',    son: 't emphatique',                 sonEn: 'emphatic t',                 letterKey: 'ta2',   ttsText: 'طَاء', consonne: 't' },
+  { g: 'ظ', nom: 'Ẓā',    son: 'z emphatique',                 sonEn: 'emphatic z',                 letterKey: 'dha2',  ttsText: 'ظَاء', consonne: 'z' },
+  { g: 'ع', nom: 'ʿAyn',  son: 'son guttural « ʿa »',         sonEn: 'guttural "ʿa" sound',        letterKey: 'ayn',   ttsText: 'عَيْن', consonne: 'ʿ' },
+  { g: 'غ', nom: 'Ghayn', son: 'gh (r grasseyé)',              sonEn: 'gh (like French rolled r)',  letterKey: 'ghayn', ttsText: 'غَيْن', consonne: 'gh' },
+  { g: 'ف', nom: 'Fā',    son: 'f',                            sonEn: 'f',                          letterKey: 'fa',    ttsText: 'فَاء', consonne: 'f' },
+  { g: 'ق', nom: 'Qāf',   son: 'q guttural',                   sonEn: 'guttural q',                 letterKey: 'qaf',   ttsText: 'قَاف', consonne: 'q' },
+  { g: 'ك', nom: 'Kāf',   son: 'k',                            sonEn: 'k',                          letterKey: 'kaf',   ttsText: 'كَاف', consonne: 'k' },
+  { g: 'ل', nom: 'Lām',   son: 'l',                            sonEn: 'l',                          letterKey: 'lam',   ttsText: 'لَام', consonne: 'l' },
+  { g: 'م', nom: 'Mīm',   son: 'm',                            sonEn: 'm',                          letterKey: 'mim',   ttsText: 'مِيم', consonne: 'm' },
+  { g: 'ن', nom: 'Nūn',   son: 'n',                            sonEn: 'n',                          letterKey: 'nun',   ttsText: 'نُون', consonne: 'n' },
+  { g: 'ه', nom: 'Hā',    son: 'h léger',                      sonEn: 'light h',                    letterKey: 'ha2',   ttsText: 'هَاء', consonne: 'h' },
+  { g: 'و', nom: 'Wāw',   son: 'w / ou',                       sonEn: 'w / oo',                     letterKey: 'waw',   ttsText: 'وَاو', consonne: 'w' },
+  { g: 'ي', nom: 'Yā',    son: 'y / î',                        sonEn: 'y / long î',                 letterKey: 'ya',    ttsText: 'يَاء', consonne: 'y' },
 ];
 
 type Letter = typeof LETTERS[number];
@@ -125,7 +125,7 @@ function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
       type: 'discovery',
       payload: {
         arabe: syll,
-        translitteration: h.suffix ? `${L.nom.toLowerCase()}${h.suffix}` : `${L.nom.toLowerCase()} (sans voyelle)`,
+        translitteration: h.suffix ? `${L.consonne}${h.suffix}` : `${L.consonne} (sans voyelle)`,
         traduction: i18n(`${h.nom} → son « ${h.son} »`, `${h.nom} → sound "${h.sonEn}"`),
         audioUrl: null,
         ttsText,
@@ -141,8 +141,8 @@ function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
       type: 'written',
       payload: {
         consigne: i18n(
-          `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${h.suffix} » ?`,
-          `Which syllable is pronounced "${L.nom.toLowerCase()}${h.suffixEn}"?`,
+          `Quelle syllabe se prononce « ${L.consonne}${h.suffix} » ?`,
+          `Which syllable is pronounced "${L.consonne}${h.suffixEn}"?`,
         ),
         arabe: '',
         options,
@@ -151,7 +151,7 @@ function buildSimpleHarakaSteps(letters: Letter[], h: Haraka): StepRow[] {
     });
   }
   if (letters.length >= 2) {
-    steps.push(makeMatchingPairs(ordre++, letters.map((L) => ({ arabe: h.combine(L.g), traduction: `${L.nom.toLowerCase()}${h.suffix || ' (sukun)'}` }))));
+    steps.push(makeMatchingPairs(ordre++, letters.map((L) => ({ arabe: h.combine(L.g), traduction: `${L.consonne}${h.suffix || ' (sukun)'}` }))));
   }
   return steps;
 }
@@ -189,7 +189,7 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
         type: 'discovery',
         payload: {
           arabe: syll,
-          translitteration: `${L.nom.toLowerCase()}${t.suffix}`,
+          translitteration: `${L.consonne}${t.suffix}`,
           traduction: i18n(`Tanwin « ${t.sigle} » → son « ${t.suffix} »`, `Tanwin "${t.sigle}" → sound "${t.suffix}"`),
           audioUrl: null,
           ttsText: syll,
@@ -205,8 +205,8 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
         type: 'written',
         payload: {
           consigne: i18n(
-            `Quelle syllabe se prononce « ${L.nom.toLowerCase()}${t.suffix} » ?`,
-            `Which syllable is pronounced "${L.nom.toLowerCase()}${t.suffix}"?`,
+            `Quelle syllabe se prononce « ${L.consonne}${t.suffix} » ?`,
+            `Which syllable is pronounced "${L.consonne}${t.suffix}"?`,
           ),
           arabe: '',
           options,
@@ -215,7 +215,7 @@ function buildTanwinSteps(letters: Letter[]): StepRow[] {
       });
     }
   }
-  const recap = letters.slice(0, 2).flatMap((L) => TANWIN.map((t) => ({ arabe: t.combine(L.g), traduction: `${L.nom.toLowerCase()}${t.suffix}` })));
+  const recap = letters.slice(0, 2).flatMap((L) => TANWIN.map((t) => ({ arabe: t.combine(L.g), traduction: `${L.consonne}${t.suffix}` })));
   steps.push(makeMatchingPairs(ordre++, recap));
   return steps;
 }
@@ -243,7 +243,7 @@ function buildHarakaSummarySteps(letters: Letter[]): StepRow[] {
   // QCM mixte : syllabes prises sur des lettres/harakat variés.
   const mixed = letters.slice(0, 6).flatMap((L, i) => {
     const h = signs[i % 3]!; // alterne fatha/kasra/damma
-    return [{ arabe: h.combine(L.g), reponse: `${L.nom.toLowerCase()}${h.suffix}` }];
+    return [{ arabe: h.combine(L.g), reponse: `${L.consonne}${h.suffix}` }];
   });
   const allMixed = mixed.map((m) => m.reponse);
   for (const m of mixed) {

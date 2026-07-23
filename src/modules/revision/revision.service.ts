@@ -20,15 +20,15 @@ const worseEtat = (a: RevisionState, b: RevisionState) =>
   ETAT_SEVERITY[a] <= ETAT_SEVERITY[b] ? a : b;
 
 // En dessous de ce score, le verset récité est jugé "manqué" (aide affichée
-// côté front). Plus permissif que le seuil des leçons (70) : une session de
+// côté front). Plus permissif que le seuil des leçons (55) : une session de
 // révision porte sur un verset entier, pas un mot isolé.
-const FLUENT_THRESHOLD = 60;
+const FLUENT_THRESHOLD = 40;
 // Au-dessus de ce score (sans atteindre la fluidité) : hésitation plutôt
 // qu'oubli total — nuance renvoyée au front via `verdict`.
-const HESITANT_THRESHOLD = 30;
+const HESITANT_THRESHOLD = 20;
 // Lettres/syllabes isolées : audio très court → transcription Whisper plus
 // bruitée que sur un verset. Seuil de réussite plus permissif pour compenser.
-const LETTER_FLUENT_THRESHOLD = 50;
+const LETTER_FLUENT_THRESHOLD = 35;
 
 /** Résout une sourate par cuid OU par numero (même dispatch que content.service.ts). */
 async function resolveSourate(idOrNumero: string): Promise<Sourate> {

@@ -181,7 +181,7 @@ export function makeMatchingPairs(ordre: number, pairs: Array<{ arabe: string; t
 /**
  * Étape voix : récite le verset, scoré par l'ASR serveur (Whisper base
  * fine-tuné Coran) — voir src/modules/lessons/asr.client.ts côté backend.
- * `seuilReussite` reste indulgent (55) : le modèle "base" (le plus petit de
+ * `seuilReussite` reste indulgent (40) : le modèle "base" (le plus petit de
  * la famille Whisper) transcrit avec plus d'erreurs qu'un modèle plus lourd,
  * et un cœur est en jeu sur ce chemin (judgeVoiceServer) — un seuil trop
  * strict pénalise des récitations correctes juste à cause du bruit ambiant,
@@ -196,7 +196,7 @@ export function makeVoice(ordre: number, v: VersetData): StepRow {
       translitteration: v.translit,
       traduction: v.trad,
       audioUrl: v.audioUrl,
-      seuilReussite: 55,
+      seuilReussite: 40,
     },
   };
 }
