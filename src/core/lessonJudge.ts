@@ -94,7 +94,7 @@ export function judgeStep(
 
     case 'voice': {
       const p = asObject(payload);
-      const seuil = p && typeof p.seuilReussite === 'number' ? p.seuilReussite : 70;
+      const seuil = p && typeof p.seuilReussite === 'number' ? p.seuilReussite : 55;
       const score = typeof answer.score === 'number' ? answer.score : 0;
       // Lenient AND never heart-at-stake (client score is untrusted).
       return { correct: score >= seuil, heartAtStake: false };
@@ -124,6 +124,6 @@ export function judgeStep(
  */
 export function judgeVoiceServer(payload: unknown, score: number): Judgement {
   const p = asObject(payload);
-  const seuil = p && typeof p.seuilReussite === 'number' ? p.seuilReussite : 70;
+  const seuil = p && typeof p.seuilReussite === 'number' ? p.seuilReussite : 55;
   return { correct: score >= seuil, heartAtStake: true };
 }
