@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
+import { mockDexpayOk, sendDexpayWebhook } from './helpers/dexpay.js';
 import { prisma } from '../src/config/prisma.js';
 import { MAX_HEARTS } from '../src/core/hearts.js';
 import {
@@ -16,7 +17,8 @@ d('gems: balance & packs (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); vi.restoreAllMocks(); mockDexpayOk(); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('starts at 0 and credits a bought pack with a ledger row', async () => {
     const u = await registerUser(app);
@@ -24,9 +26,13 @@ d('gems: balance & packs (integration)', () => {
     const before = await app.inject({ method: 'GET', url: '/me/gems', headers: authHeader(u.accessToken) });
     expect(before.json().gems).toBe(0);
 
+    // Buying a pack only creates a pending DexPay session — no credit yet.
     const buy = await app.inject({ method: 'POST', url: '/billing/gems', headers: authHeader(u.accessToken), payload: { pack: 'p3000' } });
     expect(buy.statusCode).toBe(200);
-    expect(buy.json().gems).toBe(3000);
+    const { reference } = buy.json();
+
+    // The webhook confirming payment is what actually credits the gems.
+    await sendDexpayWebhook(app, 'checkout.completed', reference);
 
     const after = await app.inject({ method: 'GET', url: '/me/gems', headers: authHeader(u.accessToken) });
     expect(after.json().gems).toBe(3000);
@@ -205,7 +211,8 @@ d('gems: streak freezes (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); vi.restoreAllMocks(); mockDexpayOk(); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('buys freezes up to the cap, consumes them instead of breaking the streak', async () => {
     const u = await registerUser(app);
@@ -244,7 +251,12 @@ d('gems: streak freezes (integration)', () => {
     expect(me.json().streak).toBe(0);
 
     const repair = await app.inject({ method: 'POST', url: '/billing/repair-streak', headers: authHeader(u.accessToken) });
-    expect(repair.json().streak).toBe(12);
+    expect(repair.statusCode).toBe(200);
+    const { reference } = repair.json();
+
+    await sendDexpayWebhook(app, 'checkout.completed', reference);
+    const after = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
+    expect(after.json().streak).toBe(12);
   });
 });
 

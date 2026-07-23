@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
+import { mockDexpayOk, sendDexpayWebhook } from './helpers/dexpay.js';
 import { prisma } from '../src/config/prisma.js';
 
 const d = DB_TESTS ? describe : describe.skip;
@@ -62,7 +63,8 @@ d('hardening: timezone & repair-streak (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); vi.restoreAllMocks(); mockDexpayOk(); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('rejects an invalid timezone instead of bricking the account', async () => {
     const u = await registerUser(app);
@@ -90,7 +92,8 @@ d('hardening: timezone & repair-streak (integration)', () => {
     });
 
     const repair = await app.inject({ method: 'POST', url: '/billing/repair-streak', headers: authHeader(u.accessToken) });
-    expect(repair.json().streak).toBe(12);
+    expect(repair.statusCode).toBe(200);
+    await sendDexpayWebhook(app, 'checkout.completed', repair.json().reference);
 
     // Next app-open must NOT re-break the streak the user just paid for.
     const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });

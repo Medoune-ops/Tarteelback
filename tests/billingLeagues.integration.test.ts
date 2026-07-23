@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
+import { mockDexpayOk, sendDexpayWebhook as sendWebhook } from './helpers/dexpay.js';
 import { prisma } from '../src/config/prisma.js';
 
 const d = DB_TESTS ? describe : describe.skip;
@@ -9,28 +10,41 @@ d('billing & streak repair (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
-  beforeEach(async () => { await resetDb(); });
+  beforeEach(async () => { await resetDb(); vi.restoreAllMocks(); mockDexpayOk(); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
-  it('subscribe activates premium and records a transaction', async () => {
+  it('subscribe creates a pending transaction + DexPay session, activated only by the webhook', async () => {
     const u = await registerUser(app);
     const res = await app.inject({
       method: 'POST', url: '/billing/subscribe',
       headers: authHeader(u.accessToken), payload: { plan: 'annuel' },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().isPremium).toBe(true);
+    const { reference, paymentUrl } = res.json();
+    expect(reference).toBeTruthy();
+    expect(paymentUrl).toBe('https://pay.dexpay.africa/REF');
 
-    const status = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
-    expect(status.json().isPremium).toBe(true);
-    expect(status.json().transactions.length).toBe(1);
+    // Not premium yet — payment hasn't been confirmed.
+    const statusBefore = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
+    expect(statusBefore.json().isPremium).toBe(false);
+    expect(statusBefore.json().transactions[0]).toMatchObject({ statut: 'pending', type: 'premium_subscription' });
+
+    const webhook = await sendWebhook(app, 'checkout.completed', reference);
+    expect(webhook.statusCode).toBe(200);
+
+    const statusAfter = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
+    expect(statusAfter.json().isPremium).toBe(true);
+    expect(statusAfter.json().transactions[0].statut).toBe('success');
   });
 
   it('cancel ends the personal subscription immediately', async () => {
     const u = await registerUser(app);
-    await app.inject({
+    const sub = await app.inject({
       method: 'POST', url: '/billing/subscribe',
       headers: authHeader(u.accessToken), payload: { plan: 'annuel' },
     });
+    // Le premium n'est accorde qu'apres confirmation du webhook (cf. flux DexPay ci-dessus).
+    await sendWebhook(app, 'checkout.completed', sub.json().reference);
 
     const cancel = await app.inject({ method: 'POST', url: '/billing/cancel', headers: authHeader(u.accessToken) });
     expect(cancel.statusCode).toBe(200);
@@ -48,16 +62,91 @@ d('billing & streak repair (integration)', () => {
     expect(res.json().error.code).toBe('NO_PERSONAL_SUBSCRIPTION');
   });
 
-  it('repair-streak restores lastStreakValue', async () => {
+  it('a failed checkout webhook marks the transaction as failed, without granting premium', async () => {
     const u = await registerUser(app);
-    // Simulate a broken streak: lastStreakValue=12, streak=0.
-    await prisma.user.update({
-      where: { id: u.userId },
-      data: { streak: 0, lastStreakValue: 12 },
+    const res = await app.inject({
+      method: 'POST', url: '/billing/subscribe',
+      headers: authHeader(u.accessToken), payload: { plan: 'mensuel' },
     });
+    const { reference } = res.json();
+
+    await sendWebhook(app, 'checkout.failed', reference);
+
+    const status = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
+    expect(status.json().isPremium).toBe(false);
+    expect(status.json().transactions[0].statut).toBe('failed');
+  });
+
+  it('rejects a webhook with an invalid signature', async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({
+      method: 'POST', url: '/billing/subscribe',
+      headers: authHeader(u.accessToken), payload: { plan: 'annuel' },
+    });
+    const { reference } = res.json();
+
+    const forged = await app.inject({
+      method: 'POST',
+      url: '/billing/webhooks/dexpay',
+      headers: { 'content-type': 'application/json', 'x-webhook-signature': 'deadbeef' },
+      payload: JSON.stringify({ event: 'checkout.completed', reference }),
+    });
+    expect(forged.statusCode).toBe(401);
+
+    // Premium was NOT granted by the forged webhook.
+    const status = await app.inject({ method: 'GET', url: '/billing/status', headers: authHeader(u.accessToken) });
+    expect(status.json().isPremium).toBe(false);
+  });
+
+  it('a replayed webhook (transaction already success) is a safe no-op', async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({
+      method: 'POST', url: '/billing/subscribe',
+      headers: authHeader(u.accessToken), payload: { plan: 'mensuel' },
+    });
+    const { reference } = res.json();
+
+    await sendWebhook(app, 'checkout.completed', reference);
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+
+    // Redelivery (DexPay retries up to 5 times) must not double-credit hearts/premium.
+    const replay = await sendWebhook(app, 'checkout.completed', reference);
+    expect(replay.statusCode).toBe(200);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(after.personalPremiumUntil?.getTime()).toBe(before.personalPremiumUntil?.getTime());
+  });
+
+  it('buyGems credits gems only after the webhook confirms', async () => {
+    const u = await registerUser(app);
+    const res = await app.inject({
+      method: 'POST', url: '/billing/gems',
+      headers: authHeader(u.accessToken), payload: { pack: 'p500' },
+    });
+    expect(res.statusCode).toBe(200);
+    const { reference } = res.json();
+
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(before.gems).toBe(0);
+
+    await sendWebhook(app, 'checkout.completed', reference);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(after.gems).toBe(500);
+  });
+
+  it('repair-streak restores lastStreakValue only after the webhook confirms', async () => {
+    const u = await registerUser(app);
+    await prisma.user.update({ where: { id: u.userId }, data: { streak: 0, lastStreakValue: 12 } });
+
     const res = await app.inject({ method: 'POST', url: '/billing/repair-streak', headers: authHeader(u.accessToken) });
     expect(res.statusCode).toBe(200);
-    expect(res.json().streak).toBe(12);
+    const { reference } = res.json();
+
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(before.streak).toBe(0);
+
+    await sendWebhook(app, 'checkout.completed', reference);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(after.streak).toBe(12);
   });
 
   it('repair-streak fails when there is nothing to repair', async () => {

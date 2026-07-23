@@ -250,6 +250,7 @@ model User {
   householdMember HouseholdMember?
   sentInvitations HouseholdInvitation[] @relation("InvitedBy")
   pendingGifts    PendingGift[]
+  supportMessages SupportMessage[]
 
   @@index([weeklyXp])
   @@index([bannedAt])
@@ -271,6 +272,24 @@ model PendingGift {
   seenAt    DateTime?
 
   @@index([userId, seenAt])
+}
+
+/// Message support envoyé depuis Paramètres → Support (réclamation ou
+/// suggestion, texte libre, pas de catégorie). Visible dans le back-office
+/// (GET /backoffice/support/messages), avec un statut lu/non lu que l'admin
+/// peut basculer (POST /backoffice/support/messages/:id/read) — pas d'autre
+/// workflow, l'admin répond hors système (mailto:).
+model SupportMessage {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([read])
 }
 
 /// Foyer (plan familial). Un propriétaire (owner), jusqu'à HOUSEHOLD_MAX_MEMBERS
@@ -826,8 +845,22 @@ model Transaction {
   montant     Decimal           @db.Decimal(10, 2)
   devise      String            @default("EUR")
   statut      TransactionStatus @default(pending)
-  providerRef String? // mock provider reference
+  providerRef String? // mock provider reference OR DexPay checkout session reference
   createdAt   DateTime          @default(now())
+
+  // Référence unique envoyée à DexPay comme `reference` de la checkout
+  // session — sert à retrouver la Transaction depuis le webhook
+  // checkout.completed/failed/cancelled (providerRef reste libre pour un id
+  // opaque du provider, reference est TOUJOURS la nôtre, générée avant l'appel
+  // DexPay). Null pour les anciennes transactions mock pré-DexPay.
+  reference String? @unique
+
+  // Paramètres nécessaires pour REJOUER l'effet métier quand le webhook
+  // confirme le paiement (ex: { plan: 'annuel' } pour premium_subscription,
+  // { pack: 'p3000' } pour gem_pack) — le webhook n'a que la Transaction en
+  // main, pas la requête HTTP d'origine. Null pour heart_pack/streak_repair
+  // (montant fixe, pas de paramètre).
+  payload Json?
 
   // billing.status() filters by userId and orders by createdAt desc.
   @@index([userId, createdAt])

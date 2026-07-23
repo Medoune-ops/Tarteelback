@@ -95,6 +95,28 @@ const EnvSchema = z.object({
   // Prix d'un refill complet des cœurs payé avec de l'argent (paiement mock).
   HEART_REFILL_PRICE: z.coerce.number().default(0.99),
   BILLING_CURRENCY: z.string().default('EUR'),
+
+  // DexPay (DEXCHANGE PAY) — provider de paiement carte, Afrique de l'Ouest.
+  // Les prix internes restent en EUR (BILLING_CURRENCY) ; DEXPAY_EUR_XOF_RATE
+  // convertit au moment de créer la session (DexPay ne facture qu'en XOF/XAF,
+  // en unité entière — voir core/dexpayCurrency.ts).
+  DEXPAY_API_KEY: z.string().trim().optional(),
+  DEXPAY_API_SECRET: z.string().trim().optional(),
+  DEXPAY_WEBHOOK_SECRET: z.string().trim().optional(),
+  DEXPAY_BASE_URL: z
+    .string()
+    .trim()
+    .default('https://api.dexpay.africa/api/v1')
+    .transform((v) => v.replace(/\/+$/, '')),
+  DEXPAY_CURRENCY: z.enum(['XOF', 'XAF']).default('XOF'),
+  DEXPAY_EUR_XOF_RATE: z.coerce.number().default(655.96),
+  // Base publique HTTPS de CE backend, pour construire webhook_url/success_url/
+  // failure_url envoyés à DexPay (doit être joignable depuis l'extérieur).
+  PUBLIC_BASE_URL: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v.replace(/\/+$/, '') : undefined)),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
