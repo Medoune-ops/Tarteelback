@@ -42,6 +42,7 @@ function assertSafeTestDatabase(): void {
 export async function resetDb() {
   assertSafeTestDatabase();
   const tables = [
+    'SupportMessage',
     'GemTransaction',
     'ActivityDay',
     'Transaction',

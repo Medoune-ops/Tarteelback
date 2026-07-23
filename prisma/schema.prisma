@@ -250,6 +250,7 @@ model User {
   householdMember HouseholdMember?
   sentInvitations HouseholdInvitation[] @relation("InvitedBy")
   pendingGifts    PendingGift[]
+  supportMessages SupportMessage[]
 
   @@index([weeklyXp])
   @@index([bannedAt])
@@ -271,6 +272,24 @@ model PendingGift {
   seenAt    DateTime?
 
   @@index([userId, seenAt])
+}
+
+/// Message support envoyé depuis Paramètres → Support (réclamation ou
+/// suggestion, texte libre, pas de catégorie). Visible dans le back-office
+/// (GET /backoffice/support/messages), avec un statut lu/non lu que l'admin
+/// peut basculer (POST /backoffice/support/messages/:id/read) — pas d'autre
+/// workflow, l'admin répond hors système (mailto:).
+model SupportMessage {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  read      Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([read])
 }
 
 /// Foyer (plan familial). Un propriétaire (owner), jusqu'à HOUSEHOLD_MAX_MEMBERS

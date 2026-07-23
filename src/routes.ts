@@ -14,12 +14,14 @@ import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
+import { supportRoutes } from './modules/support/support.routes.js';
 import { adminAuthRoutes } from './modules/adminAuth/adminAuth.routes.js';
 import { adminUsersRoutes } from './modules/adminUsers/adminUsers.routes.js';
 import { adminContentRoutes } from './modules/adminContent/adminContent.routes.js';
 import { adminMonetisationRoutes } from './modules/adminMonetisation/adminMonetisation.routes.js';
 import { adminAnalyticsRoutes } from './modules/adminAnalytics/adminAnalytics.routes.js';
 import { adminGiftsRoutes } from './modules/adminGifts/adminGifts.routes.js';
+import { adminSupportRoutes } from './modules/adminSupport/adminSupport.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -47,6 +49,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(referralRoutes, { prefix: '/me' });
   // Plan familial (foyer : owner + jusqu'à 5 membres, premium partagé).
   await app.register(householdRoutes, { prefix: '/me' });
+  // Support (Paramètres → Support) : message texte libre, visible en back-office.
+  await app.register(supportRoutes, { prefix: '/me' });
   // Back-office web admin panel: separate population/auth from mobile `/auth`
   // and from `/admin` (which is mobile-app content management) — see
   // plugins/adminAuth.ts for why the JWT is fully isolated.
@@ -61,4 +65,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminAnalyticsRoutes, { prefix: '/backoffice/analytics' });
   // Bulk gifting: grant hearts/gems/premium to a segment or a list of users at once.
   await app.register(adminGiftsRoutes, { prefix: '/backoffice/gifts' });
+  // Messages support (réclamations/suggestions) envoyés depuis Paramètres → Support.
+  await app.register(adminSupportRoutes, { prefix: '/backoffice/support' });
 }
