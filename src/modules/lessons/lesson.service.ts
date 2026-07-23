@@ -201,6 +201,18 @@ export const lessonService = {
     const lesson = await lessonRepository.getLessonWithSteps(lessonId);
     if (!lesson) throw new AppError('NOT_FOUND', 'Lesson not found');
 
+    // Garde-fou d'ordre : refuse de compléter une leçon si une leçon
+    // antérieure dans le parcours n'est pas déjà completed — sans ça,
+    // n'importe quel lessonId valide peut être marqué completed en sautant
+    // des leçons, désynchronisant l'état locked/active/completed affiché.
+    const alreadyDone = await lessonRepository.getProgress(userId, lessonId);
+    if (alreadyDone?.etat !== 'completed') {
+      const blocked = await lessonRepository.hasIncompletePriorLesson(userId, lesson.section.ordre, lesson.ordre);
+      if (blocked) {
+        throw new AppError('LESSON_LOCKED', 'Complete the previous lessons first');
+      }
+    }
+
     // Number of server-judged test steps — matching is client-only, ordering counts.
     const testStepCount = lesson.steps.filter((s) => s.type !== 'discovery' && s.type !== 'matching').length;
 

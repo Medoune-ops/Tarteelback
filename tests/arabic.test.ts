@@ -58,8 +58,8 @@ describe('judgeVoiceServer', () => {
     expect(judgeVoiceServer(payload, 50)).toEqual({ correct: false, heartAtStake: true });
   });
 
-  it('defaults the threshold to 70 on malformed payloads', () => {
-    expect(judgeVoiceServer(null, 70).correct).toBe(true);
-    expect(judgeVoiceServer(null, 69).correct).toBe(false);
+  it('defaults the threshold to 55 on malformed payloads', () => {
+    expect(judgeVoiceServer(null, 55).correct).toBe(true);
+    expect(judgeVoiceServer(null, 54).correct).toBe(false);
   });
 });
