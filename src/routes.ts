@@ -22,12 +22,17 @@ import { adminMonetisationRoutes } from './modules/adminMonetisation/adminMoneti
 import { adminAnalyticsRoutes } from './modules/adminAnalytics/adminAnalytics.routes.js';
 import { adminGiftsRoutes } from './modules/adminGifts/adminGifts.routes.js';
 import { adminSupportRoutes } from './modules/adminSupport/adminSupport.routes.js';
+import { adminConfigRoutes } from './modules/adminConfig/adminConfig.routes.js';
+import { publicConfigRoutes } from './modules/adminConfig/publicConfig.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(authRoutes, { prefix: '/auth' });
   await app.register(meRoutes, { prefix: '/me' });
   await app.register(contentRoutes); // /sections, /sourates, /lessons (GET)
+  // Réglages produit globaux (lecture publique, pas d'auth) — l'app les lit
+  // au démarrage pour savoir si l'UI de paiement doit rester masquée.
+  await app.register(publicConfigRoutes);
   await app.register(adminRoutes, { prefix: '/admin' });
   await app.register(lessonRoutes, { prefix: '/lessons' });
   await app.register(lessonFlatRoutes, { prefix: '/lesson' });
@@ -67,4 +72,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminGiftsRoutes, { prefix: '/backoffice/gifts' });
   // Messages support (réclamations/suggestions) envoyés depuis Paramètres → Support.
   await app.register(adminSupportRoutes, { prefix: '/backoffice/support' });
+  // Réglages produit globaux (ex: masquer les paiements sans redéploiement).
+  await app.register(adminConfigRoutes, { prefix: '/backoffice/config' });
 }
