@@ -882,3 +882,17 @@ model AppConfig {
   paymentsEnabled Boolean  @default(true)
   updatedAt       DateTime @updatedAt
 }
+
+/**
+ * Nombre de requêtes HTTP reçues, une ligne par jour (UTC). Incrémenté par un
+ * hook `onResponse` (voir plugins/requestCounter.ts) — en prod, le logging
+ * par requête est désactivé (coûteux à haut volume, cf. app.ts
+ * `disableRequestLogging`), donc rien d'autre ne trace ce volume. Sert
+ * uniquement au dashboard back-office (Analytique) pour un total par jour/mois
+ * — pas de détail par route/utilisateur, juste un compteur agrégé.
+ */
+model RequestCount {
+  /** Jour UTC, minuit (ex: 2026-07-24T00:00:00Z). */
+  day   DateTime @id
+  count Int      @default(0)
+}

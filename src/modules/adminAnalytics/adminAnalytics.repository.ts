@@ -62,6 +62,30 @@ export const adminAnalyticsRepository = {
     `;
   },
 
+  /** Daily request counts since `since` (RequestCount already keyed by UTC day). */
+  requestsPerDaySince(since: Date) {
+    return prisma.requestCount.findMany({
+      where: { day: { gte: since } },
+      orderBy: { day: 'asc' },
+    });
+  },
+
+  /**
+   * Monthly request counts for the last `months` months, bucketed by UTC
+   * calendar month. RequestCount is already one row per day, so this just
+   * re-aggregates it — no raw query needed on the request path itself
+   * (writes stay row-per-day, cheap to upsert; this read groups on demand).
+   */
+  async requestsPerMonthSince(since: Date) {
+    return prisma.$queryRaw<{ month: Date; count: bigint }[]>`
+      SELECT date_trunc('month', "day") AS month, SUM("count")::bigint AS count
+      FROM "RequestCount"
+      WHERE "day" >= ${since}
+      GROUP BY month
+      ORDER BY month ASC
+    `;
+  },
+
   topStreaks(limit: number) {
     return prisma.user.findMany({
       where: { streak: { gt: 0 } },

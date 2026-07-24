@@ -65,6 +65,36 @@ export const adminAnalyticsService = {
     return series;
   },
 
+  /** One entry per day over the window, zero-filled where no request occurred. */
+  async requestsPerDay(days: number) {
+    const since = daysAgo(days - 1);
+    const rows = await adminAnalyticsRepository.requestsPerDaySince(since);
+    const byDay = new Map(rows.map((r) => [r.day.toISOString().slice(0, 10), r.count]));
+
+    const series: { date: string; count: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(Date.now() - i * DAY_MS).toISOString().slice(0, 10);
+      series.push({ date, count: byDay.get(date) ?? 0 });
+    }
+    return series;
+  },
+
+  /** One entry per month over the window, zero-filled where no request occurred. */
+  async requestsPerMonth(months: number) {
+    const now = new Date();
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const rows = await adminAnalyticsRepository.requestsPerMonthSince(since);
+    const byMonth = new Map(rows.map((r) => [r.month.toISOString().slice(0, 7), Number(r.count)]));
+
+    const series: { month: string; count: number }[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const month = d.toISOString().slice(0, 7);
+      series.push({ month, count: byMonth.get(month) ?? 0 });
+    }
+    return series;
+  },
+
   async topStreaks(limit: number) {
     const rows = await adminAnalyticsRepository.topStreaks(limit);
     return rows.map((u) => ({
