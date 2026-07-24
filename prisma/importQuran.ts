@@ -59,6 +59,12 @@ async function main() {
 
   console.log(`📖 Importing ${selected.length} surah(s)…`);
 
+  // FORCE_REIMPORT=1 skips the "already imported" resume check below — used
+  // for one-off migrations that change the TEXT SOURCE of already-complete
+  // surahs (e.g. Quran.com -> Al Quran Cloud), where the resume check would
+  // otherwise wrongly treat "already has content" as "nothing to update".
+  const forceReimport = process.env.FORCE_REIMPORT === '1';
+
   for (const ch of selected) {
     // Skip surahs already fully imported (resume after a network timeout without
     // re-uploading everything). A surah is "complete" when its verse count in the
@@ -68,7 +74,7 @@ async function main() {
       where: { numero: ch.id },
       select: { id: true, _count: { select: { versets: true } } },
     });
-    if (existing && existing._count.versets >= ch.verses_count) {
+    if (!forceReimport && existing && existing._count.versets >= ch.verses_count) {
       const versetsSansMots = await prisma.verset.count({
         where: { sourateId: existing.id, mots: { none: {} } },
       });
