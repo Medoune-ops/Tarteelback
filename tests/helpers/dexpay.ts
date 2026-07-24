@@ -3,10 +3,13 @@ import { vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 /**
- * Must match DEXPAY_WEBHOOK_SECRET in .env (test placeholder value — never
- * a real secret, DexPay calls are always mocked in tests).
+ * Doit correspondre à DEXPAY_WEBHOOK_SECRET tel que réellement chargé par
+ * l'app (config/env.ts) — jamais une constante en dur ici : .env peut
+ * contenir soit un placeholder de test, soit la vraie valeur sandbox selon
+ * l'environnement, et les deux doivent signer de façon identique à ce que
+ * dexpay.webhook.ts vérifie.
  */
-export const TEST_DEXPAY_WEBHOOK_SECRET = 'test_webhook_secret';
+export const TEST_DEXPAY_WEBHOOK_SECRET = process.env.DEXPAY_WEBHOOK_SECRET ?? 'test_webhook_secret';
 
 /** Mocks the DexPay checkout-sessions endpoint so tests never hit the network. */
 export function mockDexpayOk() {

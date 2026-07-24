@@ -1,46 +1,55 @@
 /**
- * Import the real Quran into the database from the Quran.com API v4.
+ * Import the real Quran into the database, combining two sources:
+ *   - Al Quran Cloud (api.alquran.cloud + cdn.islamic.network): Arabic text,
+ *     hizb, French translation, English transliteration, per-verse audio.
+ *     Their terms (alquran.cloud/terms-and-conditions, checked 2026-07-24)
+ *     explicitly allow storing/reproducing text and bundling audio into a
+ *     commercial product (with attribution) — unlike Quran.com's
+ *     "personal, non-commercial use only" terms.
+ *   - Quran.com (api.quran.com/api/v4): chapter metadata (surah names,
+ *     revelation place) and WORD-BY-WORD audio, which Al Quran Cloud does
+ *     not provide at all. This is the only remaining use of Quran.com data.
  *
  * Fills: Sourate (114), Verset (6236) with Arabic (uthmani) + per-ayah audio,
- * and per-language VersetTraduction + VersetTranslitteration.
+ * per-language VersetTraduction + VersetTranslitteration, and per-word
+ * VersetMot (text + audio) from Quran.com.
  *
  *   npm run seed:quran           # all 114 surahs
  *   QURAN_IMPORT_LIMIT=10 ...     # only the last 10 surahs (fast dev)
  *
  * Idempotent: re-running upserts surahs/verses and replaces translations.
- * Configure editions/recitation via .env (QURAN_* vars).
+ * Configure editions/recitation via .env (QURAN_* / ALQURAN_CLOUD_* vars).
  */
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
-import { QuranClient, type QVerse } from './quranClient.js';
+import { QuranClient } from './quranClient.js';
+import { AlQuranCloudClient, type AcVerse } from './alquranCloudClient.js';
 
 const prisma = new PrismaClient();
 
-/** Parse "131:en,136:fr" -> Map<131,'en'>. */
-function parseLangMap(spec: string): Map<number, string> {
-  const map = new Map<number, string>();
-  for (const pair of spec.split(',')) {
-    const [id, lang] = pair.split(':');
-    if (id && lang) map.set(Number(id.trim()), lang.trim());
-  }
-  return map;
+interface WordRow {
+  position: number;
+  texteArabe: string;
+  audioUrl: string | null;
 }
 
 async function main() {
-  const client = new QuranClient(env.QURAN_API_BASE);
-
-  const translationIds = env.QURAN_TRANSLATION_IDS.split(',')
-    .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n));
-  const translationLang = parseLangMap(env.QURAN_TRANSLATION_LANGS);
-  const translitId = env.QURAN_TRANSLITERATION_ID;
+  const quranCom = new QuranClient(env.QURAN_API_BASE);
+  const alQuranCloud = new AlQuranCloudClient(env.ALQURAN_CLOUD_API_BASE, env.ALQURAN_CLOUD_CDN_BASE);
   const recitationId = env.QURAN_RECITATION_ID;
 
-  // The transliteration resource is fetched as just another "translation".
-  const allTextResources = Array.from(new Set([...translationIds, translitId]));
+  console.log('⏳ Fetching chapters (Quran.com — names only)…');
+  const chapters = await quranCom.chapters();
+  const chapterById = new Map(chapters.map((c) => [c.id, c]));
 
-  console.log('⏳ Fetching chapters…');
-  const chapters = await client.chapters();
+  console.log('⏳ Fetching Arabic text + French translation + transliteration + audio (Al Quran Cloud)…');
+  const acVerses = await alQuranCloud.allVerses(env.ALQURAN_CLOUD_RECITER);
+  const acBySourate = new Map<number, AcVerse[]>();
+  for (const v of acVerses) {
+    const arr = acBySourate.get(v.numeroSourate) ?? [];
+    arr.push(v);
+    acBySourate.set(v.numeroSourate, arr);
+  }
 
   // Optionally limit to the last N surahs (Juz Amma first), matching the front.
   const ordered = [...chapters].sort((a, b) => b.id - a.id); // 114 → 1
@@ -49,6 +58,12 @@ async function main() {
     : ordered;
 
   console.log(`📖 Importing ${selected.length} surah(s)…`);
+
+  // FORCE_REIMPORT=1 skips the "already imported" resume check below — used
+  // for one-off migrations that change the TEXT SOURCE of already-complete
+  // surahs (e.g. Quran.com -> Al Quran Cloud), where the resume check would
+  // otherwise wrongly treat "already has content" as "nothing to update".
+  const forceReimport = process.env.FORCE_REIMPORT === '1';
 
   for (const ch of selected) {
     // Skip surahs already fully imported (resume after a network timeout without
@@ -59,9 +74,7 @@ async function main() {
       where: { numero: ch.id },
       select: { id: true, _count: { select: { versets: true } } },
     });
-    if (existing && existing._count.versets >= ch.verses_count) {
-      // Complete only if NO verse is still missing its words (handles a surah
-      // that was half-imported before an interruption).
+    if (!forceReimport && existing && existing._count.versets >= ch.verses_count) {
       const versetsSansMots = await prisma.verset.count({
         where: { sourateId: existing.id, mots: { none: {} } },
       });
@@ -71,8 +84,23 @@ async function main() {
       }
     }
 
-    const verses = await client.chapterVerses(ch.id, allTextResources, recitationId);
-    const hizb = verses[0]?.hizb_number ?? 0;
+    const acVersesForChapter = acBySourate.get(ch.id) ?? [];
+    if (acVersesForChapter.length === 0) {
+      console.warn(`  ⚠ ${ch.id.toString().padStart(3)} ${ch.name_simple}: aucun verset Al Quran Cloud, sourate ignorée`);
+      continue;
+    }
+    const hizb = acVersesForChapter[0]!.hizbNumber;
+
+    // Word-by-word audio still comes from Quran.com — fetched per chapter,
+    // keyed by verse_number, and merged into the Al Quran Cloud verses below.
+    const qcVerses = await quranCom.chapterVerses(ch.id, [], recitationId);
+    const wordsByVerseNumber = new Map<number, WordRow[]>();
+    for (const v of qcVerses) {
+      wordsByVerseNumber.set(
+        v.verse_number,
+        v.words.map((w) => ({ position: w.position, texteArabe: w.text_uthmani, audioUrl: w.audioUrl })),
+      );
+    }
 
     const sourate = await prisma.sourate.upsert({
       where: { numero: ch.id },
@@ -100,76 +128,58 @@ async function main() {
     // per-surah transaction) while cutting wall-clock time roughly by
     // `VERSE_CONCURRENCY` for a network-bound remote database.
     const VERSE_CONCURRENCY = 8;
-    for (let i = 0; i < verses.length; i += VERSE_CONCURRENCY) {
-      const batch = verses.slice(i, i + VERSE_CONCURRENCY);
-      await Promise.all(batch.map((v) => importVerset(sourate.id, v, translitId, translationLang)));
+    for (let i = 0; i < acVersesForChapter.length; i += VERSE_CONCURRENCY) {
+      const batch = acVersesForChapter.slice(i, i + VERSE_CONCURRENCY);
+      await Promise.all(
+        batch.map((v) => importVerset(sourate.id, v, wordsByVerseNumber.get(v.verseNumber) ?? [])),
+      );
     }
 
-    console.log(`  ✓ ${ch.id.toString().padStart(3)} ${ch.name_simple} (hizb ${hizb}, ${verses.length} verses)`);
+    console.log(`  ✓ ${ch.id.toString().padStart(3)} ${ch.name_simple} (hizb ${hizb}, ${acVersesForChapter.length} verses)`);
   }
 
   console.log('✅ Quran import complete.');
 }
 
-/** Writes one verse (text/audio, translations, transliteration, word-by-word). */
-async function importVerset(
-  sourateId: string,
-  v: QVerse,
-  translitId: number,
-  translationLang: Map<number, string>,
-): Promise<void> {
-  const traductions: { langue: string; texte: string; source: string }[] = [];
-  const translitterations: { langue: string; texte: string; source: string }[] = [];
-  for (const t of v.translations ?? []) {
-    const text = stripHtml(t.text);
-    if (t.resource_id === translitId) {
-      translitterations.push({ langue: 'la', texte: text, source: `quran.com#${translitId}` });
-    } else {
-      const lang = translationLang.get(t.resource_id);
-      if (lang) traductions.push({ langue: lang, texte: text, source: `quran.com#${t.resource_id}` });
-    }
-  }
-
+/** Writes one verse (text/audio from Al Quran Cloud, words from Quran.com). */
+async function importVerset(sourateId: string, v: AcVerse, words: WordRow[]): Promise<void> {
   const verset = await prisma.verset.upsert({
-    where: { sourateId_numero: { sourateId, numero: v.verse_number } },
+    where: { sourateId_numero: { sourateId, numero: v.verseNumber } },
     create: {
       sourateId,
-      numero: v.verse_number,
-      texteArabe: v.text_uthmani,
-      audioUrl: v.audio?.url ?? null,
+      numero: v.verseNumber,
+      texteArabe: v.textUthmani,
+      audioUrl: v.audioUrl,
     },
-    update: { texteArabe: v.text_uthmani, audioUrl: v.audio?.url ?? null },
+    update: { texteArabe: v.textUthmani, audioUrl: v.audioUrl },
   });
-  await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id } });
-  await prisma.versetTranslitteration.deleteMany({ where: { versetId: verset.id } });
-  if (traductions.length) {
-    await prisma.versetTraduction.createMany({ data: traductions.map((t) => ({ versetId: verset.id, ...t })) });
-  }
-  if (translitterations.length) {
-    await prisma.versetTranslitteration.createMany({ data: translitterations.map((t) => ({ versetId: verset.id, ...t })) });
+
+  await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id, langue: 'fr' } });
+  if (v.translationFr) {
+    await prisma.versetTraduction.create({
+      data: { versetId: verset.id, langue: 'fr', texte: v.translationFr, source: 'alquran.cloud#fr.hamidullah' },
+    });
   }
 
-  // Word-by-word audio (so the UI plays exactly the word shown).
+  await prisma.versetTranslitteration.deleteMany({ where: { versetId: verset.id, langue: 'la' } });
+  if (v.transliterationEn) {
+    await prisma.versetTranslitteration.create({
+      data: { versetId: verset.id, langue: 'la', texte: v.transliterationEn, source: 'alquran.cloud#en.transliteration' },
+    });
+  }
+
+  // Word-by-word audio (so the UI plays exactly the word shown) — Quran.com only.
   await prisma.versetMot.deleteMany({ where: { versetId: verset.id } });
-  if (v.words.length) {
+  if (words.length) {
     await prisma.versetMot.createMany({
-      data: v.words.map((w) => ({
+      data: words.map((w) => ({
         versetId: verset.id,
         position: w.position,
-        texteArabe: w.text_uthmani,
+        texteArabe: w.texteArabe,
         audioUrl: w.audioUrl,
       })),
     });
   }
-}
-
-/** Quran.com translations may contain footnote <sup> tags — strip them. */
-function stripHtml(s: string): string {
-  return s
-    .replace(/<sup[^>]*>.*?<\/sup>/gi, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 main()

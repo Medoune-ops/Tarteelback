@@ -99,6 +99,7 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
       ? user.doubleXpUntil!.getTime()
       : null,
     isPremium: premium,
+    premiumUntil: user.premiumUntil,
     currentLesson: stats.currentLesson,
     // Front uses this as the regen anchor; null when hearts are full.
     lastHeartLossAt: hearts.lastHeartLossAt ? hearts.lastHeartLossAt.getTime() : null,

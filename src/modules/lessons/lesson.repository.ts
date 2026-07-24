@@ -9,7 +9,7 @@ export const lessonRepository = {
   getLessonWithSteps(lessonId: string) {
     return prisma.lesson.findUnique({
       where: { id: lessonId },
-      include: { steps: { orderBy: { ordre: 'asc' } } },
+      include: { steps: { orderBy: { ordre: 'asc' } }, section: { select: { ordre: true } } },
     });
   },
 
@@ -17,6 +17,37 @@ export const lessonRepository = {
     return prisma.lessonProgress.findUnique({
       where: { userId_lessonId: { userId, lessonId } },
     });
+  },
+
+  /**
+   * True s'il existe, avant `lessonId` dans l'ordre global du parcours
+   * (Section.ordre puis Lesson.ordre — même tri que content.serializer.ts),
+   * une leçon que l'utilisateur n'a pas encore complétée. Sert de garde-fou
+   * pour `complete()` : sans ça, n'importe quel lessonId valide peut être
+   * marqué completed en sautant des leçons, désynchronisant l'état
+   * locked/active/completed affiché par GET /sections (voir incident où des
+   * leçons plus loin étaient completed sans que les précédentes le soient).
+   */
+  async hasIncompletePriorLesson(userId: string, sectionOrdre: number, lessonOrdre: number): Promise<boolean> {
+    const priorLessons = await prisma.lesson.findMany({
+      where: {
+        OR: [
+          { section: { ordre: { lt: sectionOrdre } } },
+          { section: { ordre: sectionOrdre }, ordre: { lt: lessonOrdre } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (priorLessons.length === 0) return false;
+
+    const completedCount = await prisma.lessonProgress.count({
+      where: {
+        userId,
+        etat: 'completed',
+        lessonId: { in: priorLessons.map((l) => l.id) },
+      },
+    });
+    return completedCount < priorLessons.length;
   },
 
   /**

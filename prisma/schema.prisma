@@ -865,3 +865,20 @@ model Transaction {
   // billing.status() filters by userId and orders by createdAt desc.
   @@index([userId, createdAt])
 }
+
+// ─── Remote config ───────────────────────────────────────────────────────────
+
+/**
+ * Singleton (single row, id fixed to "singleton") holding remote-toggleable
+ * product flags — no redeploy needed to flip them. `paymentsEnabled` exists
+ * because app store review sometimes requires payment UI to stay hidden
+ * until a release is approved: the back-office (Monétisation) can hide it
+ * before submission and switch it back on afterwards. Read via public
+ * GET /config (no auth — the app needs it before login), written via
+ * PATCH /backoffice/config (admin only).
+ */
+model AppConfig {
+  id              String   @id @default("singleton")
+  paymentsEnabled Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
