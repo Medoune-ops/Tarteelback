@@ -14,6 +14,7 @@ export async function billingRoutes(app: FastifyInstance) {
 
   app.post('/subscribe', { schema: { ...sec, summary: 'Create a DexPay checkout session to activate premium' } }, billingController.subscribe);
   app.get('/status', { schema: { ...sec, summary: 'Premium status & transactions' } }, billingController.status);
+  app.post('/cancel', { schema: { ...sec, summary: "Cancel this account's personal premium subscription" } }, billingController.cancelSubscription);
   app.get('/transactions/:reference', { schema: { ...sec, summary: 'Poll a payment status by reference' } }, billingController.getTransaction);
   app.post('/repair-streak', { schema: { ...sec, summary: 'Create a DexPay checkout session to restore the broken streak' } }, billingController.repairStreak);
   app.post('/gems', { schema: { ...sec, summary: 'Create a DexPay checkout session to buy a gem pack' } }, billingController.buyGems);
