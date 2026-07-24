@@ -45,11 +45,16 @@ const EnvSchema = z.object({
 
   DEFAULT_LANG: z.string().default('en'),
 
+  // Quran.com: used ONLY for chapter names/metadata and word-by-word audio
+  // (which Al Quran Cloud does not provide) — see prisma/importQuran.ts.
   QURAN_API_BASE: z.string().default('https://api.quran.com/api/v4'),
-  QURAN_TRANSLATION_IDS: z.string().default('131,136'),
-  QURAN_TRANSLATION_LANGS: z.string().default('131:en,136:fr'),
-  QURAN_TRANSLITERATION_ID: z.coerce.number().int().default(57),
   QURAN_RECITATION_ID: z.coerce.number().int().default(7),
+  // Al Quran Cloud: Arabic text, hizb, French translation, transliteration
+  // and per-verse audio — permissive terms (alquran.cloud/terms-and-conditions)
+  // unlike Quran.com's personal/non-commercial-only terms.
+  ALQURAN_CLOUD_API_BASE: z.string().default('https://api.alquran.cloud/v1'),
+  ALQURAN_CLOUD_CDN_BASE: z.string().default('https://cdn.islamic.network'),
+  ALQURAN_CLOUD_RECITER: z.string().default('alafasy'),
   // Empty string in .env means "no limit" -> undefined.
   QURAN_IMPORT_LIMIT: z
     .string()
