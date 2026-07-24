@@ -55,7 +55,7 @@ export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 export const updateSettingsSchema = z
   .object({
     voiceEnabled: z.boolean().optional(),
-    language: z.enum(['fr', 'en', 'ar']).optional(),
+    language: z.enum(['fr', 'en']).optional(),
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });

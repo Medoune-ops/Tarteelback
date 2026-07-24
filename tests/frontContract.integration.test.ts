@@ -77,14 +77,14 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     const res = await app.inject({
       method: 'PATCH', url: '/me/settings',
       headers: authHeader(u.accessToken),
-      payload: { voiceEnabled: false, language: 'ar' },
+      payload: { voiceEnabled: false, language: 'en' },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().hearts).toBe(5); // flat shape echoed back
 
     const fresh = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
     expect(fresh.voiceEnabled).toBe(false);
-    expect(fresh.language).toBe('ar');
+    expect(fresh.language).toBe('en');
   });
 
   it("PATCH /me { displayName } renames and echoes the flat `name` (edit-profile flow)", async () => {
