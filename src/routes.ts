@@ -24,6 +24,7 @@ import { adminGiftsRoutes } from './modules/adminGifts/adminGifts.routes.js';
 import { adminSupportRoutes } from './modules/adminSupport/adminSupport.routes.js';
 import { adminConfigRoutes } from './modules/adminConfig/adminConfig.routes.js';
 import { publicConfigRoutes } from './modules/adminConfig/publicConfig.routes.js';
+import { adminNotificationsRoutes } from './modules/adminNotifications/adminNotifications.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
@@ -74,4 +75,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminSupportRoutes, { prefix: '/backoffice/support' });
   // Réglages produit globaux (ex: masquer les paiements sans redéploiement).
   await app.register(adminConfigRoutes, { prefix: '/backoffice/config' });
+  // Composeur d'annonces: broadcast push réel + historique persistant.
+  await app.register(adminNotificationsRoutes, { prefix: '/backoffice/notifications' });
 }
