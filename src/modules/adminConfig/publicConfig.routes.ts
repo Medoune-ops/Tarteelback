@@ -11,6 +11,6 @@ export async function publicConfigRoutes(app: FastifyInstance) {
   app.get(
     '/config',
     { schema: { tags: ['config'] as const, summary: 'Réglages produit globaux (lecture publique, pas d\'auth)' } },
-    adminConfigController.get,
+    adminConfigController.getPublic,
   );
 }

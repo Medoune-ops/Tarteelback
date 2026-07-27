@@ -4,15 +4,13 @@ import { isPremiumActive } from '../../core/premium.js';
 import { computeHearts, snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { localDayKey } from '../../core/streak.js';
 import {
-  GEM_COST_HEART_REFILL,
-  GEM_COST_STREAK_FREEZE,
-  GEM_COST_DOUBLE_XP,
   DOUBLE_XP_DURATION_MS,
   MAX_STREAK_FREEZES,
   REVIEW_HEARTS_PER_DAY,
   REVIEW_SESSION_MAX_AGE_MS,
   isDoubleXpActive,
 } from '../../core/gems.js';
+import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
 
 /**
  * Gem economy sinks + the free "réviser pour regagner" heart gate. Every spend
@@ -63,9 +61,10 @@ export const gemService = {
     };
   },
 
-  /** POST /me/hearts/refill — 5 hearts instantly for 350 gems. */
+  /** POST /me/hearts/refill — 5 hearts instantly (gem cost set in back-office, default 350). */
   async refillHearts(userId: string) {
     const now = new Date();
+    const pricing = await getPricingConfig();
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
@@ -82,7 +81,7 @@ export const gemService = {
         throw new AppError('CONFLICT', 'Hearts are already full');
       }
 
-      await spendGems(tx, userId, GEM_COST_HEART_REFILL, 'heart_refill');
+      await spendGems(tx, userId, pricing.gemCostHeartRefill, 'heart_refill');
       const updated = await tx.user.update({
         where: { id: userId },
         data: { hearts: MAX_HEARTS, lastHeartLossAt: null },
@@ -204,8 +203,9 @@ export const gemService = {
     });
   },
 
-  /** POST /me/streak-freezes — buy one freeze (200 gems), max 2 held. */
+  /** POST /me/streak-freezes — buy one freeze (gem cost set in back-office, default 200), max 2 held. */
   async buyStreakFreeze(userId: string) {
+    const pricing = await getPricingConfig();
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
@@ -215,7 +215,7 @@ export const gemService = {
       if (user.streakFreezes >= MAX_STREAK_FREEZES) {
         throw new AppError('CONFLICT', `You already hold ${MAX_STREAK_FREEZES} streak freezes`);
       }
-      await spendGems(tx, userId, GEM_COST_STREAK_FREEZE, 'streak_freeze');
+      await spendGems(tx, userId, pricing.gemCostStreakFreeze, 'streak_freeze');
       const updated = await tx.user.update({
         where: { id: userId },
         data: { streakFreezes: { increment: 1 } },
@@ -224,16 +224,17 @@ export const gemService = {
     });
   },
 
-  /** POST /me/boosts/double-xp — double XP for 15 minutes (100 gems). */
+  /** POST /me/boosts/double-xp — double XP for 15 minutes (gem cost set in back-office, default 100). */
   async buyDoubleXp(userId: string) {
     const now = new Date();
+    const pricing = await getPricingConfig();
     return prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
       const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
       if (isDoubleXpActive(user.doubleXpUntil, now)) {
         throw new AppError('CONFLICT', 'A double-XP boost is already running');
       }
-      await spendGems(tx, userId, GEM_COST_DOUBLE_XP, 'double_xp');
+      await spendGems(tx, userId, pricing.gemCostDoubleXp, 'double_xp');
       const doubleXpUntil = new Date(now.getTime() + DOUBLE_XP_DURATION_MS);
       const updated = await tx.user.update({
         where: { id: userId },

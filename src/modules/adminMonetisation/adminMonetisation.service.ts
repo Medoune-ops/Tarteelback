@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
 import { adminMonetisationRepository } from './adminMonetisation.repository.js';
 import type { ListTransactionsQuery } from './adminMonetisation.schemas.js';
 
@@ -51,6 +52,7 @@ export const adminMonetisationService = {
       expiringSoon,
       revenue30d,
       gemTx30d,
+      pricing,
     ] = await Promise.all([
       adminMonetisationRepository.countTotalUsers(),
       adminMonetisationRepository.countActivePremiumUsers(now),
@@ -60,10 +62,11 @@ export const adminMonetisationService = {
       adminMonetisationRepository.countExpiringSoon(now, expiringUntil),
       adminMonetisationRepository.sumSuccessfulTransactions(revenueWindowStart),
       adminMonetisationRepository.countGemTransactionsSince(revenueWindowStart),
+      getPricingConfig(),
     ]);
 
     const mrrEstimate =
-      activePersonalPremiumUsers * env.PREMIUM_PRICE_MONTHLY + activeHouseholds * env.PREMIUM_PRICE_FAMILY_MONTHLY;
+      activePersonalPremiumUsers * pricing.premiumMonthlyPriceEur + activeHouseholds * pricing.premiumFamilyMonthlyPriceEur;
     const arpu = activePremiumUsers > 0 ? mrrEstimate / activePremiumUsers : 0;
     const premiumConversionPct = totalUsers > 0 ? Math.round((activePremiumUsers / totalUsers) * 1000) / 10 : 0;
 
@@ -82,10 +85,10 @@ export const adminMonetisationService = {
       successfulTransactions30d: revenue30d._count,
       gemTransactions30d: gemTx30d,
       pricing: {
-        monthly: env.PREMIUM_PRICE_MONTHLY,
-        yearly: env.PREMIUM_PRICE_YEARLY,
-        familyMonthly: env.PREMIUM_PRICE_FAMILY_MONTHLY,
-        familyYearly: env.PREMIUM_PRICE_FAMILY_YEARLY,
+        monthly: pricing.premiumMonthlyPriceEur,
+        yearly: pricing.premiumYearlyPriceEur,
+        familyMonthly: pricing.premiumFamilyMonthlyPriceEur,
+        familyYearly: pricing.premiumFamilyYearlyPriceEur,
         currency: env.BILLING_CURRENCY,
       },
     };

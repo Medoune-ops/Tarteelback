@@ -6,6 +6,7 @@ import { isPremiumActive } from '../../core/premium.js';
 import { repairStreak } from '../../core/streak.js';
 import { userRepository } from '../me/user.repository.js';
 import { GEM_PACKS } from '../../core/gems.js';
+import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
 import { MAX_HEARTS } from '../../core/hearts.js';
 import { isFamilyPlan, recomputePremium } from '../../core/household.js';
 import { householdService } from '../household/household.service.js';
@@ -180,13 +181,14 @@ export const billingService = {
     await userRepository.getOrThrow(userId);
     const family = isFamilyPlan(input.plan);
     const isYearly = input.plan === 'annuel' || input.plan === 'famille_annuel';
+    const pricing = await getPricingConfig();
     const amount = family
       ? isYearly
-        ? env.PREMIUM_PRICE_FAMILY_YEARLY
-        : env.PREMIUM_PRICE_FAMILY_MONTHLY
+        ? pricing.premiumFamilyYearlyPriceEur
+        : pricing.premiumFamilyMonthlyPriceEur
       : isYearly
-        ? env.PREMIUM_PRICE_YEARLY
-        : env.PREMIUM_PRICE_MONTHLY;
+        ? pricing.premiumYearlyPriceEur
+        : pricing.premiumMonthlyPriceEur;
 
     const { transaction, paymentUrl } = await startPayment(
       userId,
@@ -230,11 +232,17 @@ export const billingService = {
   async buyGems(userId: string, input: BuyGemsInput) {
     const pack = GEM_PACKS[input.pack];
     await userRepository.getOrThrow(userId);
+    const pricing = await getPricingConfig();
+    const priceEur = {
+      p500: pricing.gemPack500PriceEur,
+      p3000: pricing.gemPack3000PriceEur,
+      p7000: pricing.gemPack7000PriceEur,
+    }[input.pack];
 
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'gem_pack',
-      pack.priceEur,
+      priceEur,
       `${pack.gems} gemmes`,
       { pack: input.pack },
     );
@@ -254,10 +262,11 @@ export const billingService = {
       throw new AppError('CONFLICT', 'Hearts are already full');
     }
 
+    const pricing = await getPricingConfig();
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'heart_pack',
-      env.HEART_REFILL_PRICE,
+      pricing.heartRefillPriceEur,
       'Recharge complète des cœurs',
     );
     return { reference: transaction.reference, paymentUrl };
@@ -270,10 +279,11 @@ export const billingService = {
       throw new AppError('NO_STREAK_TO_REPAIR', 'There is no streak to repair');
     }
 
+    const pricing = await getPricingConfig();
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'streak_repair',
-      env.STREAK_REPAIR_PRICE,
+      pricing.streakRepairPriceEur,
       'Réparation de la série',
     );
     return { reference: transaction.reference, paymentUrl };
