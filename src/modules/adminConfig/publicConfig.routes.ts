@@ -5,7 +5,9 @@ import { adminConfigController } from './adminConfig.controller.js';
  * Réglages produit globaux — lecture PUBLIQUE (pas d'auth), montée sous
  * GET /config : l'app mobile la consulte au démarrage, avant toute connexion,
  * pour savoir si elle doit masquer l'UI de paiement (ex: en attente d'une
- * revue store). Écriture réservée au back-office (adminConfig.routes.ts).
+ * revue store) ET pour afficher les VRAIS prix (déjà publiquement visibles
+ * dans l'app de toute façon — seule leur modification est protégée).
+ * Écriture réservée au back-office (adminConfig.routes.ts).
  */
 export async function publicConfigRoutes(app: FastifyInstance) {
   app.get(

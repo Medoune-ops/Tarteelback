@@ -3,30 +3,43 @@ import type { UpdateConfigBody } from './adminConfig.schemas.js';
 
 type ConfigRow = Awaited<ReturnType<typeof adminConfigRepository.get>>;
 
-/** GET /config (public, pas d'auth) — UNIQUEMENT ce que l'app a besoin de lire
- *  avant connexion. Ne JAMAIS y exposer les prix : ce serait public/scrapable. */
-function serializePublic(row: ConfigRow) {
-  return { paymentsEnabled: row.paymentsEnabled, updatedAt: row.updatedAt };
+function serializePricing(row: ConfigRow) {
+  return {
+    premiumMonthlyPriceEur: row.premiumMonthlyPriceEur,
+    premiumYearlyPriceEur: row.premiumYearlyPriceEur,
+    premiumFamilyMonthlyPriceEur: row.premiumFamilyMonthlyPriceEur,
+    premiumFamilyYearlyPriceEur: row.premiumFamilyYearlyPriceEur,
+    streakRepairPriceEur: row.streakRepairPriceEur,
+    heartRefillPriceEur: row.heartRefillPriceEur,
+    gemPack500PriceEur: row.gemPack500PriceEur,
+    gemPack3000PriceEur: row.gemPack3000PriceEur,
+    gemPack7000PriceEur: row.gemPack7000PriceEur,
+    gemCostHeartRefill: row.gemCostHeartRefill,
+    gemCostStreakFreeze: row.gemCostStreakFreeze,
+    gemCostDoubleXp: row.gemCostDoubleXp,
+  };
 }
 
-/** GET/PATCH /backoffice/config (admin) — la tarification complète. */
+/**
+ * GET /config (public, pas d'auth) — l'app le lit avant connexion pour
+ * afficher les VRAIS prix (déjà publiquement visibles dans l'app de toute
+ * façon, comme n'importe quel prix affiché en boutique) et savoir si les
+ * paiements doivent rester masqués. Seule L'ÉCRITURE (PATCH) est protégée
+ * (admin only) — voir serializeAdmin/adminConfig.routes.ts.
+ */
+function serializePublic(row: ConfigRow) {
+  return {
+    paymentsEnabled: row.paymentsEnabled,
+    pricing: serializePricing(row),
+    updatedAt: row.updatedAt,
+  };
+}
+
+/** GET/PATCH /backoffice/config (admin) — même forme, réservée aux admins pour l'écriture. */
 function serializeAdmin(row: ConfigRow) {
   return {
     paymentsEnabled: row.paymentsEnabled,
-    pricing: {
-      premiumMonthlyPriceEur: row.premiumMonthlyPriceEur,
-      premiumYearlyPriceEur: row.premiumYearlyPriceEur,
-      premiumFamilyMonthlyPriceEur: row.premiumFamilyMonthlyPriceEur,
-      premiumFamilyYearlyPriceEur: row.premiumFamilyYearlyPriceEur,
-      streakRepairPriceEur: row.streakRepairPriceEur,
-      heartRefillPriceEur: row.heartRefillPriceEur,
-      gemPack500PriceEur: row.gemPack500PriceEur,
-      gemPack3000PriceEur: row.gemPack3000PriceEur,
-      gemPack7000PriceEur: row.gemPack7000PriceEur,
-      gemCostHeartRefill: row.gemCostHeartRefill,
-      gemCostStreakFreeze: row.gemCostStreakFreeze,
-      gemCostDoubleXp: row.gemCostDoubleXp,
-    },
+    pricing: serializePricing(row),
     updatedAt: row.updatedAt,
   };
 }
