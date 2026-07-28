@@ -25,12 +25,15 @@ import { adminSupportRoutes } from './modules/adminSupport/adminSupport.routes.j
 import { adminConfigRoutes } from './modules/adminConfig/adminConfig.routes.js';
 import { publicConfigRoutes } from './modules/adminConfig/publicConfig.routes.js';
 import { adminNotificationsRoutes } from './modules/adminNotifications/adminNotifications.routes.js';
+import { legalRoutes } from './modules/legal/legal.routes.js';
 
 /** Mounts every feature module. */
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(authRoutes, { prefix: '/auth' });
   await app.register(meRoutes, { prefix: '/me' });
   await app.register(contentRoutes); // /sections, /sourates, /lessons (GET)
+  // Pages publiques CGU / politique de confidentialité (FR + EN).
+  await app.register(legalRoutes, { prefix: '/legal' });
   // Réglages produit globaux (lecture publique, pas d'auth) — l'app les lit
   // au démarrage pour savoir si l'UI de paiement doit rester masquée.
   await app.register(publicConfigRoutes);
