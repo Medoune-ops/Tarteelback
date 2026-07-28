@@ -10,6 +10,7 @@ import { redis } from './config/redis.js';
 import authPlugin from './plugins/auth.js';
 import adminAuthPlugin from './plugins/adminAuth.js';
 import errorHandler from './plugins/errorHandler.js';
+import requestCounter from './plugins/requestCounter.js';
 import { registerRoutes } from './routes.js';
 
 /**
@@ -100,6 +101,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(errorHandler);
   await app.register(authPlugin);
   await app.register(adminAuthPlugin);
+  await app.register(requestCounter);
 
   // ── Liveness: cheap, never touches the DB (is the process up?). ──
   app.get('/health', { logLevel: 'warn' }, async () => ({

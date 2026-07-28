@@ -880,5 +880,40 @@ model Transaction {
 model AppConfig {
   id              String   @id @default("singleton")
   paymentsEnabled Boolean  @default(true)
-  updatedAt       DateTime @updatedAt
+
+  // ─── Tarification (back-office → Monétisation) ────────────────────────────
+  // Source de vérité pour TOUT prix modifiable depuis le back-office. Chaque
+  // valeur avait un équivalent figé (env var ou constante TS) AVANT ce champ —
+  // les défauts ci-dessous reprennent ces anciennes valeurs pour ne rien
+  // changer tant que personne n'édite rien depuis le back-office. Lu par
+  // billing.service.ts / gem.service.ts à chaque achat (jamais mis en cache :
+  // un changement de prix doit s'appliquer immédiatement, pas après un TTL).
+  premiumMonthlyPriceEur       Float @default(1.52)
+  premiumYearlyPriceEur        Float @default(15.24)
+  premiumFamilyMonthlyPriceEur Float @default(3.99)
+  premiumFamilyYearlyPriceEur  Float @default(39.99)
+  streakRepairPriceEur         Float @default(0.87)
+  heartRefillPriceEur          Float @default(1.99)
+  gemPack500PriceEur           Float @default(0.99)
+  gemPack3000PriceEur          Float @default(4)
+  gemPack7000PriceEur          Float @default(7)
+  gemCostHeartRefill           Int   @default(350)
+  gemCostStreakFreeze          Int   @default(200)
+  gemCostDoubleXp              Int   @default(100)
+
+  updatedAt DateTime @updatedAt
+}
+
+/**
+ * Nombre de requêtes HTTP reçues, une ligne par jour (UTC). Incrémenté par un
+ * hook `onResponse` (voir plugins/requestCounter.ts) — en prod, le logging
+ * par requête est désactivé (coûteux à haut volume, cf. app.ts
+ * `disableRequestLogging`), donc rien d'autre ne trace ce volume. Sert
+ * uniquement au dashboard back-office (Analytique) pour un total par jour/mois
+ * — pas de détail par route/utilisateur, juste un compteur agrégé.
+ */
+model RequestCount {
+  /** Jour UTC, minuit (ex: 2026-07-24T00:00:00Z). */
+  day   DateTime @id
+  count Int      @default(0)
 }

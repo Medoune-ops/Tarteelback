@@ -13,5 +13,7 @@ export async function adminAnalyticsRoutes(app: FastifyInstance) {
 
   app.get('/summary', { schema: { ...sec, summary: 'Global analytics KPIs (signups, DAU/WAU, streak, rétention)' } }, adminAnalyticsController.summary);
   app.get('/signups-timeseries', { schema: { ...sec, summary: 'Daily signup counts over the last N days' } }, adminAnalyticsController.signupsTimeseries);
+  app.get('/requests-timeseries', { schema: { ...sec, summary: 'Daily HTTP request counts over the last N days' } }, adminAnalyticsController.requestsTimeseries);
+  app.get('/requests-monthly', { schema: { ...sec, summary: 'Monthly HTTP request counts over the last N months' } }, adminAnalyticsController.requestsMonthly);
   app.get('/top-streaks', { schema: { ...sec, summary: 'Top users by current streak' } }, adminAnalyticsController.topStreaks);
 }

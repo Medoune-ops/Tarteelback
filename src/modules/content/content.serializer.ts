@@ -39,6 +39,7 @@ interface DbLessonLite {
   ordre: number;
   titre: unknown;
   iconType: string;
+  sourateNumero: number | null;
 }
 
 interface DbSection {
@@ -91,6 +92,13 @@ function buildNodes(
     return {
       id: `${section.id}-n${i + 1}`,
       lessonId: state === 'locked' ? null : lesson.id,
+      // Sourate RÉELLEMENT enseignée par CETTE leçon précise — indispensable
+      // dès qu'une section regroupe plusieurs sourates sur des nombres de
+      // leçons différents (ex: une grande sourate comme Al-Baqarah tient sur
+      // ~150 leçons dans la même section qu'Al-Fatiha sur 4) : indexer
+      // section.sourates par position de nœud (l'ancienne approche du front)
+      // suppose à tort "1 nœud = 1 sourate", faux dans ce cas.
+      sourateNumero: lesson.sourateNumero,
       label: state === 'active' ? activeNodeLabel(i + 1, lang) : undefined,
       icon,
       align: state === 'active' ? 'center' : ALIGNS[i % ALIGNS.length]!,

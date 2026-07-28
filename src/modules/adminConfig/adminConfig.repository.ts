@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import type { UpdateConfigBody } from './adminConfig.schemas.js';
 
 const SINGLETON_ID = 'singleton';
 
@@ -12,7 +13,9 @@ export const adminConfigRepository = {
     });
   },
 
-  async update(data: { paymentsEnabled?: boolean }) {
+  /** Partial update: only the fields present in `data` (from Zod, always
+   *  plain values, never Prisma's `{ increment }`-style operators). */
+  async update(data: UpdateConfigBody) {
     return prisma.appConfig.upsert({
       where: { id: SINGLETON_ID },
       update: data,

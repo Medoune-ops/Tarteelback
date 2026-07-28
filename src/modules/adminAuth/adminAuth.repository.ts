@@ -86,9 +86,12 @@ export const adminAuthRepository = {
     return prisma.adminActivityLog.create({ data });
   },
 
-  listActivity(filter: { adminUserId?: string }, limit = 100) {
+  listActivity(filter: { adminUserId?: string; action?: string }, limit = 100) {
     return prisma.adminActivityLog.findMany({
-      where: filter.adminUserId ? { adminUserId: filter.adminUserId } : undefined,
+      where: {
+        ...(filter.adminUserId ? { adminUserId: filter.adminUserId } : {}),
+        ...(filter.action ? { action: filter.action } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: limit,
       include: { adminUser: { select: { displayName: true } } },
