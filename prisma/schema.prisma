@@ -274,20 +274,22 @@ model PendingGift {
   @@index([userId, seenAt])
 }
 
-/// Message support envoyé depuis Paramètres → Support (réclamation ou
-/// suggestion, texte libre, pas de catégorie). Visible dans le back-office
-/// (GET /backoffice/support/messages), avec un statut lu/non lu que l'admin
-/// peut basculer (POST /backoffice/support/messages/:id/read) — pas d'autre
-/// workflow, l'admin répond hors système (mailto:).
+/// Message support — conversation continue entre UN utilisateur et l'équipe
+/// support (pas de notion de ticket séparé : tous les messages d'un même
+/// userId forment un seul fil, triés par createdAt). `fromAdmin` distingue qui
+/// a écrit ; `read` s'applique toujours au DESTINATAIRE du message (l'admin
+/// pour un message utilisateur, l'utilisateur pour une réponse admin).
 model SupportMessage {
   id        String    @id @default(cuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   message   String
+  fromAdmin Boolean   @default(false)
   read      Boolean   @default(false)
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  @@index([userId, createdAt])
   @@index([createdAt])
   @@index([read])
 }

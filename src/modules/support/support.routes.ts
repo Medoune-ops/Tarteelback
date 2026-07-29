@@ -2,9 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { supportController } from './support.controller.js';
 
 /**
- * Support — Paramètres → Support côté app. Texte libre (réclamation ou
- * suggestion, pas de catégorie), visible en lecture seule dans le back-office
- * (GET /backoffice/support). Monté sous /me.
+ * Support — Paramètres → Support côté app. Conversation continue avec
+ * l'équipe support (texte libre, pas de catégorie), avec réponses admin
+ * visibles dans l'app (voir aussi backoffice/support pour la vue admin).
+ * Monté sous /me.
  */
 export async function supportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
@@ -14,5 +15,11 @@ export async function supportRoutes(app: FastifyInstance) {
     '/support',
     { schema: { ...sec, summary: 'Envoyer un message support (réclamation ou suggestion)' } },
     supportController.send,
+  );
+
+  app.get(
+    '/support',
+    { schema: { ...sec, summary: 'Lire le fil complet de la conversation support' } },
+    supportController.thread,
   );
 }
