@@ -1,32 +1,16 @@
 import { AppError } from '../../core/errors.js';
 import { adminSupportRepository } from './adminSupport.repository.js';
-import type { ListSupportQuery } from './adminSupport.schemas.js';
+import { notificationService } from '../notifications/notification.service.js';
+import type { ListSupportQuery, ReplySupportInput } from './adminSupport.schemas.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Aplati `{ user: {...} }` en champs plats — c'est le format attendu par le back-office (app.js#renderSupportRows). */
-function serialize(row: {
-  id: string; message: string; read: boolean; createdAt: Date;
-  user: { id: string; email: string; displayName: string; avatarInitials: string };
-}) {
-  return {
-    id: row.id,
-    userId: row.user.id,
-    email: row.user.email,
-    displayName: row.user.displayName,
-    avatarInitials: row.user.avatarInitials,
-    message: row.message,
-    read: row.read,
-    createdAt: row.createdAt,
-  };
-}
-
 export const adminSupportService = {
-  /** GET /backoffice/support/messages */
+  /** GET /backoffice/support/messages — une ligne par utilisateur (boîte de réception). */
   async list(query: ListSupportQuery) {
-    const { rows, total } = await adminSupportRepository.list(query.q, query.status, query.page, query.pageSize);
+    const { rows, total } = await adminSupportRepository.listThreads(query.q, query.status, query.page, query.pageSize);
     return {
-      messages: rows.map(serialize),
+      threads: rows,
       pagination: {
         page: query.page,
         pageSize: query.pageSize,
@@ -41,11 +25,41 @@ export const adminSupportService = {
     return adminSupportRepository.summary(new Date(Date.now() - DAY_MS));
   },
 
-  /** POST /backoffice/support/messages/:id/read — bascule lu <-> non lu. */
-  async toggleRead(id: string) {
-    const existing = await adminSupportRepository.findById(id);
-    if (!existing) throw new AppError('NOT_FOUND', 'Support message not found');
-    const updated = await adminSupportRepository.toggleRead(id, !existing.read, new Date());
-    return serialize(updated);
+  /** GET /backoffice/support/messages/:userId/thread — fil complet + marque les messages utilisateur comme lus. */
+  async thread(userId: string) {
+    const user = await adminSupportRepository.userExists(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'User not found');
+
+    const messages = await adminSupportRepository.thread(userId);
+    if (messages.length === 0) throw new AppError('NOT_FOUND', 'No support thread for this user');
+
+    await adminSupportRepository.markThreadRead(userId, new Date());
+
+    return messages.map((m) => ({
+      id: m.id,
+      message: m.message,
+      fromAdmin: m.fromAdmin,
+      createdAt: m.createdAt,
+    }));
+  },
+
+  /**
+   * POST /backoffice/support/messages/:userId/reply — l'admin répond dans le
+   * fil de l'utilisateur, puis une notification push est envoyée pour l'en
+   * informer (le fil vit dans l'app, pas par email).
+   */
+  async reply(userId: string, input: ReplySupportInput) {
+    const user = await adminSupportRepository.userExists(userId);
+    if (!user) throw new AppError('NOT_FOUND', 'User not found');
+
+    const created = await adminSupportRepository.createReply(userId, input.message);
+
+    await notificationService.sendToUser(userId, {
+      title: 'Réponse du support Tarteel',
+      body: input.message.length > 100 ? `${input.message.slice(0, 100)}…` : input.message,
+      data: { kind: 'support_reply' },
+    });
+
+    return { id: created.id, createdAt: created.createdAt };
   },
 };

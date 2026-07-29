@@ -9,4 +9,9 @@ export const supportController = {
     const result = await supportService.send(req.auth!.sub, input);
     return reply.code(201).send(result);
   },
+
+  async thread(req: FastifyRequest, reply: FastifyReply) {
+    const messages = await supportService.thread(req.auth!.sub);
+    return reply.send({ messages });
+  },
 };

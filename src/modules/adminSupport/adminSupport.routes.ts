@@ -2,9 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { adminSupportController } from './adminSupport.controller.js';
 
 /**
- * Back-office: messages support (réclamations/suggestions) envoyés depuis
- * Paramètres → Support. Statut lu/non lu basculable, pas d'autre workflow —
- * l'admin répond hors système (mailto:, voir support.html côté back-office).
+ * Back-office: conversations support (réclamations/suggestions) envoyées
+ * depuis Paramètres → Support. Une ligne par utilisateur (boîte de
+ * réception) ; l'admin peut lire le fil complet et y répondre — la réponse
+ * est visible dans l'app ET déclenche une notification push à l'utilisateur.
  * Requiert un membre back-office authentifié (app.authenticateAdmin).
  */
 export async function adminSupportRoutes(app: FastifyInstance) {
@@ -14,7 +15,7 @@ export async function adminSupportRoutes(app: FastifyInstance) {
 
   app.get(
     '/messages',
-    { schema: { ...sec, summary: 'Liste paginée des messages support (recherche + filtre statut)' } },
+    { schema: { ...sec, summary: 'Liste paginée des conversations support (recherche + filtre statut)' } },
     adminSupportController.list,
   );
 
@@ -24,9 +25,15 @@ export async function adminSupportRoutes(app: FastifyInstance) {
     adminSupportController.summary,
   );
 
+  app.get(
+    '/messages/:userId/thread',
+    { schema: { ...sec, summary: 'Fil complet de la conversation support avec un utilisateur' } },
+    adminSupportController.thread,
+  );
+
   app.post(
-    '/messages/:id/read',
-    { schema: { ...sec, summary: 'Bascule le statut lu/non lu d\'un message support' } },
-    adminSupportController.toggleRead,
+    '/messages/:userId/reply',
+    { schema: { ...sec, summary: 'Répondre dans le fil support d\'un utilisateur (visible dans l\'app + push)' } },
+    adminSupportController.reply,
   );
 }
