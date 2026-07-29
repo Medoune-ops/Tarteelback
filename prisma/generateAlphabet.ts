@@ -238,7 +238,11 @@ function buildHarakaSummarySteps(letters: Letter[]): StepRow[] {
       },
     });
   }
-  steps.push(makeMatchingPairs(ordre++, signs.map((h) => ({ arabe: h.sigle, traduction: h.nom }))));
+  // h.sigle est une marque diacritique seule (aucune lettre porteuse) : posée
+  // sans support elle ne s'affiche pas correctement dans la carte à relier
+  // (comportement Unicode normal pour un combining mark isolé). On la pose sur
+  // un alif isolé, comme déjà fait pour le TTS de cette même leçon (h.combine).
+  steps.push(makeMatchingPairs(ordre++, signs.map((h) => ({ arabe: h.combine('ا'), traduction: h.nom }))));
 
   // QCM mixte : syllabes prises sur des lettres/harakat variés.
   const mixed = letters.slice(0, 6).flatMap((L, i) => {
