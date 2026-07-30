@@ -8,6 +8,11 @@ import { prisma } from '../config/prisma.js';
  * (isPremiumActive) restent valables. `User.personalPremiumUntil` = source du
  * premium personnel (abonnement individuel). Le premium familial vient du
  * foyer (Household.subscriptionUntil quand subscriptionActive).
+ *
+ * Convention : `personalPremiumUntil == null` signifie TOUJOURS "pas de
+ * premium personnel", jamais "à vie" — un grant de durée indéterminée doit
+ * écrire une date sentinelle lointaine (voir INDEFINITE_PREMIUM_UNTIL dans
+ * core/premium.ts), pas `null`, pour rester compatible avec cette résolution.
  */
 
 /** Nombre max de membres d'un foyer, propriétaire inclus. */

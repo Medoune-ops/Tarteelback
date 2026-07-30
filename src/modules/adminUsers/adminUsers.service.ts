@@ -2,6 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { env } from '../../config/env.js';
 import { MAX_HEARTS } from '../../core/hearts.js';
+import { INDEFINITE_PREMIUM_UNTIL } from '../../core/premium.js';
 import { adminUsersRepository } from './adminUsers.repository.js';
 import { serializeAdminUser } from './adminUsers.serializer.js';
 import { notificationService } from '../notifications/notification.service.js';
@@ -23,9 +24,15 @@ function grantBody(kind: GiftKind, amount: number, lang: string): string {
   if (kind === 'gems') {
     return resolveI18n({ fr: `Tu as reçu ${amount} gemme${s} !`, en: `You received ${amount} gem${s}!` }, lang, env.DEFAULT_LANG);
   }
-  // premium : amount = durationDays, ou 0 pour "à vie" (voir grantPremium)
+  // premium : amount = durationDays, ou 0 pour durée indéterminée (voir grantPremium).
+  // Formulation volontairement pas "à vie" : un grant admin reste révocable à
+  // tout moment (revokeGrantedPremium), donc "à vie" serait trompeur.
   return amount === 0
-    ? resolveI18n({ fr: 'Tu as reçu Tarteel Plus à vie !', en: 'You received Tarteel Plus for life!' }, lang, env.DEFAULT_LANG)
+    ? resolveI18n(
+        { fr: 'Tu as reçu Tarteel Plus pour une durée indéterminée !', en: 'You received Tarteel Plus for an indefinite period!' },
+        lang,
+        env.DEFAULT_LANG,
+      )
     : resolveI18n(
         { fr: `Tu as reçu Tarteel Plus pour ${amount} jour${amount > 1 ? 's' : ''} !`, en: `You received Tarteel Plus for ${amount} day${amount > 1 ? 's' : ''}!` },
         lang,
@@ -99,10 +106,10 @@ export const adminUsersService = {
   async grantPremium(userId: string, durationDays: number | 'lifetime') {
     const user = await adminUsersRepository.findById(userId);
     if (!user) throw new AppError('NOT_FOUND', 'User not found');
-    let premiumUntil: Date | null = null;
-    if (durationDays !== 'lifetime') {
-      premiumUntil = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
-    }
+    const premiumUntil =
+      durationDays === 'lifetime'
+        ? INDEFINITE_PREMIUM_UNTIL
+        : new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000);
     const updated = await adminUsersRepository.grantPremium(userId, premiumUntil);
     await notifyGrant(userId, user.language, 'premium', durationDays === 'lifetime' ? 0 : durationDays);
     return serializeAdminUser({ ...updated, leagueMemberships: [] });
