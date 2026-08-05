@@ -41,6 +41,23 @@ export async function sendMail(msg: MailMessage): Promise<void> {
   }
 }
 
+/** Build the email-verification email (4-digit code, feature-flagged — see auth.service.ts). */
+export function emailVerificationEmail(to: string, code: string, ttlMinutes: number): MailMessage {
+  return {
+    to,
+    subject: 'Ton code de vérification Tarteel',
+    text:
+      `Voici ton code de vérification : ${code}\n\n` +
+      `Ce code expire dans ${ttlMinutes} minutes. ` +
+      `Si tu n'es pas à l'origine de cette demande, ignore cet email.`,
+    html:
+      `<p>Voici ton code de vérification :</p>` +
+      `<p style="font-size:28px;font-weight:bold;letter-spacing:6px;">${code}</p>` +
+      `<p>Ce code expire dans ${ttlMinutes} minutes. ` +
+      `Si tu n'es pas à l'origine de cette demande, ignore cet email.</p>`,
+  };
+}
+
 /** Build the password-reset email (link carries the opaque token). */
 export function passwordResetEmail(to: string, resetUrl: string): MailMessage {
   return {

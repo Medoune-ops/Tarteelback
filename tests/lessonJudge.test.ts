@@ -81,7 +81,10 @@ describe('premium', () => {
     const now = new Date('2026-06-27T00:00:00Z');
     expect(isPremiumActive({ isPremium: true, premiumUntil: new Date('2026-06-26T00:00:00Z') }, now)).toBe(false);
     expect(isPremiumActive({ isPremium: true, premiumUntil: new Date('2026-06-28T00:00:00Z') }, now)).toBe(true);
-    expect(isPremiumActive({ isPremium: true, premiumUntil: null }, now)).toBe(true);
+    // premiumUntil: null = "pas de premium" (jamais "à vie") — un grant de durée
+    // indéterminée doit utiliser INDEFINITE_PREMIUM_UNTIL (core/premium.ts),
+    // pour ne jamais entrer en conflit avec resolveEffectiveUntil (household.ts).
+    expect(isPremiumActive({ isPremium: true, premiumUntil: null }, now)).toBe(false);
     expect(isPremiumActive({ isPremium: false, premiumUntil: null }, now)).toBe(false);
   });
 });

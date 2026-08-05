@@ -66,6 +66,26 @@ export const resetConfirmSchema = z
   })
   .strict();
 
+/**
+ * POST /auth/verify-email — feature-flagged (EMAIL_VERIFICATION_ENABLED),
+ * see auth.service.ts. `email` (not an auth token) because this is called
+ * right after register, before the user necessarily has a session on THIS
+ * device confirmed (e.g. code requested again from another screen).
+ */
+export const verifyEmailSchema = z
+  .object({
+    email: z.string().email().toLowerCase(),
+    code: z.string().regex(/^\d{4}$/, 'Code must be 4 digits'),
+  })
+  .strict();
+
+/** POST /auth/verify-email/resend — re-send a fresh code (invalidates the previous one). */
+export const resendVerificationSchema = z
+  .object({
+    email: z.string().email().toLowerCase(),
+  })
+  .strict();
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
@@ -73,3 +93,5 @@ export type LogoutInput = z.infer<typeof logoutSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type ResetRequestInput = z.infer<typeof resetRequestSchema>;
 export type ResetConfirmInput = z.infer<typeof resetConfirmSchema>;
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;

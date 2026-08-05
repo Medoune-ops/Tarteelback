@@ -30,7 +30,10 @@ export type ErrorCode =
   | 'ADMIN_EMAIL_TAKEN'
   | 'RATE_LIMITED'
   | 'SERVICE_UNAVAILABLE'
-  | 'INTERNAL';
+  | 'INTERNAL'
+  // Email verification (feature-flagged — see auth.service.ts).
+  | 'INVALID_CODE'
+  | 'TOO_MANY_ATTEMPTS';
 
 /** Default HTTP status for each error code. */
 const STATUS: Record<ErrorCode, number> = {
@@ -61,6 +64,8 @@ const STATUS: Record<ErrorCode, number> = {
   RATE_LIMITED: 429,
   SERVICE_UNAVAILABLE: 503,
   INTERNAL: 500,
+  INVALID_CODE: 400,
+  TOO_MANY_ATTEMPTS: 429,
 };
 
 /**

@@ -142,6 +142,12 @@ model User {
   email          String  @unique
   passwordHash   String? // null when the account is OAuth-only
   displayName    String
+  // Vérification d'email par code à 4 chiffres — feature flag EMAIL_VERIFICATION_ENABLED
+  // (désactivée par défaut, voir auth.service.ts). Défaut `true` : les comptes
+  // créés AVANT l'activation du flag (ou pendant qu'il est désactivé) ne sont
+  // jamais bloqués rétroactivement quand la fonctionnalité sera activée plus tard.
+  emailVerified  Boolean @default(true)
+  verificationCodes EmailVerificationCode[]
   // Pseudo public (ligues, classements) — le nom complet reste privé au
   // profil. Optionnel pour les comptes créés avant son introduction :
   // l'affichage retombe alors sur displayName. Stocké en minuscules.
@@ -371,6 +377,26 @@ model PasswordResetToken {
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Code de vérification d'email (4 chiffres), envoyé à l'inscription. On ne
+/// stocke qu'un hash SHA-256 du code (jamais en clair), même logique que
+/// PasswordResetToken. `attempts` limite le brute-force (le code n'a que
+/// 10 000 combinaisons possibles — un TTL court + un plafond de tentatives
+/// sont indispensables). Une nouvelle demande invalide les précédentes
+/// (un seul code actif à la fois par utilisateur).
+model EmailVerificationCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())

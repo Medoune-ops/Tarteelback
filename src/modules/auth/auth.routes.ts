@@ -65,4 +65,19 @@ export async function authRoutes(app: FastifyInstance) {
     { ...authLimit, schema: { tags: ['auth'], summary: 'Confirm a password reset with the emailed token' } },
     authController.confirmPasswordReset,
   );
+
+  // Vérification d'email — feature-flagged (EMAIL_VERIFICATION_ENABLED, off par
+  // défaut). Routes toujours montées (aucun risque : service-layer no-ops tant
+  // que le flag est désactivé), voir auth.service.ts.
+  app.post(
+    '/verify-email',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Confirm the emailed 4-digit code' } },
+    authController.verifyEmail,
+  );
+
+  app.post(
+    '/verify-email/resend',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Resend a fresh verification code' } },
+    authController.resendVerification,
+  );
 }

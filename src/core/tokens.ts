@@ -13,6 +13,15 @@ export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/**
+ * 4-digit numeric code (email verification), cryptographically random —
+ * `crypto.randomInt` is rejection-sampled internally, so this stays uniform
+ * over 0000–9999 (no modulo bias). Zero-padded to always be exactly 4 digits.
+ */
+export function generateVerificationCode(): string {
+  return crypto.randomInt(0, 10_000).toString().padStart(4, '0');
+}
+
 /** Expiry date for a freshly issued refresh token (sliding window). */
 export function refreshExpiry(now: Date = new Date()): Date {
   return new Date(now.getTime() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);

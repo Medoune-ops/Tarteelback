@@ -12,31 +12,37 @@ import { isFamilyPlan, recomputePremium } from '../../core/household.js';
 import { householdService } from '../household/household.service.js';
 import { eurToDexpayAmount } from '../../core/dexpayCurrency.js';
 import { createCheckoutSession } from './dexpay.client.js';
-import type { SubscribeInput, BuyGemsInput, BuyHeartsInput } from './billing.schemas.js';
+import { createStripeCheckoutSession } from './stripe.client.js';
+import type { SubscribeInput, BuyGemsInput, BuyHeartsInput, RepairStreakInput } from './billing.schemas.js';
 import type { Prisma, Transaction, TransactionType } from '@prisma/client';
 
 /**
- * ══════════ INTÉGRATION DEXPAY (paiement carte, popup SDK) ══════════
+ * ══════════ PAIEMENT : DEXPAY (mobile money) + STRIPE (carte, mondial) ═══
  *
- * Le paiement est ASYNCHRONE : ces méthodes ne créditent RIEN elles-mêmes —
- * elles créent une Transaction `pending` + une checkout session DexPay et
- * renvoient `paymentUrl` au front (qui ouvre le popup SDK Checkout JS,
- * `paymentMethod: 'card'`). L'effet (premium/gemmes/cœurs/streak) n'est
- * appliqué que par `applyPaidTransaction`, appelée depuis le webhook
- * `checkout.completed` (dexpay.webhook.ts) — JAMAIS depuis une réponse HTTP
- * synchrone, ni depuis un callback du popup (voir doc DexPay : "la source de
- * vérité reste le webhook").
+ * Le paiement est ASYNCHRONE quel que soit le provider : ces méthodes ne
+ * créditent RIEN elles-mêmes — elles créent une Transaction `pending` + une
+ * checkout session (DexPay popup SDK ou Stripe Checkout hébergé) et renvoient
+ * `paymentUrl` au front. L'effet (premium/gemmes/cœurs/streak) n'est appliqué
+ * que par `applyPaidTransaction`, appelée depuis le webhook du provider
+ * concerné (dexpay.webhook.ts / stripe.webhook.ts) — JAMAIS depuis une
+ * réponse HTTP synchrone (voir doc DexPay/Stripe : "la source de vérité reste
+ * le webhook"). `Transaction.reference` est le pivot commun aux deux
+ * providers, c'est elle qui permet au webhook de retrouver la transaction peu
+ * importe qui l'a émis.
  */
+
+export type PaymentProvider = 'dexpay' | 'stripe';
 
 /** Génère une référence unique côté marchand pour une nouvelle transaction. */
 function newReference(prefix: string): string {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 }
 
-/** Crée la Transaction pending + la checkout session DexPay associée. */
+/** Crée la Transaction pending + la checkout session (DexPay ou Stripe selon `provider`). */
 async function startPayment(
   userId: string,
   type: TransactionType,
+  provider: PaymentProvider,
   amountEur: number,
   itemName: string,
   payload?: Prisma.InputJsonValue,
@@ -56,6 +62,18 @@ async function startPayment(
 
   if (!env.PUBLIC_BASE_URL) {
     throw new AppError('SERVICE_UNAVAILABLE', 'PUBLIC_BASE_URL is not configured');
+  }
+
+  if (provider === 'stripe') {
+    const session = await createStripeCheckoutSession({
+      reference,
+      itemName,
+      amountEur,
+      successUrl: `${env.PUBLIC_BASE_URL}/billing/dexpay/success?reference=${reference}`,
+      cancelUrl: `${env.PUBLIC_BASE_URL}/billing/dexpay/failure?reference=${reference}`,
+      metadata: { userId, type },
+    });
+    return { transaction, paymentUrl: session.payment_url };
   }
 
   const session = await createCheckoutSession({
@@ -173,9 +191,10 @@ export async function markTransactionFailed(reference: string): Promise<void> {
 
 export const billingService = {
   /**
-   * POST /billing/subscribe — crée une checkout session DexPay pour activer
-   * un abonnement premium (1 mois / 1 an, individuel ou familial). L'effet
-   * n'est appliqué qu'à réception du webhook `checkout.completed`.
+   * POST /billing/subscribe — crée une checkout session (DexPay ou Stripe
+   * selon `input.provider`) pour activer un abonnement premium (1 mois / 1
+   * an, individuel ou familial). L'effet n'est appliqué qu'à réception du
+   * webhook de confirmation du provider choisi.
    */
   async subscribe(userId: string, input: SubscribeInput) {
     await userRepository.getOrThrow(userId);
@@ -193,6 +212,7 @@ export const billingService = {
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'premium_subscription',
+      input.provider,
       amount,
       'Abonnement Tarteel Plus',
       { plan: input.plan },
@@ -226,8 +246,9 @@ export const billingService = {
   },
 
   /**
-   * POST /billing/gems — crée une checkout session DexPay pour l'achat d'un
-   * pack de gemmes. Crédité uniquement à réception du webhook.
+   * POST /billing/gems — crée une checkout session (DexPay ou Stripe selon
+   * `input.provider`) pour l'achat d'un pack de gemmes. Crédité uniquement à
+   * réception du webhook.
    */
   async buyGems(userId: string, input: BuyGemsInput) {
     const pack = GEM_PACKS[input.pack];
@@ -242,6 +263,7 @@ export const billingService = {
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'gem_pack',
+      input.provider,
       priceEur,
       `${pack.gems} gemmes`,
       { pack: input.pack },
@@ -250,10 +272,11 @@ export const billingService = {
   },
 
   /**
-   * POST /billing/hearts — crée une checkout session DexPay pour un refill
-   * complet des cœurs. Premium = cœurs illimités → achat refusé direct.
+   * POST /billing/hearts — crée une checkout session (DexPay ou Stripe selon
+   * `input.provider`) pour un refill complet des cœurs. Premium = cœurs
+   * illimités → achat refusé direct.
    */
-  async buyHearts(userId: string, _input: BuyHeartsInput) {
+  async buyHearts(userId: string, input: BuyHeartsInput) {
     const user = await userRepository.getOrThrow(userId);
     if (isPremiumActive(user)) {
       throw new AppError('CONFLICT', 'Hearts are unlimited with Plus');
@@ -266,14 +289,18 @@ export const billingService = {
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'heart_pack',
+      input.provider,
       pricing.heartRefillPriceEur,
       'Recharge complète des cœurs',
     );
     return { reference: transaction.reference, paymentUrl };
   },
 
-  /** POST /billing/repair-streak — crée une checkout session DexPay pour restaurer la streak cassée. */
-  async repairStreak(userId: string) {
+  /**
+   * POST /billing/repair-streak — crée une checkout session (DexPay ou
+   * Stripe selon `input.provider`) pour restaurer la streak cassée.
+   */
+  async repairStreak(userId: string, input: RepairStreakInput) {
     const user = await userRepository.getOrThrow(userId);
     if (user.lastStreakValue <= 0) {
       throw new AppError('NO_STREAK_TO_REPAIR', 'There is no streak to repair');
@@ -283,6 +310,7 @@ export const billingService = {
     const { transaction, paymentUrl } = await startPayment(
       userId,
       'streak_repair',
+      input.provider,
       pricing.streakRepairPriceEur,
       'Réparation de la série',
     );

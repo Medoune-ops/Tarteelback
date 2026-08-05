@@ -7,6 +7,7 @@ import { lessonRoutes, lessonFlatRoutes } from './modules/lessons/lesson.routes.
 import { leagueRoutes } from './modules/leagues/league.routes.js';
 import { billingRoutes } from './modules/billing/billing.routes.js';
 import { dexpayWebhookRoutes } from './modules/billing/dexpay.webhook.js';
+import { stripeWebhookRoutes } from './modules/billing/stripe.webhook.js';
 import { dexpayPagesRoutes } from './modules/billing/dexpay.pages.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
@@ -42,9 +43,11 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(lessonFlatRoutes, { prefix: '/lesson' });
   await app.register(leagueRoutes, { prefix: '/leagues' });
   await app.register(billingRoutes, { prefix: '/billing' });
-  // Webhook DexPay — PAS de Bearer token (signature HMAC vérifiée à la place),
-  // monté séparément de billingRoutes pour ne pas hériter de son hook `authenticate`.
+  // Webhooks DexPay/Stripe — PAS de Bearer token (signature vérifiée à la
+  // place), montés séparément de billingRoutes pour ne pas hériter de son
+  // hook `authenticate`.
   await app.register(dexpayWebhookRoutes, { prefix: '/billing' });
+  await app.register(stripeWebhookRoutes, { prefix: '/billing' });
   // Pages HTML de repli success_url/failure_url — publiques, jamais authentifiées.
   await app.register(dexpayPagesRoutes, { prefix: '/billing' });
   await app.register(notificationRoutes, { prefix: '/me/notifications' });
