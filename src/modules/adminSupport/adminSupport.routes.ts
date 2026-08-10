@@ -6,34 +6,35 @@ import { adminSupportController } from './adminSupport.controller.js';
  * depuis Paramètres → Support. Une ligne par utilisateur (boîte de
  * réception) ; l'admin peut lire le fil complet et y répondre — la réponse
  * est visible dans l'app ET déclenche une notification push à l'utilisateur.
- * Requiert un membre back-office authentifié (app.authenticateAdmin).
+ * Pas de module AdminModule dédié ('support' n'existe pas dans l'enum) : ces
+ * routes agissent sur des données utilisateur, donc rattachées au module 'users'.
  */
 export async function adminSupportRoutes(app: FastifyInstance) {
-  app.addHook('preHandler', app.authenticateAdmin);
-
   const sec = { tags: ['backoffice'] as const, security: [{ bearerAuth: [] }] };
+  const view = app.requireAdminPermission('users', 'view');
+  const edit = app.requireAdminPermission('users', 'edit');
 
   app.get(
     '/messages',
-    { schema: { ...sec, summary: 'Liste paginée des conversations support (recherche + filtre statut)' } },
+    { preHandler: view, schema: { ...sec, summary: 'Liste paginée des conversations support (recherche + filtre statut)' } },
     adminSupportController.list,
   );
 
   app.get(
     '/summary',
-    { schema: { ...sec, summary: 'Compteurs support : non lus, total, reçus dans les dernières 24h' } },
+    { preHandler: view, schema: { ...sec, summary: 'Compteurs support : non lus, total, reçus dans les dernières 24h' } },
     adminSupportController.summary,
   );
 
   app.get(
     '/messages/:userId/thread',
-    { schema: { ...sec, summary: 'Fil complet de la conversation support avec un utilisateur' } },
+    { preHandler: view, schema: { ...sec, summary: 'Fil complet de la conversation support avec un utilisateur' } },
     adminSupportController.thread,
   );
 
   app.post(
     '/messages/:userId/reply',
-    { schema: { ...sec, summary: 'Répondre dans le fil support d\'un utilisateur (visible dans l\'app + push)' } },
+    { preHandler: edit, schema: { ...sec, summary: 'Répondre dans le fil support d\'un utilisateur (visible dans l\'app + push)' } },
     adminSupportController.reply,
   );
 }

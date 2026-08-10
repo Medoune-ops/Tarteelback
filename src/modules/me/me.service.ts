@@ -4,6 +4,8 @@ import { AppError } from '../../core/errors.js';
 import { verifyPassword } from '../../core/password.js';
 import { computeHearts } from '../../core/hearts.js';
 import { familyPremiumUntil, resolveEffectiveUntil } from '../../core/household.js';
+import { INDEFINITE_PREMIUM_UNTIL } from '../../core/premium.js';
+import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
 import { settleStreak } from '../../core/streak.js';
 import { userRepository } from './user.repository.js';
 import type { UpdateMeInput, UpdateSettingsInput } from './me.schemas.js';
@@ -19,11 +21,22 @@ import { applyOnboardingStart } from './onboardingStart.js';
  * and every "sync" endpoint stay consistent. Returns the up-to-date user.
  */
 export async function syncUserState(user: User, now: Date = new Date()): Promise<User> {
-  // Premium EFFECTIF = personnel OU familial (foyer). On matérialise le résultat
-  // dans isPremium/premiumUntil pour que tous les contrôles existants restent
-  // valables, et on gère l'expiration silencieuse des deux sources.
-  const familyUntil = await familyPremiumUntil(user.id, now);
-  const effectiveUntil = resolveEffectiveUntil(user.personalPremiumUntil, familyUntil, now);
+  // Premium EFFECTIF = personnel OU familial (foyer) OU promo globale
+  // (AppConfig.globalPremiumPromoActive — "Premium gratuit pour tous", voir
+  // back-office). La promo n'est JAMAIS écrite dans personalPremiumUntil : elle
+  // est réévaluée à CHAQUE sync, donc sa désactivation redescend automatiquement
+  // isPremium à false au prochain GET /me pour quiconque n'a pas de vrai
+  // abonnement — sans toucher aux abonnés payants (leur personalPremiumUntil
+  // réel prend le relais). On matérialise le résultat dans isPremium/
+  // premiumUntil pour que tous les contrôles existants restent valables.
+  const [familyUntil, config] = await Promise.all([
+    familyPremiumUntil(user.id, now),
+    getPricingConfig(),
+  ]);
+  const personalOrPromoUntil = config.globalPremiumPromoActive
+    ? INDEFINITE_PREMIUM_UNTIL
+    : user.personalPremiumUntil;
+  const effectiveUntil = resolveEffectiveUntil(personalOrPromoUntil, familyUntil, now);
   const premium = effectiveUntil != null;
 
   const data: Record<string, unknown> = {};

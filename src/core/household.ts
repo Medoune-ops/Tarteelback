@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { INDEFINITE_PREMIUM_UNTIL } from './premium.js';
 
 /**
  * Règles métier & résolution du premium pour le plan familial (foyer).
@@ -55,18 +56,22 @@ export async function familyPremiumUntil(userId: string, now: Date): Promise<Dat
 }
 
 /**
- * Recalcule et matérialise le premium EFFECTIF d'un user (personnel + familial)
+ * Recalcule et matérialise le premium EFFECTIF d'un user (personnel + familial
+ * + promo globale "Premium pour tous", voir AppConfig.globalPremiumPromoActive)
  * dans User.isPremium / User.premiumUntil. À appeler après tout changement
  * d'appartenance au foyer ou d'abonnement.
  */
 export async function recomputePremium(userId: string, now: Date = new Date()): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { personalPremiumUntil: true },
-  });
+  const [user, config] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { personalPremiumUntil: true } }),
+    prisma.appConfig.findUnique({ where: { id: 'singleton' }, select: { globalPremiumPromoActive: true } }),
+  ]);
   if (!user) return;
   const familyUntil = await familyPremiumUntil(userId, now);
-  const until = resolveEffectiveUntil(user.personalPremiumUntil, familyUntil, now);
+  const personalOrPromoUntil = config?.globalPremiumPromoActive
+    ? INDEFINITE_PREMIUM_UNTIL
+    : user.personalPremiumUntil;
+  const until = resolveEffectiveUntil(personalOrPromoUntil, familyUntil, now);
   await prisma.user.update({
     where: { id: userId },
     data: { isPremium: until != null, premiumUntil: until },

@@ -908,6 +908,12 @@ model Transaction {
 model AppConfig {
   id              String   @id @default("singleton")
   paymentsEnabled Boolean  @default(true)
+  // Interrupteur "premium pour tout le monde" : tant qu'actif, isPremiumActive()
+  // renvoie true pour CHAQUE user, existant ou inscrit pendant que c'est actif —
+  // sans jamais toucher au statut individuel (personalPremiumUntil/premiumUntil)
+  // en base. À la désactivation, chacun retombe instantanément sur son vrai
+  // statut (un abonné payant reste premium, les autres non). Voir core/premium.ts.
+  globalPremiumPromoActive Boolean @default(false)
 
   // ─── Tarification (back-office → Monétisation) ────────────────────────────
   // Source de vérité pour TOUT prix modifiable depuis le back-office. Chaque

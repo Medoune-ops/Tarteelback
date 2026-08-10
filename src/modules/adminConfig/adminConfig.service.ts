@@ -44,6 +44,7 @@ function serializePublic(row: ConfigRow) {
 function serializeAdmin(row: ConfigRow) {
   return {
     paymentsEnabled: row.paymentsEnabled,
+    globalPremiumPromoActive: row.globalPremiumPromoActive,
     pricing: serializePricing(row),
     updatedAt: row.updatedAt,
   };
