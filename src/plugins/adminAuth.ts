@@ -1,8 +1,10 @@
 import fp from 'fastify-plugin';
 import { createSigner, createVerifier, TokenError } from 'fast-jwt';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AdminModule } from '@prisma/client';
 import { env } from '../config/env.js';
 import { AppError } from '../core/errors.js';
+import { prisma } from '../config/prisma.js';
 
 /** Claims carried by a back-office access token. */
 export interface AdminAccessClaims {
@@ -33,6 +35,16 @@ declare module 'fastify' {
     authenticateAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     /** Require an authenticated back-office *owner* (invite/reset-password/permissions). */
     requireAdminOwner: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /**
+     * Require authentication AND at least `level` permission on `module` for
+     * the caller (owners always pass — see AdminUser.isOwner, which bypasses
+     * per-module grants by design, same as requireAdminOwner). Use as a route
+     * `preHandler` alongside/instead of authenticateAdmin.
+     */
+    requireAdminPermission: (
+      module: AdminModule,
+      level: 'view' | 'edit',
+    ) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     adminAuth?: AdminAccessClaims;
@@ -89,4 +101,24 @@ export default fp(async (app) => {
       throw new AppError('FORBIDDEN', 'Owner privileges required');
     }
   });
+
+  app.decorate(
+    'requireAdminPermission',
+    (module: AdminModule, level: 'view' | 'edit') =>
+      async (req: FastifyRequest, reply: FastifyReply) => {
+        await app.authenticateAdmin(req, reply);
+        // Owners bypass per-module grants entirely — same rule as
+        // requireAdminOwner, and consistent with AdminUser.isOwner meaning
+        // "unrestricted", not "has every AdminPermission row".
+        if (req.adminAuth!.isOwner) return;
+
+        const perm = await prisma.adminPermission.findUnique({
+          where: { adminUserId_module: { adminUserId: req.adminAuth!.sub, module } },
+        });
+        const allowed = level === 'view' ? (perm?.canView ?? false) : (perm?.canEdit ?? false);
+        if (!allowed) {
+          throw new AppError('FORBIDDEN', `Missing '${level}' permission on module '${module}'`);
+        }
+      },
+  );
 });

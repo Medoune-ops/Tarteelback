@@ -86,7 +86,7 @@ export const adminUsersRepository = {
     });
   },
 
-  grantPremium(id: string, premiumUntil: Date | null) {
+  grantPremium(id: string, premiumUntil: Date) {
     return prisma.user.update({
       where: { id },
       data: { isPremium: true, premiumUntil, personalPremiumUntil: premiumUntil },

@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
 import { billingService } from './billing.service.js';
-import { subscribeSchema, buyGemsSchema, buyHeartsSchema } from './billing.schemas.js';
+import { subscribeSchema, buyGemsSchema, buyHeartsSchema, repairStreakSchema } from './billing.schemas.js';
 
 export const billingController = {
   async subscribe(req: FastifyRequest, reply: FastifyReply) {
@@ -39,7 +39,8 @@ export const billingController = {
   },
 
   async repairStreak(req: FastifyRequest, reply: FastifyReply) {
-    const result = await billingService.repairStreak(req.auth!.sub);
+    const input = parse(repairStreakSchema, req.body ?? {});
+    const result = await billingService.repairStreak(req.auth!.sub, input);
     return reply.send(result);
   },
 };

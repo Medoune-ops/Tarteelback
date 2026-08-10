@@ -82,4 +82,41 @@ export const authRepository = {
       data: { usedAt: when },
     });
   },
+
+  // ── Email verification codes ────────────────────────────────────────────────
+
+  createVerificationCode(data: { userId: string; codeHash: string; expiresAt: Date }) {
+    return prisma.emailVerificationCode.create({ data });
+  },
+
+  /** Latest outstanding (unused) code for a user, if any. */
+  findActiveVerificationCode(userId: string) {
+    return prisma.emailVerificationCode.findFirst({
+      where: { userId, usedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  incrementVerificationAttempts(id: string) {
+    return prisma.emailVerificationCode.update({
+      where: { id },
+      data: { attempts: { increment: 1 } },
+    });
+  },
+
+  markVerificationCodeUsed(id: string, when: Date) {
+    return prisma.emailVerificationCode.update({ where: { id }, data: { usedAt: when } });
+  },
+
+  /** Invalidate any outstanding codes for a user (one active code at a time). */
+  invalidateUserVerificationCodes(userId: string, when: Date) {
+    return prisma.emailVerificationCode.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: when },
+    });
+  },
+
+  markEmailVerified(userId: string) {
+    return prisma.user.update({ where: { id: userId }, data: { emailVerified: true } });
+  },
 };

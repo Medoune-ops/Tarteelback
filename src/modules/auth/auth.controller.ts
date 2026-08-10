@@ -11,6 +11,8 @@ import {
   changePasswordSchema,
   resetRequestSchema,
   resetConfirmSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
 } from './auth.schemas.js';
 
 /** Build the JSON returned by register/login/refresh. */
@@ -75,6 +77,19 @@ export const authController = {
   async confirmPasswordReset(req: FastifyRequest, reply: FastifyReply) {
     const input = parse(resetConfirmSchema, req.body);
     await authService.confirmPasswordReset(input);
+    return reply.send({ ok: true });
+  },
+
+  async verifyEmail(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(verifyEmailSchema, req.body);
+    await authService.verifyEmail(input);
+    return reply.send({ ok: true });
+  },
+
+  async resendVerification(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(resendVerificationSchema, req.body);
+    await authService.resendVerificationCode(input);
+    // Toujours 200 {ok:true} — pas d'énumération d'emails (même pattern que reset-password/request).
     return reply.send({ ok: true });
   },
 };

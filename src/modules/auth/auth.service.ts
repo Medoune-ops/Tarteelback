@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { User } from '@prisma/client';
 import { AppError } from '../../core/errors.js';
 import { hashPassword, verifyPassword } from '../../core/password.js';
@@ -6,9 +7,10 @@ import {
   hashToken,
   refreshExpiry,
   initialsFrom,
+  generateVerificationCode,
 } from '../../core/tokens.js';
 import { env } from '../../config/env.js';
-import { sendMail, passwordResetEmail } from '../../core/mailer.js';
+import { sendMail, passwordResetEmail, emailVerificationEmail } from '../../core/mailer.js';
 import type { AccessClaims } from '../../plugins/auth.js';
 import { authRepository } from './auth.repository.js';
 import type {
@@ -18,6 +20,8 @@ import type {
   ChangePasswordInput,
   ResetRequestInput,
   ResetConfirmInput,
+  VerifyEmailInput,
+  ResendVerificationInput,
 } from './auth.schemas.js';
 
 /** Signs a short-lived access token (delegated to @fastify/jwt). */
@@ -52,6 +56,26 @@ async function issueTokens(
   return { accessToken, refreshToken, refreshExpiresAt: expiresAt };
 }
 
+/**
+ * Génère un nouveau code (invalide les précédents), le persiste (hash only)
+ * et l'envoie par email. Appelé par register() et resendVerificationCode() —
+ * jamais invoqué si EMAIL_VERIFICATION_ENABLED est false (voir call sites).
+ */
+async function sendVerificationCode(userId: string, email: string): Promise<void> {
+  const now = new Date();
+  await authRepository.invalidateUserVerificationCodes(userId, now);
+
+  const code = generateVerificationCode();
+  const expiresAt = new Date(now.getTime() + env.EMAIL_VERIFICATION_CODE_TTL_MINUTES * 60 * 1000);
+  await authRepository.createVerificationCode({
+    userId,
+    codeHash: hashToken(code),
+    expiresAt,
+  });
+
+  await sendMail(emailVerificationEmail(email, code, env.EMAIL_VERIFICATION_CODE_TTL_MINUTES));
+}
+
 export const authService = {
   async register(input: RegisterInput, sign: AccessSigner): Promise<AuthResult> {
     const existing = await authRepository.findUserByEmail(input.email);
@@ -67,6 +91,10 @@ export const authService = {
         avatarInitials: initialsFrom(input.displayName),
         timezone: input.timezone ?? 'UTC',
         language: input.language ?? 'en',
+        // Flag OFF (défaut) : compte considéré vérifié dès la création, comme
+        // avant l'introduction de cette fonctionnalité (aucun changement de
+        // comportement tant que EMAIL_VERIFICATION_ENABLED reste désactivé).
+        emailVerified: !env.EMAIL_VERIFICATION_ENABLED,
       });
     } catch (e) {
       // Unicité du pseudo (P2002 sur username) → erreur dédiée que le front
@@ -77,8 +105,54 @@ export const authService = {
       throw e;
     }
 
+    if (env.EMAIL_VERIFICATION_ENABLED) {
+      // Best-effort : un email qui échoue à partir (provider down) ne doit
+      // jamais empêcher la création du compte — l'utilisateur pourra toujours
+      // redemander un code via /auth/verify-email/resend.
+      await sendVerificationCode(user.id, user.email).catch(() => {});
+    }
+
     const tokens = await issueTokens(user, input.deviceId, sign);
     return { user, tokens };
+  },
+
+  /**
+   * POST /auth/verify-email — feature-flagged. Valide le code (hash comparé
+   * en temps constant), plafonne les tentatives (anti brute-force sur les
+   * 10 000 combinaisons possibles), marque le compte vérifié.
+   */
+  async verifyEmail(input: VerifyEmailInput): Promise<void> {
+    const user = await authRepository.findUserByEmail(input.email);
+    if (!user) throw new AppError('NOT_FOUND', 'Account not found');
+    if (user.emailVerified) return; // idempotent : déjà vérifié, rien à faire
+
+    const record = await authRepository.findActiveVerificationCode(user.id);
+    if (!record || record.expiresAt.getTime() <= Date.now()) {
+      throw new AppError('TOKEN_EXPIRED', 'Code expired, request a new one');
+    }
+    if (record.attempts >= env.EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+      throw new AppError('TOO_MANY_ATTEMPTS', 'Too many attempts, request a new code');
+    }
+
+    const providedHash = hashToken(input.code);
+    const a = Buffer.from(providedHash);
+    const b = Buffer.from(record.codeHash);
+    const match = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+    if (!match) {
+      await authRepository.incrementVerificationAttempts(record.id);
+      throw new AppError('INVALID_CODE', 'Incorrect code');
+    }
+
+    await authRepository.markVerificationCodeUsed(record.id, new Date());
+    await authRepository.markEmailVerified(user.id);
+  },
+
+  /** POST /auth/verify-email/resend — feature-flagged. Silent no-op if unknown/already verified (no enumeration). */
+  async resendVerificationCode(input: ResendVerificationInput): Promise<void> {
+    const user = await authRepository.findUserByEmail(input.email);
+    if (!user || user.emailVerified) return;
+    await sendVerificationCode(user.id, user.email);
   },
 
   async login(input: LoginInput, sign: AccessSigner): Promise<AuthResult> {

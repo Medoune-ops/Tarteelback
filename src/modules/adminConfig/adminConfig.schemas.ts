@@ -5,6 +5,12 @@ const gemCost = z.number().int().positive();
 
 export const updateConfigBodySchema = z.object({
   paymentsEnabled: z.boolean().optional(),
+  // "Premium gratuit pour tous" (event-style, ex: Ramadan) — voir core/premium.ts
+  // et me.service.ts::syncUserState pour la résolution. Réévalué à chaque sync :
+  // aucun bulk-update de la table User, donc s'applique aussi aux inscriptions
+  // faites pendant que c'est actif, et se coupe pour tous instantanément à la
+  // désactivation, SANS jamais toucher aux abonnés ayant réellement payé.
+  globalPremiumPromoActive: z.boolean().optional(),
 
   // Tarification — toute valeur omise reste inchangée (upsert partiel).
   premiumMonthlyPriceEur: priceEur.optional(),

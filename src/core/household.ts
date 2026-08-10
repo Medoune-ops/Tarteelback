@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { INDEFINITE_PREMIUM_UNTIL } from './premium.js';
 
 /**
  * Règles métier & résolution du premium pour le plan familial (foyer).
@@ -8,6 +9,11 @@ import { prisma } from '../config/prisma.js';
  * (isPremiumActive) restent valables. `User.personalPremiumUntil` = source du
  * premium personnel (abonnement individuel). Le premium familial vient du
  * foyer (Household.subscriptionUntil quand subscriptionActive).
+ *
+ * Convention : `personalPremiumUntil == null` signifie TOUJOURS "pas de
+ * premium personnel", jamais "à vie" — un grant de durée indéterminée doit
+ * écrire une date sentinelle lointaine (voir INDEFINITE_PREMIUM_UNTIL dans
+ * core/premium.ts), pas `null`, pour rester compatible avec cette résolution.
  */
 
 /** Nombre max de membres d'un foyer, propriétaire inclus. */
@@ -50,18 +56,22 @@ export async function familyPremiumUntil(userId: string, now: Date): Promise<Dat
 }
 
 /**
- * Recalcule et matérialise le premium EFFECTIF d'un user (personnel + familial)
+ * Recalcule et matérialise le premium EFFECTIF d'un user (personnel + familial
+ * + promo globale "Premium pour tous", voir AppConfig.globalPremiumPromoActive)
  * dans User.isPremium / User.premiumUntil. À appeler après tout changement
  * d'appartenance au foyer ou d'abonnement.
  */
 export async function recomputePremium(userId: string, now: Date = new Date()): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { personalPremiumUntil: true },
-  });
+  const [user, config] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { personalPremiumUntil: true } }),
+    prisma.appConfig.findUnique({ where: { id: 'singleton' }, select: { globalPremiumPromoActive: true } }),
+  ]);
   if (!user) return;
   const familyUntil = await familyPremiumUntil(userId, now);
-  const until = resolveEffectiveUntil(user.personalPremiumUntil, familyUntil, now);
+  const personalOrPromoUntil = config?.globalPremiumPromoActive
+    ? INDEFINITE_PREMIUM_UNTIL
+    : user.personalPremiumUntil;
+  const until = resolveEffectiveUntil(personalOrPromoUntil, familyUntil, now);
   await prisma.user.update({
     where: { id: userId },
     data: { isPremium: until != null, premiumUntil: until },
