@@ -35,7 +35,27 @@ export interface AuthTokens {
 
 export interface AuthResult {
   user: User;
-  tokens: AuthTokens;
+  /**
+   * Absent quand EMAIL_VERIFICATION_ENABLED=true et que l'email n'est pas encore
+   * vérifié. Les tokens sont émis après POST /auth/verify-email (ev:true).
+   */
+  tokens?: AuthTokens;
+  /** Present on register when EMAIL_VERIFICATION_ENABLED — false if Resend failed (account still created). */
+  verificationEmailSent?: boolean;
+}
+
+export interface VerifyEmailResult {
+  user: User;
+  tokens?: AuthTokens;
+}
+
+/** Build access-token claims for a user (includes ev when verification is on). */
+function accessClaimsFor(user: User): AccessClaims {
+  return {
+    sub: user.id,
+    role: user.role,
+    ...(env.EMAIL_VERIFICATION_ENABLED ? { ev: user.emailVerified } : {}),
+  };
 }
 
 /** Issue an access + refresh pair and persist the refresh hash for a device. */
@@ -44,7 +64,7 @@ async function issueTokens(
   deviceId: string,
   sign: AccessSigner,
 ): Promise<AuthTokens> {
-  const accessToken = sign({ sub: user.id, role: user.role });
+  const accessToken = sign(accessClaimsFor(user));
   const refreshToken = generateRefreshToken();
   const expiresAt = refreshExpiry();
   await authRepository.createRefreshToken({
@@ -105,54 +125,89 @@ export const authService = {
       throw e;
     }
 
+    let verificationEmailSent: boolean | undefined;
     if (env.EMAIL_VERIFICATION_ENABLED) {
-      // Best-effort : un email qui échoue à partir (provider down) ne doit
-      // jamais empêcher la création du compte — l'utilisateur pourra toujours
-      // redemander un code via /auth/verify-email/resend.
-      await sendVerificationCode(user.id, user.email).catch(() => {});
+      // Best-effort : un email qui échoue à partir (provider down / MAIL_FROM
+      // sandbox Resend) ne doit jamais empêcher la création du compte — le
+      // front lit `verificationEmailSent` et peut proposer /auth/verify-email/resend.
+      try {
+        await sendVerificationCode(user.id, user.email);
+        verificationEmailSent = true;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[auth] verification email failed after register:', err);
+        verificationEmailSent = false;
+      }
+    }
+
+    if (env.EMAIL_VERIFICATION_ENABLED) {
+      // Pas de session tant que l'email n'est pas vérifié : aucun token émis
+      // ici. Les tokens arrivent uniquement depuis POST /auth/verify-email une
+      // fois le code confirmé. Cela élimine tout vecteur d'accès à l'app avant
+      // la vérification (plus sûr que les tokens ev:false).
+      return { user, verificationEmailSent };
     }
 
     const tokens = await issueTokens(user, input.deviceId, sign);
-    return { user, tokens };
+    return { user, tokens, verificationEmailSent };
   },
 
   /**
-   * POST /auth/verify-email — feature-flagged. Valide le code (hash comparé
-   * en temps constant), plafonne les tentatives (anti brute-force sur les
-   * 10 000 combinaisons possibles), marque le compte vérifié.
+   * POST /auth/verify-email — always returns fresh tokens with ev:true when
+   * possible. Expired / missing code → TOKEN_EXPIRED (front must call resend).
+   * deviceId optional: falls back to the latest active session from register.
    */
-  async verifyEmail(input: VerifyEmailInput): Promise<void> {
+  async verifyEmail(input: VerifyEmailInput, sign: AccessSigner): Promise<VerifyEmailResult> {
     const user = await authRepository.findUserByEmail(input.email);
     if (!user) throw new AppError('NOT_FOUND', 'Account not found');
-    if (user.emailVerified) return; // idempotent : déjà vérifié, rien à faire
 
-    const record = await authRepository.findActiveVerificationCode(user.id);
-    if (!record || record.expiresAt.getTime() <= Date.now()) {
-      throw new AppError('TOKEN_EXPIRED', 'Code expired, request a new one');
+    if (!user.emailVerified) {
+      const record = await authRepository.findActiveVerificationCode(user.id);
+      if (!record || record.expiresAt.getTime() <= Date.now()) {
+        throw new AppError('TOKEN_EXPIRED', 'Code expired, request a new one');
+      }
+      if (record.attempts >= env.EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+        throw new AppError('TOO_MANY_ATTEMPTS', 'Too many attempts, request a new code');
+      }
+
+      const providedHash = hashToken(input.code);
+      const a = Buffer.from(providedHash);
+      const b = Buffer.from(record.codeHash);
+      const match = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+      if (!match) {
+        await authRepository.incrementVerificationAttempts(record.id);
+        throw new AppError('INVALID_CODE', 'Incorrect code');
+      }
+
+      await authRepository.markVerificationCodeUsed(record.id, new Date());
+      await authRepository.markEmailVerified(user.id);
+      user.emailVerified = true;
     }
-    if (record.attempts >= env.EMAIL_VERIFICATION_MAX_ATTEMPTS) {
-      throw new AppError('TOO_MANY_ATTEMPTS', 'Too many attempts, request a new code');
+
+    const deviceId =
+      input.deviceId ??
+      (await authRepository.listActiveSessions(user.id))[0]?.deviceId;
+
+    if (!deviceId) {
+      return { user };
     }
 
-    const providedHash = hashToken(input.code);
-    const a = Buffer.from(providedHash);
-    const b = Buffer.from(record.codeHash);
-    const match = a.length === b.length && crypto.timingSafeEqual(a, b);
-
-    if (!match) {
-      await authRepository.incrementVerificationAttempts(record.id);
-      throw new AppError('INVALID_CODE', 'Incorrect code');
-    }
-
-    await authRepository.markVerificationCodeUsed(record.id, new Date());
-    await authRepository.markEmailVerified(user.id);
+    const tokens = await issueTokens(user, deviceId, sign);
+    return { user, tokens };
   },
 
   /** POST /auth/verify-email/resend — feature-flagged. Silent no-op if unknown/already verified (no enumeration). */
   async resendVerificationCode(input: ResendVerificationInput): Promise<void> {
     const user = await authRepository.findUserByEmail(input.email);
     if (!user || user.emailVerified) return;
-    await sendVerificationCode(user.id, user.email);
+    try {
+      await sendVerificationCode(user.id, user.email);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[auth] verification email resend failed:', err);
+      throw new AppError('SERVICE_UNAVAILABLE', 'Unable to send verification email');
+    }
   },
 
   async login(input: LoginInput, sign: AccessSigner): Promise<AuthResult> {
@@ -164,6 +219,13 @@ export const authService = {
     const ok = await verifyPassword(user.passwordHash, input.password);
     if (!ok) throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password');
     if (user.bannedAt) throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
+
+    // Nouveaux comptes non vérifiés : pas d'accès à l'app tant que le code
+    // n'est pas saisi. Les comptes existants (emailVerified=true par défaut)
+    // passent sans changement.
+    if (env.EMAIL_VERIFICATION_ENABLED && !user.emailVerified) {
+      throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
+    }
 
     const tokens = await issueTokens(user, input.deviceId, sign);
     return { user, tokens };
@@ -191,6 +253,9 @@ export const authService = {
       // A ban must kill existing sessions too, not just block new logins.
       await authRepository.revokeAll(user.id, new Date());
       throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
+    }
+    if (env.EMAIL_VERIFICATION_ENABLED && !user.emailVerified) {
+      throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
     }
 
     // Rotation: invalidate the old token, mint a new pair.

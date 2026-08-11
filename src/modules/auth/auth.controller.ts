@@ -15,13 +15,16 @@ import {
   resendVerificationSchema,
 } from './auth.schemas.js';
 
-/** Build the JSON returned by register/login/refresh. */
+/** Build the JSON returned by login/refresh (always have tokens). */
 function authResponse(result: AuthResult) {
   return {
     user: serializeUser(result.user),
-    accessToken: result.tokens.accessToken,
-    refreshToken: result.tokens.refreshToken,
-    refreshExpiresAt: result.tokens.refreshExpiresAt.toISOString(),
+    accessToken: result.tokens!.accessToken,
+    refreshToken: result.tokens!.refreshToken,
+    refreshExpiresAt: result.tokens!.refreshExpiresAt.toISOString(),
+    ...(result.verificationEmailSent !== undefined
+      ? { verificationEmailSent: result.verificationEmailSent }
+      : {}),
   };
 }
 
@@ -30,6 +33,17 @@ export const authController = {
     const input = parse(registerSchema, req.body);
     const sign = (c: AccessClaims) => req.server.jwt.sign(c);
     const result = await authService.register(input, sign);
+    // Quand EMAIL_VERIFICATION_ENABLED=true, les tokens ne sont pas encore
+    // émis (ils le seront après POST /auth/verify-email). On retourne seulement
+    // les infos user + le flag d'envoi de l'email.
+    if (!result.tokens) {
+      return reply.status(201).send({
+        user: serializeUser(result.user),
+        ...(result.verificationEmailSent !== undefined
+          ? { verificationEmailSent: result.verificationEmailSent }
+          : {}),
+      });
+    }
     return reply.status(201).send(authResponse(result));
   },
 
@@ -82,8 +96,13 @@ export const authController = {
 
   async verifyEmail(req: FastifyRequest, reply: FastifyReply) {
     const input = parse(verifyEmailSchema, req.body);
-    await authService.verifyEmail(input);
-    return reply.send({ ok: true });
+    const sign = (c: AccessClaims) => req.server.jwt.sign(c);
+    const result = await authService.verifyEmail(input, sign);
+    if (result.tokens) {
+      return reply.send(authResponse({ user: result.user, tokens: result.tokens }));
+    }
+    // Verified, but no active session to rotate — front should call /auth/refresh.
+    return reply.send({ ok: true, user: serializeUser(result.user) });
   },
 
   async resendVerification(req: FastifyRequest, reply: FastifyReply) {

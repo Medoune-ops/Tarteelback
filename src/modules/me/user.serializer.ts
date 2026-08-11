@@ -21,6 +21,7 @@ export function serializeUser(user: User, now: Date = new Date()) {
   return {
     id: user.id,
     email: user.email,
+    emailVerified: user.emailVerified,
     displayName: user.displayName,
     username: user.username,
     avatarInitials: user.avatarInitials,
@@ -119,6 +120,7 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     name: user.displayName,
     username: user.username,
     email: user.email,
+    emailVerified: user.emailVerified,
     avatar: null as string | null,
     // Préférence voix (Settings) — sans elle le toggle du front repart à `true`
     // à chaque ouverture au lieu de refléter le vrai réglage.

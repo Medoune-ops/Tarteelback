@@ -8,6 +8,8 @@ import { AppError } from '../core/errors.js';
 export interface AccessClaims {
   sub: string; // user id
   role: 'user' | 'admin';
+  /** Present when EMAIL_VERIFICATION_ENABLED — false until the user confirms their email. */
+  ev?: boolean;
 }
 
 declare module 'fastify' {
@@ -45,9 +47,9 @@ export default fp(async (app) => {
   app.decorate(
     'authenticate',
     async (req: FastifyRequest, _reply: FastifyReply) => {
+      let claims: AccessClaims;
       try {
-        const claims = await req.jwtVerify<AccessClaims>();
-        req.auth = claims;
+        claims = await req.jwtVerify<AccessClaims>();
       } catch (err) {
         const expired =
           err && typeof err === 'object' && 'code' in err &&
@@ -56,6 +58,13 @@ export default fp(async (app) => {
           expired ? 'TOKEN_EXPIRED' : 'UNAUTHENTICATED',
           expired ? 'Access token expired' : 'Invalid or missing access token',
         );
+      }
+      req.auth = claims;
+      // Tokens issued right after register carry ev:false — block the rest of
+      // the app until POST /auth/verify-email. Legacy tokens (no `ev`) keep
+      // working so existing verified accounts are never locked out.
+      if (env.EMAIL_VERIFICATION_ENABLED && claims.ev === false) {
+        throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
       }
     },
   );

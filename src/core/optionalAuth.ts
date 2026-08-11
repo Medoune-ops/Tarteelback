@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import { env } from '../config/env.js';
 import type { AccessClaims } from '../plugins/auth.js';
 
 /**
@@ -11,6 +12,8 @@ export async function tryAuth(req: FastifyRequest): Promise<AccessClaims | null>
   if (!header) return null;
   try {
     const claims = await req.jwtVerify<AccessClaims>();
+    // Unverified accounts must not get personalised content — same gate as authenticate.
+    if (env.EMAIL_VERIFICATION_ENABLED && claims.ev === false) return null;
     req.auth = claims;
     return claims;
   } catch {

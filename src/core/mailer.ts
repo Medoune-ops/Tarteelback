@@ -37,6 +37,10 @@ export async function sendMail(msg: MailMessage): Promise<void> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
+    // eslint-disable-next-line no-console
+    console.error(
+      `[mailer] Resend rejected send to ${msg.to} from ${env.MAIL_FROM} (${res.status}): ${detail}`,
+    );
     throw new Error(`Resend send failed (${res.status}): ${detail}`);
   }
 }

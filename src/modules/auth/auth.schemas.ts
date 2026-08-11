@@ -71,13 +71,43 @@ export const resetConfirmSchema = z
  * see auth.service.ts. `email` (not an auth token) because this is called
  * right after register, before the user necessarily has a session on THIS
  * device confirmed (e.g. code requested again from another screen).
+ *
+ * Accepts `code` or `verificationCode` (front alias), trims spaces, and
+ * coerces numeric input. `deviceId` is optional — when omitted the API
+ * reuses the latest active session's deviceId from register/login.
  */
+function normalizeVerificationCode(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (Array.isArray(raw)) {
+    return normalizeVerificationCode(raw.join(''));
+  }
+  const code = String(raw).replace(/\s/g, '');
+  return /^\d{4}$/.test(code) ? code : undefined;
+}
+
 export const verifyEmailSchema = z
   .object({
     email: z.string().email().toLowerCase(),
-    code: z.string().regex(/^\d{4}$/, 'Code must be 4 digits'),
+    code: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional(),
+    verificationCode: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional(),
+    otp: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional(),
+    deviceId: deviceId.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (!normalizeVerificationCode(data.code ?? data.verificationCode ?? data.otp)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Code must be 4 digits',
+        path: ['code'],
+      });
+    }
+  })
+  .transform((data) => ({
+    email: data.email,
+    code: normalizeVerificationCode(data.code ?? data.verificationCode ?? data.otp)!,
+    deviceId: data.deviceId,
+  }));
 
 /** POST /auth/verify-email/resend — re-send a fresh code (invalidates the previous one). */
 export const resendVerificationSchema = z

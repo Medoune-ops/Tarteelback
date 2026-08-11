@@ -33,7 +33,8 @@ export type ErrorCode =
   | 'INTERNAL'
   // Email verification (feature-flagged — see auth.service.ts).
   | 'INVALID_CODE'
-  | 'TOO_MANY_ATTEMPTS';
+  | 'TOO_MANY_ATTEMPTS'
+  | 'EMAIL_NOT_VERIFIED';
 
 /** Default HTTP status for each error code. */
 const STATUS: Record<ErrorCode, number> = {
@@ -66,6 +67,7 @@ const STATUS: Record<ErrorCode, number> = {
   INTERNAL: 500,
   INVALID_CODE: 400,
   TOO_MANY_ATTEMPTS: 429,
+  EMAIL_NOT_VERIFIED: 403,
 };
 
 /**
