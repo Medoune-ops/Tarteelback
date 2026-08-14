@@ -1,4 +1,3 @@
-import { env } from '../../config/env.js';
 import { adminConfigRepository } from './adminConfig.repository.js';
 import type { UpdateConfigBody } from './adminConfig.schemas.js';
 
@@ -31,10 +30,9 @@ function serializePricing(row: ConfigRow) {
 function serializePublic(row: ConfigRow) {
   return {
     paymentsEnabled: row.paymentsEnabled,
-    // Réglage serveur (variable d'env), pas en base — l'app le lit ici pour
-    // savoir si elle doit afficher l'écran de vérification par code après
-    // l'inscription. `false` par défaut : invisible tant que non activé.
-    emailVerificationEnabled: env.EMAIL_VERIFICATION_ENABLED,
+    // Interrupteur back-office (AppConfig) — l'app le lit ici pour savoir si
+    // elle doit afficher l'écran de vérification par code après l'inscription.
+    emailVerificationEnabled: row.emailVerificationEnabled,
     pricing: serializePricing(row),
     updatedAt: row.updatedAt,
   };
@@ -45,6 +43,7 @@ function serializeAdmin(row: ConfigRow) {
   return {
     paymentsEnabled: row.paymentsEnabled,
     globalPremiumPromoActive: row.globalPremiumPromoActive,
+    emailVerificationEnabled: row.emailVerificationEnabled,
     pricing: serializePricing(row),
     updatedAt: row.updatedAt,
   };
@@ -70,4 +69,10 @@ export const adminConfigService = {
 /** Lecture interne (billing/gem services) — pas de sérialisation HTTP. */
 export async function getPricingConfig() {
   return adminConfigRepository.get();
+}
+
+/** Lecture interne (auth.service.ts) — interrupteur back-office, jamais mis en cache. */
+export async function isEmailVerificationEnabled(): Promise<boolean> {
+  const row = await adminConfigRepository.get();
+  return row.emailVerificationEnabled;
 }

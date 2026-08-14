@@ -77,14 +77,10 @@ const EnvSchema = z.object({
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 
   // Vérification d'email par code à 4 chiffres, envoyée à l'inscription.
-  // OFF par défaut (feature construite mais pas encore activée en prod — voir
-  // auth.service.ts). Les comptes existants ne sont jamais bloqués rétro-
-  // activement (User.emailVerified défaut à `true`) quand ce flag passe à true.
-  EMAIL_VERIFICATION_ENABLED: z
-    .string()
-    .trim()
-    .default('false')
-    .transform((v) => v === 'true' || v === '1'),
+  // L'interrupteur ON/OFF est désormais un switch back-office (AppConfig.
+  // emailVerificationEnabled, voir adminConfig.service.ts) modifiable sans
+  // redéploiement — ces deux réglages restent des variables d'env (pas
+  // besoin d'être modifiables à chaud).
   EMAIL_VERIFICATION_CODE_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   EMAIL_VERIFICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
 

@@ -12,6 +12,10 @@ export const updateConfigBodySchema = z.object({
   // désactivation, SANS jamais toucher aux abonnés ayant réellement payé.
   globalPremiumPromoActive: z.boolean().optional(),
 
+  // Vérification d'email à l'inscription — voir adminConfig.service.ts pour
+  // le comportement ON/OFF. Ne touche jamais les comptes déjà créés.
+  emailVerificationEnabled: z.boolean().optional(),
+
   // Tarification — toute valeur omise reste inchangée (upsert partiel).
   premiumMonthlyPriceEur: priceEur.optional(),
   premiumYearlyPriceEur: priceEur.optional(),

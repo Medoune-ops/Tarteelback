@@ -60,10 +60,11 @@ export default fp(async (app) => {
         );
       }
       req.auth = claims;
-      // Tokens issued right after register carry ev:false — block the rest of
-      // the app until POST /auth/verify-email. Legacy tokens (no `ev`) keep
-      // working so existing verified accounts are never locked out.
-      if (env.EMAIL_VERIFICATION_ENABLED && claims.ev === false) {
+      // Defence in depth: the auth service never actually issues a token with
+      // ev:false (register withholds tokens until verified), but a token that
+      // somehow carries it is rejected regardless of the current back-office
+      // switch state. Legacy tokens (no `ev`) keep working unaffected.
+      if (claims.ev === false) {
         throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
       }
     },

@@ -142,10 +142,10 @@ model User {
   email          String  @unique
   passwordHash   String? // null when the account is OAuth-only
   displayName    String
-  // Vérification d'email par code à 4 chiffres — feature flag EMAIL_VERIFICATION_ENABLED
-  // (désactivée par défaut, voir auth.service.ts). Défaut `true` : les comptes
-  // créés AVANT l'activation du flag (ou pendant qu'il est désactivé) ne sont
-  // jamais bloqués rétroactivement quand la fonctionnalité sera activée plus tard.
+  // Vérification d'email par code à 4 chiffres — pilotée par le switch
+  // back-office AppConfig.emailVerificationEnabled (voir auth.service.ts).
+  // Défaut `true` : les comptes créés pendant que le switch est désactivé ne
+  // sont jamais bloqués rétroactivement si le switch est activé plus tard.
   emailVerified  Boolean @default(true)
   verificationCodes EmailVerificationCode[]
   // Pseudo public (ligues, classements) — le nom complet reste privé au
@@ -914,6 +914,15 @@ model AppConfig {
   // en base. À la désactivation, chacun retombe instantanément sur son vrai
   // statut (un abonné payant reste premium, les autres non). Voir core/premium.ts.
   globalPremiumPromoActive Boolean @default(false)
+
+  // Interrupteur back-office pour la vérification d'email à l'inscription.
+  // OFF (défaut) : comportement d'avant la fonctionnalité, compte créé et
+  // utilisable immédiatement. ON : un code à 4 chiffres est envoyé, le compte
+  // reste sans session tant qu'il n'est pas confirmé (voir auth.service.ts).
+  // L'état lu à l'inscription est figé sur le compte (User.emailVerified et,
+  // si ON, le claim `ev` du token) — changer ce switch plus tard n'affecte
+  // JAMAIS rétroactivement les comptes déjà créés, dans un sens ou l'autre.
+  emailVerificationEnabled Boolean @default(false)
 
   // ─── Tarification (back-office → Monétisation) ────────────────────────────
   // Source de vérité pour TOUT prix modifiable depuis le back-office. Chaque

@@ -11,6 +11,7 @@ import {
 } from '../../core/tokens.js';
 import { env } from '../../config/env.js';
 import { sendMail, passwordResetEmail, emailVerificationEmail } from '../../core/mailer.js';
+import { isEmailVerificationEnabled } from '../adminConfig/adminConfig.service.js';
 import type { AccessClaims } from '../../plugins/auth.js';
 import { authRepository } from './auth.repository.js';
 import type {
@@ -50,11 +51,11 @@ export interface VerifyEmailResult {
 }
 
 /** Build access-token claims for a user (includes ev when verification is on). */
-function accessClaimsFor(user: User): AccessClaims {
+function accessClaimsFor(user: User, emailVerificationEnabled: boolean): AccessClaims {
   return {
     sub: user.id,
     role: user.role,
-    ...(env.EMAIL_VERIFICATION_ENABLED ? { ev: user.emailVerified } : {}),
+    ...(emailVerificationEnabled ? { ev: user.emailVerified } : {}),
   };
 }
 
@@ -63,8 +64,9 @@ async function issueTokens(
   user: User,
   deviceId: string,
   sign: AccessSigner,
+  emailVerificationEnabled: boolean,
 ): Promise<AuthTokens> {
-  const accessToken = sign(accessClaimsFor(user));
+  const accessToken = sign(accessClaimsFor(user, emailVerificationEnabled));
   const refreshToken = generateRefreshToken();
   const expiresAt = refreshExpiry();
   await authRepository.createRefreshToken({
@@ -101,6 +103,11 @@ export const authService = {
     const existing = await authRepository.findUserByEmail(input.email);
     if (existing) throw new AppError('EMAIL_TAKEN', 'Email already registered');
 
+    // État lu UNE fois, au moment de l'inscription, et figé sur le compte —
+    // un changement du switch back-office après coup n'affecte jamais un
+    // compte déjà créé (ni pour le bloquer, ni pour le débloquer).
+    const emailVerificationEnabled = await isEmailVerificationEnabled();
+
     let user: User;
     try {
       user = await authRepository.createUser({
@@ -112,9 +119,8 @@ export const authService = {
         timezone: input.timezone ?? 'UTC',
         language: input.language ?? 'en',
         // Flag OFF (défaut) : compte considéré vérifié dès la création, comme
-        // avant l'introduction de cette fonctionnalité (aucun changement de
-        // comportement tant que EMAIL_VERIFICATION_ENABLED reste désactivé).
-        emailVerified: !env.EMAIL_VERIFICATION_ENABLED,
+        // avant l'introduction de cette fonctionnalité.
+        emailVerified: !emailVerificationEnabled,
       });
     } catch (e) {
       // Unicité du pseudo (P2002 sur username) → erreur dédiée que le front
@@ -126,7 +132,7 @@ export const authService = {
     }
 
     let verificationEmailSent: boolean | undefined;
-    if (env.EMAIL_VERIFICATION_ENABLED) {
+    if (emailVerificationEnabled) {
       // Best-effort : un email qui échoue à partir (provider down / MAIL_FROM
       // sandbox Resend) ne doit jamais empêcher la création du compte — le
       // front lit `verificationEmailSent` et peut proposer /auth/verify-email/resend.
@@ -140,7 +146,7 @@ export const authService = {
       }
     }
 
-    if (env.EMAIL_VERIFICATION_ENABLED) {
+    if (emailVerificationEnabled) {
       // Pas de session tant que l'email n'est pas vérifié : aucun token émis
       // ici. Les tokens arrivent uniquement depuis POST /auth/verify-email une
       // fois le code confirmé. Cela élimine tout vecteur d'accès à l'app avant
@@ -148,7 +154,7 @@ export const authService = {
       return { user, verificationEmailSent };
     }
 
-    const tokens = await issueTokens(user, input.deviceId, sign);
+    const tokens = await issueTokens(user, input.deviceId, sign, emailVerificationEnabled);
     return { user, tokens, verificationEmailSent };
   },
 
@@ -193,7 +199,9 @@ export const authService = {
       return { user };
     }
 
-    const tokens = await issueTokens(user, deviceId, sign);
+    // Ce compte est passé par la vérification (on est dans ce handler) : le
+    // token doit porter ev:true, peu importe l'état courant du switch.
+    const tokens = await issueTokens(user, deviceId, sign, true);
     return { user, tokens };
   },
 
@@ -220,14 +228,14 @@ export const authService = {
     if (!ok) throw new AppError('INVALID_CREDENTIALS', 'Invalid email or password');
     if (user.bannedAt) throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
 
-    // Nouveaux comptes non vérifiés : pas d'accès à l'app tant que le code
-    // n'est pas saisi. Les comptes existants (emailVerified=true par défaut)
-    // passent sans changement.
-    if (env.EMAIL_VERIFICATION_ENABLED && !user.emailVerified) {
+    // emailVerified est figé à l'inscription (voir register()) : un compte
+    // resté non vérifié reste bloqué même si le switch back-office est
+    // désactivé depuis. Les comptes créés flag OFF ont emailVerified=true.
+    if (!user.emailVerified) {
       throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
     }
 
-    const tokens = await issueTokens(user, input.deviceId, sign);
+    const tokens = await issueTokens(user, input.deviceId, sign, true);
     return { user, tokens };
   },
 
@@ -254,13 +262,13 @@ export const authService = {
       await authRepository.revokeAll(user.id, new Date());
       throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
     }
-    if (env.EMAIL_VERIFICATION_ENABLED && !user.emailVerified) {
+    if (!user.emailVerified) {
       throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
     }
 
     // Rotation: invalidate the old token, mint a new pair.
     await authRepository.revokeRefreshToken(record.id, new Date());
-    const tokens = await issueTokens(user, input.deviceId, sign);
+    const tokens = await issueTokens(user, input.deviceId, sign, true);
     return { user, tokens };
   },
 
