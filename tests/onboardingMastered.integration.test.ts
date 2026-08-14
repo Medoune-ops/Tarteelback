@@ -142,13 +142,13 @@ async function makeRealTeachingOrder() {
   return { alphabetLesson, anNasLesson, alFalaqLesson, numeroA };
 }
 
-d('onboarding: declaring a surah mastered also completes everything BEFORE it (integration)', () => {
+d('onboarding: declaring a surah mastered only completes that surah, nothing else (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(); });
 
-  it('cocher An-Nas (apprise en premier dans le parcours) marque aussi acquis l\'alphabet, sans toucher à Al-Falaq (qui suit)', async () => {
+  it('cocher An-Nas (apprise en premier dans le parcours) ne marque acquis QUE An-Nas — ni l\'alphabet, ni Al-Falaq', async () => {
     const u = await registerUser(app);
     const { alphabetLesson, anNasLesson, alFalaqLesson, numeroA } = await makeRealTeachingOrder();
 
@@ -162,19 +162,12 @@ d('onboarding: declaring a surah mastered also completes everything BEFORE it (i
     const progress = await prisma.lessonProgress.findMany({ where: { userId: u.userId } });
     const doneIds = new Set(progress.filter((p) => p.etat === 'completed').map((p) => p.lessonId));
 
-    // Alphabet ET An-Nas (la sourate cochée elle-même) sont acquis...
-    expect(doneIds.has(alphabetLesson.id)).toBe(true);
+    // Seule An-Nas (la sourate explicitement cochée) est acquise.
     expect(doneIds.has(anNasLesson.id)).toBe(true);
-    // ...mais PAS Al-Falaq, qui vient APRÈS dans le parcours — elle doit
-    // rester la prochaine leçon à apprendre, pas être sautée.
-    //
-    // Pas de vérification via GET /sections ici : ce endpoint renvoie TOUTES
-    // les sections de la base (contentRepository.listSections()), y compris
-    // celles créées par d'autres fichiers de test tournant en parallèle sur
-    // la même base partagée — la section "active" calculée
-    // (content.serializer.ts#firstUnfinished) peut donc être décalée par du
-    // contenu hors du contrôle de ce test. La preuve fiable est directement
-    // sur LessonProgress, indépendante du reste de la base.
+    // L'alphabet n'est PAS auto-marqué acquis via une sourate cochée — seul
+    // le niveau "sait déjà lire" (level !== 'debutant') le fait.
+    expect(doneIds.has(alphabetLesson.id)).toBe(false);
+    // Al-Falaq, non cochée, ne doit pas non plus être acquise.
     expect(doneIds.has(alFalaqLesson.id)).toBe(false);
   });
 });
