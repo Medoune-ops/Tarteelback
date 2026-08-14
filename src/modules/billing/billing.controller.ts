@@ -15,6 +15,11 @@ export const billingController = {
     return reply.send(result);
   },
 
+  async cancelSubscription(req: FastifyRequest, reply: FastifyReply) {
+    const result = await billingService.cancelSubscription(req.auth!.sub);
+    return reply.send(result);
+  },
+
   async getTransaction(req: FastifyRequest, reply: FastifyReply) {
     const { reference } = req.params as { reference: string };
     const result = await billingService.getTransaction(req.auth!.sub, reference);
