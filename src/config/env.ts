@@ -99,6 +99,10 @@ const EnvSchema = z.object({
     .transform((v) => (v ? v : undefined)),
   ASR_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 
+  // Fichiers audio transcodés pour l'écoute hors-ligne (mode Tajwid — voir
+  // prisma/transcodeSudais.ts et src/modules/audio/). Pas un secret.
+  AUDIO_STORAGE_DIR: z.string().trim().default('/app/storage/audio'),
+
   PREMIUM_PRICE_MONTHLY: z.coerce.number().default(1.52),
   PREMIUM_PRICE_YEARLY: z.coerce.number().default(15.24),
   // Plan familial (jusqu'à 5 comptes premium sous un même foyer).

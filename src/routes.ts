@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { meRoutes } from './modules/me/me.routes.js';
 import { contentRoutes } from './modules/content/content.routes.js';
+import { audioRoutes } from './modules/audio/audio.routes.js';
 import { adminRoutes } from './modules/content/admin.routes.js';
 import { lessonRoutes, lessonFlatRoutes } from './modules/lessons/lesson.routes.js';
 import { leagueRoutes } from './modules/leagues/league.routes.js';
@@ -33,6 +34,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(authRoutes, { prefix: '/auth' });
   await app.register(meRoutes, { prefix: '/me' });
   await app.register(contentRoutes); // /sections, /sourates, /lessons (GET)
+  // Fichiers audio transcodés (mode Tajwid hors-ligne) — voir prisma/transcodeSudais.ts.
+  await app.register(audioRoutes, { prefix: '/audio' });
   // Pages publiques CGU / politique de confidentialité (FR + EN).
   await app.register(legalRoutes, { prefix: '/legal' });
   // Réglages produit globaux (lecture publique, pas d'auth) — l'app les lit
