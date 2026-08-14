@@ -35,9 +35,10 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# openssl requis à l'exécution par les moteurs Prisma.
+# openssl requis à l'exécution par les moteurs Prisma. ffmpeg requis par
+# prisma/transcodeSudais.ts (transcodage audio one-off, voir ce script).
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # node_modules du build = client Prisma généré + moteurs + argon2 compilé + CLI
