@@ -18,8 +18,8 @@ export interface LearnedSourate {
  * lesson of the section it happens to be linked to via SectionSourate. A
  * section can bundle several surahs together (e.g. a hizb section spans
  * multiple short surahs) and onboarding's "already memorised" skip
- * (onboardingStart.ts#applyOnboardingStart) only completes the lessons of the
- * declared surah, not the whole section — checking the whole section used to
+ * (onboardingStart.ts#applyOnboardingStart) only completes the lessons of
+ * the declared surah(s), nothing else — checking the whole section used to
  * hide those surahs from the badge list, the SRS list, and stats forever.
  *
  * Fallback: a surah with zero `sourateNumero`-tagged lessons (no dedicated
