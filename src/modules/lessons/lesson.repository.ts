@@ -20,15 +20,11 @@ export const lessonRepository = {
   },
 
   /**
-   * True s'il existe, avant `lessonId` dans l'ordre global du parcours
-   * (Section.ordre puis Lesson.ordre — même tri que content.serializer.ts),
-   * une leçon que l'utilisateur n'a pas encore complétée. Sert de garde-fou
-   * pour `complete()` : sans ça, n'importe quel lessonId valide peut être
-   * marqué completed en sautant des leçons, désynchronisant l'état
-   * locked/active/completed affiché par GET /sections (voir incident où des
-   * leçons plus loin étaient completed sans que les précédentes le soient).
+   * Leçons qui précèdent `lessonId` dans l'ordre global du parcours
+   * (Section.ordre puis Lesson.ordre — même tri que content.serializer.ts)
+   * et que l'utilisateur n'a pas encore complétées.
    */
-  async hasIncompletePriorLesson(userId: string, sectionOrdre: number, lessonOrdre: number): Promise<boolean> {
+  async getIncompletePriorLessons(userId: string, sectionOrdre: number, lessonOrdre: number) {
     const priorLessons = await prisma.lesson.findMany({
       where: {
         OR: [
@@ -38,16 +34,37 @@ export const lessonRepository = {
       },
       select: { id: true },
     });
-    if (priorLessons.length === 0) return false;
+    if (priorLessons.length === 0) return [];
 
-    const completedCount = await prisma.lessonProgress.count({
+    const completed = await prisma.lessonProgress.findMany({
       where: {
         userId,
         etat: 'completed',
         lessonId: { in: priorLessons.map((l) => l.id) },
       },
+      select: { lessonId: true },
     });
-    return completedCount < priorLessons.length;
+    const done = new Set(completed.map((c) => c.lessonId));
+    return priorLessons.filter((l) => !done.has(l.id));
+  },
+
+  /**
+   * Prochaine leçon après `lessonId` dans l'ordre global du parcours
+   * (Section.ordre puis Lesson.ordre), ou null si `lessonId` est la dernière.
+   * Alimente `nextLessonId` dans la réponse de complétion pour que le front
+   * puisse enchaîner directement sans re-fetch de /sections.
+   */
+  async getNextLesson(sectionOrdre: number, lessonOrdre: number) {
+    return prisma.lesson.findFirst({
+      where: {
+        OR: [
+          { section: { ordre: { gt: sectionOrdre } } },
+          { section: { ordre: sectionOrdre }, ordre: { gt: lessonOrdre } },
+        ],
+      },
+      select: { id: true },
+      orderBy: [{ section: { ordre: 'asc' } }, { ordre: 'asc' }],
+    });
   },
 
   /**

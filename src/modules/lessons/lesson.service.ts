@@ -201,17 +201,29 @@ export const lessonService = {
     const lesson = await lessonRepository.getLessonWithSteps(lessonId);
     if (!lesson) throw new AppError('NOT_FOUND', 'Lesson not found');
 
-    // Garde-fou d'ordre : refuse de compléter une leçon si une leçon
-    // antérieure dans le parcours n'est pas déjà completed — sans ça,
-    // n'importe quel lessonId valide peut être marqué completed en sautant
-    // des leçons, désynchronisant l'état locked/active/completed affiché.
+    // Complétion en rattrapage : si des leçons antérieures dans le parcours
+    // ne sont pas encore completed (navigation directe, id périmé côté
+    // front…), on les marque completed aussi — sans crédit XP/gemmes/streak
+    // (seule la leçon explicitement complétée par l'utilisateur en garde le
+    // bénéfice). Sans ça, une sourate restait bloquée "non apprise" pour de
+    // bon dès qu'une seule leçon manquait (getLearnedSourates exige TOUTES
+    // les leçons de la sourate completed).
     const alreadyDone = await lessonRepository.getProgress(userId, lessonId);
     if (alreadyDone?.etat !== 'completed') {
-      const blocked = await lessonRepository.hasIncompletePriorLesson(userId, lesson.section.ordre, lesson.ordre);
-      if (blocked) {
-        throw new AppError('LESSON_LOCKED', 'Complete the previous lessons first');
+      const priorLessons = await lessonRepository.getIncompletePriorLessons(
+        userId,
+        lesson.section.ordre,
+        lesson.ordre,
+      );
+      for (const prior of priorLessons) {
+        await lessonRepository.upsertProgress(userId, prior.id, {
+          etat: 'completed',
+          completedAt: now,
+        });
       }
     }
+
+    const nextLesson = await lessonRepository.getNextLesson(lesson.section.ordre, lesson.ordre);
 
     // Number of server-judged test steps — matching is client-only, ordering counts.
     const testStepCount = lesson.steps.filter((s) => s.type !== 'discovery' && s.type !== 'matching').length;
@@ -338,6 +350,7 @@ export const lessonService = {
       streakFrozen: result.u.streakFrozen,
       premium: result.premium,
       doubleXpWasActive: result.doubleXp,
+      nextLessonId: nextLesson?.id ?? null,
     };
   },
 
@@ -358,6 +371,7 @@ export const lessonService = {
       ...serializeUserFlat(user, stats, now),
       xpGained: result.xpGained,
       doubleXpWasActive: result.doubleXpWasActive,
+      nextLessonId: result.nextLessonId,
     };
   },
 };
