@@ -151,7 +151,9 @@ model User {
   // Pseudo public (ligues, classements) — le nom complet reste privé au
   // profil. Optionnel pour les comptes créés avant son introduction :
   // l'affichage retombe alors sur displayName. Stocké en minuscules.
-  username       String? @unique
+  // Pas unique (contrairement à l'email) : plusieurs comptes peuvent
+  // partager le même pseudo.
+  username       String?
   avatarInitials String  @default("")
   role           Role    @default(user)
 

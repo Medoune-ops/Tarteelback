@@ -108,28 +108,18 @@ export const authService = {
     // compte déjà créé (ni pour le bloquer, ni pour le débloquer).
     const emailVerificationEnabled = await isEmailVerificationEnabled();
 
-    let user: User;
-    try {
-      user = await authRepository.createUser({
-        email: input.email,
-        passwordHash: await hashPassword(input.password),
-        displayName: input.displayName,
-        username: input.username ?? null,
-        avatarInitials: initialsFrom(input.displayName),
-        timezone: input.timezone ?? 'UTC',
-        language: input.language ?? 'en',
-        // Flag OFF (défaut) : compte considéré vérifié dès la création, comme
-        // avant l'introduction de cette fonctionnalité.
-        emailVerified: !emailVerificationEnabled,
-      });
-    } catch (e) {
-      // Unicité du pseudo (P2002 sur username) → erreur dédiée que le front
-      // affiche sous le bon champ (l'email est déjà vérifié au-dessus).
-      if ((e as { code?: string }).code === 'P2002') {
-        throw new AppError('USERNAME_TAKEN', 'Username already taken');
-      }
-      throw e;
-    }
+    const user = await authRepository.createUser({
+      email: input.email,
+      passwordHash: await hashPassword(input.password),
+      displayName: input.displayName,
+      username: input.username ?? null,
+      avatarInitials: initialsFrom(input.displayName),
+      timezone: input.timezone ?? 'UTC',
+      language: input.language ?? 'en',
+      // Flag OFF (défaut) : compte considéré vérifié dès la création, comme
+      // avant l'introduction de cette fonctionnalité.
+      emailVerified: !emailVerificationEnabled,
+    });
 
     let verificationEmailSent: boolean | undefined;
     if (emailVerificationEnabled) {

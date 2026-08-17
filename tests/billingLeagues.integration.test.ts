@@ -184,13 +184,13 @@ d('leagues ranking (integration)', () => {
     const mine = [...body.podium, ...body.around].find((m: { me: boolean }) => m.me);
     expect(mine.name).toBe('medoune_s');
 
-    // Uniqueness: the same username cannot be registered twice.
+    // Usernames are not unique (unlike email): the same pseudo can be reused.
     const dup = await app.inject({
       method: 'POST', url: '/auth/register',
       payload: { email: 'dup-username@test.app', password: 'password123', displayName: 'X', username: 'medoune_s', deviceId: 'd' },
     });
-    expect(dup.statusCode).toBe(409);
-    expect(dup.json().error.code).toBe('USERNAME_TAKEN');
+    expect(dup.statusCode).toBe(201);
+    expect(dup.json().user.username).toBe('medoune_s');
   });
 
   it('lesson XP flows into the league weekly ranking', async () => {
