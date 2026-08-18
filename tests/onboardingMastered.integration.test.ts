@@ -139,7 +139,21 @@ async function makeRealTeachingOrder() {
     data: { sectionId: sectionAlFalaq.id, ordre: 1, titre: 'Al-Falaq 1-5', sourateNumero: numeroB },
   });
 
-  return { alphabetLesson, anNasLesson, alFalaqLesson, numeroA, numeroB };
+  // Reprise TARDIVE d'An-Nas, tout à la fin du parcours — le contenu réel fait
+  // ça pour Al-Fatiha (enseignée en section 1, reprise en section 47). Le
+  // rattrapage doit se repérer sur la PREMIÈRE occurrence d'une sourate, pas
+  // la dernière, sinon cocher An-Nas marquerait tout le Coran.
+  const sectionReprise = await prisma.section.create({
+    data: {
+      ordre: base + 3, hizb: 60, kicker: 'T', titre: 'Reprise', sousTitre: '', couleur: '#000',
+      degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x',
+    },
+  });
+  const repriseAnNasLesson = await prisma.lesson.create({
+    data: { sectionId: sectionReprise.id, ordre: 1, titre: 'An-Nas (reprise)', sourateNumero: numeroA },
+  });
+
+  return { alphabetLesson, anNasLesson, alFalaqLesson, repriseAnNasLesson, numeroA, numeroB };
 }
 
 d('onboarding: declaring a surah mastered completes everything up to it (integration)', () => {
@@ -188,5 +202,26 @@ d('onboarding: declaring a surah mastered completes everything up to it (integra
     expect(doneIds.has(anNasLesson.id)).toBe(true);
     // Al-Falaq vient après : c'est la prochaine leçon à faire, pas une acquise.
     expect(doneIds.has(alFalaqLesson.id)).toBe(false);
+  });
+
+  it('une sourate reprise plus loin dans le parcours ne fait pas tout marquer (repère = 1ʳᵉ occurrence)', async () => {
+    const u = await registerUser(app);
+    const { anNasLesson, alFalaqLesson, repriseAnNasLesson, numeroA } = await makeRealTeachingOrder();
+
+    // An-Nas est enseignée tôt PUIS reprise tout à la fin. Se repérer sur la
+    // dernière occurrence marquait l'intégralité du parcours.
+    await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(u.accessToken),
+      payload: { onboardingDone: true, sourates: [numeroA] },
+    });
+
+    const progress = await prisma.lessonProgress.findMany({ where: { userId: u.userId } });
+    const doneIds = new Set(progress.filter((p) => p.etat === 'completed').map((p) => p.lessonId));
+
+    expect(doneIds.has(anNasLesson.id)).toBe(true);
+    // Tout ce qui suit la 1ʳᵉ occurrence reste à faire, reprise tardive comprise.
+    expect(doneIds.has(alFalaqLesson.id)).toBe(false);
+    expect(doneIds.has(repriseAnNasLesson.id)).toBe(false);
   });
 });
