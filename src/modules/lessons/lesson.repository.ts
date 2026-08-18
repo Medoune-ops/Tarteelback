@@ -22,7 +22,10 @@ export const lessonRepository = {
   /**
    * Leçons qui précèdent `lessonId` dans l'ordre global du parcours
    * (Section.ordre puis Lesson.ordre — même tri que content.serializer.ts)
-   * et que l'utilisateur n'a pas encore complétées.
+   * et que l'utilisateur n'a pas encore complétées. Sert de garde-fou à
+   * `complete()` : sans ça, n'importe quel lessonId valide peut être marqué
+   * completed en sautant des leçons, désynchronisant l'état
+   * locked/active/completed affiché par GET /sections.
    */
   async getIncompletePriorLessons(userId: string, sectionOrdre: number, lessonOrdre: number) {
     const priorLessons = await prisma.lesson.findMany({

@@ -139,35 +139,54 @@ async function makeRealTeachingOrder() {
     data: { sectionId: sectionAlFalaq.id, ordre: 1, titre: 'Al-Falaq 1-5', sourateNumero: numeroB },
   });
 
-  return { alphabetLesson, anNasLesson, alFalaqLesson, numeroA };
+  return { alphabetLesson, anNasLesson, alFalaqLesson, numeroA, numeroB };
 }
 
-d('onboarding: declaring a surah mastered only completes that surah, nothing else (integration)', () => {
+d('onboarding: declaring a surah mastered completes everything up to it (integration)', () => {
   let app: FastifyInstance;
   beforeAll(async () => { app = await makeApp(); });
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(); });
 
-  it('cocher An-Nas (apprise en premier dans le parcours) ne marque acquis QUE An-Nas — ni l\'alphabet, ni Al-Falaq', async () => {
+  it('cocher une sourate marque acquis tout le parcours jusqu\'à elle (alphabet inclus), mais rien après', async () => {
     const u = await registerUser(app);
-    const { alphabetLesson, anNasLesson, alFalaqLesson, numeroA } = await makeRealTeachingOrder();
+    const { alphabetLesson, anNasLesson, alFalaqLesson, numeroB } = await makeRealTeachingOrder();
 
+    // Al-Falaq est enseignée APRÈS l'alphabet et An-Nas dans le parcours.
     const res = await app.inject({
       method: 'PATCH', url: '/me',
       headers: authHeader(u.accessToken),
-      payload: { onboardingDone: true, sourates: [numeroA] },
+      payload: { onboardingDone: true, sourates: [numeroB] },
     });
     expect(res.statusCode).toBe(200);
 
     const progress = await prisma.lessonProgress.findMany({ where: { userId: u.userId } });
     const doneIds = new Set(progress.filter((p) => p.etat === 'completed').map((p) => p.lessonId));
 
-    // Seule An-Nas (la sourate explicitement cochée) est acquise.
+    // Tout ce qui mène jusqu'à Al-Falaq est acquis : connaître une sourate
+    // implique de maîtriser ce qui la précède pédagogiquement.
+    expect(doneIds.has(alphabetLesson.id)).toBe(true);
     expect(doneIds.has(anNasLesson.id)).toBe(true);
-    // L'alphabet n'est PAS auto-marqué acquis via une sourate cochée — seul
-    // le niveau "sait déjà lire" (level !== 'debutant') le fait.
-    expect(doneIds.has(alphabetLesson.id)).toBe(false);
-    // Al-Falaq, non cochée, ne doit pas non plus être acquise.
+    expect(doneIds.has(alFalaqLesson.id)).toBe(true);
+  });
+
+  it('ne marque rien au-delà de la sourate cochée : la reprise se fait à la leçon suivante', async () => {
+    const u = await registerUser(app);
+    const { alphabetLesson, anNasLesson, alFalaqLesson, numeroA } = await makeRealTeachingOrder();
+
+    // An-Nas est enseignée AVANT Al-Falaq.
+    await app.inject({
+      method: 'PATCH', url: '/me',
+      headers: authHeader(u.accessToken),
+      payload: { onboardingDone: true, sourates: [numeroA] },
+    });
+
+    const progress = await prisma.lessonProgress.findMany({ where: { userId: u.userId } });
+    const doneIds = new Set(progress.filter((p) => p.etat === 'completed').map((p) => p.lessonId));
+
+    expect(doneIds.has(alphabetLesson.id)).toBe(true);
+    expect(doneIds.has(anNasLesson.id)).toBe(true);
+    // Al-Falaq vient après : c'est la prochaine leçon à faire, pas une acquise.
     expect(doneIds.has(alFalaqLesson.id)).toBe(false);
   });
 });

@@ -12,11 +12,13 @@ import { prisma } from '../../config/prisma.js';
  * Deux sources de skip :
  *   - Sait déjà lire (level ≠ debutant) → toute la section Alphabet (hizb null),
  *     Al-Fatiha incluse.
- *   - Sourates déjà mémorisées → UNIQUEMENT les leçons de CES sourates-là
- *     (Lesson.sourateNumero), rien d'autre. On ne remonte plus le parcours
- *     avant elles : une sourate enseignée tôt dans le parcours (ex. An-Nas,
- *     dernière sourate du Coran mais apprise en PREMIER) ne doit marquer
- *     acquis qu'elle-même, pas tout ce qui la précède pédagogiquement.
+ *   - Sourates déjà mémorisées → TOUT le parcours jusqu'à la plus avancée
+ *     d'entre elles (incluse), dans l'ordre PÉDAGOGIQUE (Section.ordre puis
+ *     Lesson.ordre), pas l'ordre du Mushaf. Cocher Al-Masad (111, enseignée
+ *     tard) marque donc acquis l'alphabet, les signes, Al-Fatiha, An-Nas,
+ *     Al-Falaq, Al-Ikhlas… et la reprise se fait à la leçon suivante
+ *     (An-Nasr). Cocher une sourate qu'on connaît implique qu'on maîtrise
+ *     ce qui mène jusqu'à elle.
  *
  * Idempotent (skipDuplicates). Aucun XP / streak crédité : ces leçons sont
  * marquées acquises, pas « jouées ».
@@ -33,10 +35,24 @@ export async function applyOnboardingStart(
     or.push({ section: { hizb: null } });
   }
 
-  // Sourates mémorisées → uniquement les leçons propres à ces sourates.
+  // Sourates mémorisées → tout le parcours jusqu'à la plus avancée d'entre
+  // elles. On cherche sa DERNIÈRE leçon dans l'ordre pédagogique, et on prend
+  // tout ce qui vient avant (+ elle-même).
   const uniq = [...new Set(sourateNumeros)].filter((n) => Number.isInteger(n) && n >= 1 && n <= 114);
   if (uniq.length > 0) {
-    or.push({ sourateNumero: { in: uniq } });
+    const furthest = await prisma.lesson.findFirst({
+      where: { sourateNumero: { in: uniq } },
+      orderBy: [{ section: { ordre: 'desc' } }, { ordre: 'desc' }],
+      select: { ordre: true, section: { select: { ordre: true } } },
+    });
+    if (furthest) {
+      or.push({
+        OR: [
+          { section: { ordre: { lt: furthest.section.ordre } } },
+          { section: { ordre: furthest.section.ordre }, ordre: { lte: furthest.ordre } },
+        ],
+      });
+    }
   }
 
   if (or.length === 0) return 0;

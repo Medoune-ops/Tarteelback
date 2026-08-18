@@ -201,13 +201,10 @@ export const lessonService = {
     const lesson = await lessonRepository.getLessonWithSteps(lessonId);
     if (!lesson) throw new AppError('NOT_FOUND', 'Lesson not found');
 
-    // Complétion en rattrapage : si des leçons antérieures dans le parcours
-    // ne sont pas encore completed (navigation directe, id périmé côté
-    // front…), on les marque completed aussi — sans crédit XP/gemmes/streak
-    // (seule la leçon explicitement complétée par l'utilisateur en garde le
-    // bénéfice). Sans ça, une sourate restait bloquée "non apprise" pour de
-    // bon dès qu'une seule leçon manquait (getLearnedSourates exige TOUTES
-    // les leçons de la sourate completed).
+    // Garde-fou d'ordre : refuse de compléter une leçon si une leçon
+    // antérieure dans le parcours n'est pas déjà completed — sans ça,
+    // n'importe quel lessonId valide peut être marqué completed en sautant
+    // des leçons, désynchronisant l'état locked/active/completed affiché.
     const alreadyDone = await lessonRepository.getProgress(userId, lessonId);
     if (alreadyDone?.etat !== 'completed') {
       const priorLessons = await lessonRepository.getIncompletePriorLessons(
@@ -215,11 +212,8 @@ export const lessonService = {
         lesson.section.ordre,
         lesson.ordre,
       );
-      for (const prior of priorLessons) {
-        await lessonRepository.upsertProgress(userId, prior.id, {
-          etat: 'completed',
-          completedAt: now,
-        });
+      if (priorLessons.length > 0) {
+        throw new AppError('LESSON_LOCKED', 'Complete the previous lessons first');
       }
     }
 
