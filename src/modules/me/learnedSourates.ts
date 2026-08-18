@@ -9,6 +9,12 @@ export interface LearnedSourate {
   nombreVersets: number;
   hizb: number;
   revelation: string | null;
+  // Couleur de la section qui enseigne cette sourate (badge assorti à la
+  // section plutôt qu'une couleur fixe) — celle de sa leçon la plus ancienne
+  // (ordre le plus bas). null si la sourate n'a pas de leçon dédiée taguée
+  // (fallback whole-section ci-dessous).
+  couleur: string | null;
+  degrade: [string, string] | null;
 }
 
 /**
@@ -35,7 +41,12 @@ export async function getLearnedSourates(userId: string): Promise<LearnedSourate
     prisma.sourate.findMany(),
     prisma.lesson.findMany({
       where: { sourateNumero: { not: null } },
-      select: { id: true, sourateNumero: true },
+      select: {
+        id: true,
+        sourateNumero: true,
+        ordre: true,
+        section: { select: { ordre: true, couleur: true, degradeStart: true, degradeEnd: true } },
+      },
     }),
     prisma.sectionSourate.findMany({
       select: { sourateId: true, section: { select: { lessons: { select: { id: true } } } } },
@@ -48,10 +59,25 @@ export async function getLearnedSourates(userId: string): Promise<LearnedSourate
 
   const done = new Set(completed.map((c) => c.lessonId));
   const lessonsBySourateNumero = new Map<number, string[]>();
+  // Couleur de la leçon la plus ancienne (Section.ordre puis Lesson.ordre)
+  // taguée pour chaque sourate — c'est la section "d'origine" du badge.
+  const colorBySourateNumero = new Map<number, { couleur: string; degrade: [string, string] }>();
+  const colorRankBySourateNumero = new Map<number, [number, number]>();
   for (const l of taggedLessons) {
-    const arr = lessonsBySourateNumero.get(l.sourateNumero!) ?? [];
+    const num = l.sourateNumero!;
+    const arr = lessonsBySourateNumero.get(num) ?? [];
     arr.push(l.id);
-    lessonsBySourateNumero.set(l.sourateNumero!, arr);
+    lessonsBySourateNumero.set(num, arr);
+
+    const rank: [number, number] = [l.section.ordre, l.ordre];
+    const currentRank = colorRankBySourateNumero.get(num);
+    if (!currentRank || rank[0] < currentRank[0] || (rank[0] === currentRank[0] && rank[1] < currentRank[1])) {
+      colorRankBySourateNumero.set(num, rank);
+      colorBySourateNumero.set(num, {
+        couleur: l.section.couleur,
+        degrade: [l.section.degradeStart, l.section.degradeEnd],
+      });
+    }
   }
   const sectionLessonsBySourateId = new Map<string, string[]>();
   for (const link of sectionLinks) {
@@ -69,6 +95,7 @@ export async function getLearnedSourates(userId: string): Promise<LearnedSourate
     if (!ids || ids.length === 0) ids = sectionLessonsBySourateId.get(s.id);
     if (!ids || ids.length === 0) continue;
     if (!ids.every((id) => done.has(id))) continue;
+    const color = colorBySourateNumero.get(s.numero) ?? null;
     learned.push({
       id: s.id,
       numero: s.numero,
@@ -77,6 +104,8 @@ export async function getLearnedSourates(userId: string): Promise<LearnedSourate
       nombreVersets: s.nombreVersets,
       hizb: s.hizb,
       revelation: s.revelation,
+      couleur: color?.couleur ?? null,
+      degrade: color?.degrade ?? null,
     });
   }
 

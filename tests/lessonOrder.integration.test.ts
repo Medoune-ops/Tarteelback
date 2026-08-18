@@ -44,7 +44,7 @@ d('lesson order guard (integration)', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('rejects completing lesson 3 while lesson 2 is not completed yet', async () => {
+  it('completing lesson 3 while lesson 2 is not done yet catches up lesson 2 too', async () => {
     const u = await registerUser(app);
     const { lessons } = await makeSectionWithLessons(3);
 
@@ -57,14 +57,34 @@ d('lesson order guard (integration)', () => {
       method: 'POST', url: `/lessons/${lessons[2]!.id}/complete`,
       headers: authHeader(u.accessToken), payload: {},
     });
-    expect(skip.statusCode).toBe(403);
-    expect(skip.json().error.code).toBe('LESSON_LOCKED');
+    expect(skip.statusCode).toBe(200);
 
-    // Lesson 3 was NOT marked completed.
-    const progress = await prisma.lessonProgress.findUnique({
+    // Lesson 2 was caught up (marked completed) alongside lesson 3.
+    const progress2 = await prisma.lessonProgress.findUnique({
+      where: { userId_lessonId: { userId: u.userId, lessonId: lessons[1]!.id } },
+    });
+    expect(progress2?.etat).toBe('completed');
+    const progress3 = await prisma.lessonProgress.findUnique({
       where: { userId_lessonId: { userId: u.userId, lessonId: lessons[2]!.id } },
     });
-    expect(progress).toBeNull();
+    expect(progress3?.etat).toBe('completed');
+  });
+
+  it('returns nextLessonId pointing to the following lesson, and null on the last one', async () => {
+    const u = await registerUser(app);
+    const { lessons } = await makeSectionWithLessons(2);
+
+    const first = await app.inject({
+      method: 'POST', url: `/lessons/${lessons[0]!.id}/complete`,
+      headers: authHeader(u.accessToken), payload: {},
+    });
+    expect(first.json().nextLessonId).toBe(lessons[1]!.id);
+
+    const last = await app.inject({
+      method: 'POST', url: `/lessons/${lessons[1]!.id}/complete`,
+      headers: authHeader(u.accessToken), payload: {},
+    });
+    expect(last.json().nextLessonId).toBeNull();
   });
 
   it('allows completing lessons strictly in order', async () => {
@@ -97,12 +117,12 @@ d('lesson order guard (integration)', () => {
     expect(replay.json().xpGained).toBe(0); // anti-farm: no XP on replay
   });
 
-  it('requires the entire previous section to be completed before unlocking the next one', async () => {
+  it('jumping to the next section catches up every unfinished lesson of the previous one', async () => {
     const u = await registerUser(app);
     const { lessons: sectionALessons } = await makeSectionWithLessons(2, 100);
     const { lessons: sectionBLessons } = await makeSectionWithLessons(2, 101);
 
-    // Complete only the first lesson of section A, then try section B's first lesson.
+    // Complete only the first lesson of section A, then jump straight to section B.
     await app.inject({
       method: 'POST', url: `/lessons/${sectionALessons[0]!.id}/complete`,
       headers: authHeader(u.accessToken), payload: {},
@@ -111,17 +131,12 @@ d('lesson order guard (integration)', () => {
       method: 'POST', url: `/lessons/${sectionBLessons[0]!.id}/complete`,
       headers: authHeader(u.accessToken), payload: {},
     });
-    expect(jumpAhead.statusCode).toBe(403);
+    expect(jumpAhead.statusCode).toBe(200);
 
-    // Finish section A entirely -> section B's first lesson becomes allowed.
-    await app.inject({
-      method: 'POST', url: `/lessons/${sectionALessons[1]!.id}/complete`,
-      headers: authHeader(u.accessToken), payload: {},
+    // Section A's remaining lesson was caught up automatically.
+    const caughtUp = await prisma.lessonProgress.findUnique({
+      where: { userId_lessonId: { userId: u.userId, lessonId: sectionALessons[1]!.id } },
     });
-    const nowAllowed = await app.inject({
-      method: 'POST', url: `/lessons/${sectionBLessons[0]!.id}/complete`,
-      headers: authHeader(u.accessToken), payload: {},
-    });
-    expect(nowAllowed.statusCode).toBe(200);
+    expect(caughtUp?.etat).toBe('completed');
   });
 });
