@@ -117,15 +117,16 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().username).toBe('mon_pseudo');
 
-    // Un autre compte ne peut pas prendre le même pseudo.
+    // Le pseudo n'est pas unique (contrairement à l'email) : un autre compte
+    // peut prendre exactement le même.
     const other = await registerUser(app);
     const dup = await app.inject({
       method: 'PATCH', url: '/me',
       headers: authHeader(other.accessToken),
       payload: { username: 'mon_pseudo' },
     });
-    expect(dup.statusCode).toBe(409);
-    expect(dup.json().error.code).toBe('USERNAME_TAKEN');
+    expect(dup.statusCode).toBe(200);
+    expect(dup.json().username).toBe('mon_pseudo');
   });
 
   it('PATCH /me/settings rejects unknown keys (mass-assignment guard)', async () => {
