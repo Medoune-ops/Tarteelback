@@ -36,21 +36,47 @@ export async function applyOnboardingStart(
   }
 
   // Sourates mémorisées → tout le parcours jusqu'à la plus avancée d'entre
-  // elles. On cherche sa DERNIÈRE leçon dans l'ordre pédagogique, et on prend
-  // tout ce qui vient avant (+ elle-même).
+  // elles (incluse). Le repère de chaque sourate est sa PREMIÈRE leçon dans
+  // l'ordre pédagogique, c'est-à-dire son point d'enseignement réel : une même
+  // sourate peut réapparaître bien plus loin (Al-Fatiha est enseignée en
+  // section 1 ET reprise en section 47, dernière du parcours). Viser sa
+  // dernière occurrence marquait alors les 5341 leçons — tout le Coran —
+  // dès qu'Al-Fatiha était cochée.
   const uniq = [...new Set(sourateNumeros)].filter((n) => Number.isInteger(n) && n >= 1 && n <= 114);
   if (uniq.length > 0) {
-    const furthest = await prisma.lesson.findFirst({
+    const firstLessons = await prisma.lesson.findMany({
       where: { sourateNumero: { in: uniq } },
-      orderBy: [{ section: { ordre: 'desc' } }, { ordre: 'desc' }],
-      select: { ordre: true, section: { select: { ordre: true } } },
+      orderBy: [{ section: { ordre: 'asc' } }, { ordre: 'asc' }],
+      select: { sourateNumero: true, ordre: true, section: { select: { ordre: true } } },
+      distinct: ['sourateNumero'],
     });
+    // La plus avancée de ces premières occurrences borne le rattrapage.
+    let furthest: { sectionOrdre: number; ordre: number } | null = null;
+    for (const l of firstLessons) {
+      const candidate = { sectionOrdre: l.section.ordre, ordre: l.ordre };
+      if (
+        !furthest ||
+        candidate.sectionOrdre > furthest.sectionOrdre ||
+        (candidate.sectionOrdre === furthest.sectionOrdre && candidate.ordre > furthest.ordre)
+      ) {
+        furthest = candidate;
+      }
+    }
     if (furthest) {
       or.push({
         OR: [
-          { section: { ordre: { lt: furthest.section.ordre } } },
-          { section: { ordre: furthest.section.ordre }, ordre: { lte: furthest.ordre } },
+          { section: { ordre: { lt: furthest.sectionOrdre } } },
+          { section: { ordre: furthest.sectionOrdre }, ordre: { lte: furthest.ordre } },
         ],
+      });
+      // Une sourate cochée s'étale sur plusieurs leçons consécutives (ex.
+      // An-Nas = 3) : celles qui suivent la borne doivent l'être aussi pour que
+      // getLearnedSourates la voie apprise en entier. On reste dans la section
+      // de la borne — sans ça, la reprise tardive d'Al-Fatiha (section 47)
+      // serait marquée elle aussi.
+      or.push({
+        sourateNumero: { in: uniq },
+        section: { ordre: { lte: furthest.sectionOrdre } },
       });
     }
   }
