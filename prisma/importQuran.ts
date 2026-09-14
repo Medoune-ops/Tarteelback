@@ -154,10 +154,23 @@ async function importVerset(sourateId: string, v: AcVerse, words: WordRow[]): Pr
     update: { texteArabe: v.textUthmani, audioUrl: v.audioUrl },
   });
 
+  // ⚠️ Les deleteMany sont filtrés PAR LANGUE : réimporter l'anglais ne peut
+  // pas effacer le français, et inversement. Ne jamais retirer ce filtre.
   await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id, langue: 'fr' } });
   if (v.translationFr) {
     await prisma.versetTraduction.create({
       data: { versetId: verset.id, langue: 'fr', texte: v.translationFr, source: 'alquran.cloud#fr.hamidullah' },
+    });
+  }
+
+  // Anglais (Sahih International). Absent de l'import d'origine : l'app
+  // affichait donc le sens des versets en français aux utilisateurs anglophones
+  // — resolveI18n retombe sur la langue par défaut quand la ligne `en` manque,
+  // ce qui ressemblait à un bug alors que c'était un manque de données.
+  await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id, langue: 'en' } });
+  if (v.translationEn) {
+    await prisma.versetTraduction.create({
+      data: { versetId: verset.id, langue: 'en', texte: v.translationEn, source: 'alquran.cloud#en.sahih' },
     });
   }
 
