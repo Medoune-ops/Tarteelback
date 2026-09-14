@@ -19,6 +19,20 @@
  *
  * Idempotent: re-running upserts surahs/verses and replaces translations.
  * Configure editions/recitation via .env (QURAN_* / ALQURAN_CLOUD_* vars).
+ *
+ * ⚠️ AJOUTER UNE LANGUE À UNE BASE DÉJÀ REMPLIE : FORCE_REIMPORT=1 EST OBLIGATOIRE.
+ *
+ * Le contrôle de reprise ci-dessous saute toute sourate dont le nombre de
+ * versets est complet et dont les mots sont présents. Sur une base déjà
+ * importée, le script affiche donc « ✅ complete » SANS RIEN ÉCRIRE — il
+ * paraît avoir réussi alors qu'aucune traduction n'a été ajoutée (vérifié sur
+ * base de test : 0 ligne `en` créée sans ce drapeau).
+ *
+ *   FORCE_REIMPORT=1 npm run seed:quran
+ *
+ * Sans risque pour les langues déjà en place : chaque deleteMany est filtré
+ * par `langue`, donc un réimport ne touche que la langue qu'il réécrit
+ * (vérifié : le français reste intact quand l'anglais est ajouté).
  */
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
