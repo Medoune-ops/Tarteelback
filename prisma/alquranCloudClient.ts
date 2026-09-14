@@ -67,12 +67,20 @@ export interface AcVerse {
   hizbNumber: number;
   textUthmani: string;
   translationFr: string | null;
+  /** Traduction anglaise (Sahih International). */
+  translationEn: string | null;
   transliterationEn: string | null;
   audioUrl: string;
 }
 
 const EDITION_ARABIC = 'quran-uthmani';
 const EDITION_TRANSLATION_FR = 'fr.hamidullah';
+/**
+ * Sahih International : la traduction anglaise de référence dans les apps
+ * modernes (Quran.com, Muslim Pro…), plus lisible que Pickthall ou Yusuf Ali,
+ * tous deux plus littéraires et datés. Choix éditorial validé.
+ */
+const EDITION_TRANSLATION_EN = 'en.sahih';
 const EDITION_TRANSLITERATION_EN = 'en.transliteration';
 
 export class AlQuranCloudClient {
@@ -89,13 +97,15 @@ export class AlQuranCloudClient {
    * issues one call per edition instead, run concurrently.
    */
   async allVerses(reciter: string, bitrateKbps = 64): Promise<AcVerse[]> {
-    const [arabicRes, frRes, translitRes] = await Promise.all([
+    const [arabicRes, frRes, enRes, translitRes] = await Promise.all([
       getJson<AcEditionResponse>(`${this.apiBase}/quran/${EDITION_ARABIC}`),
       getJson<AcEditionResponse>(`${this.apiBase}/quran/${EDITION_TRANSLATION_FR}`),
+      getJson<AcEditionResponse>(`${this.apiBase}/quran/${EDITION_TRANSLATION_EN}`),
       getJson<AcEditionResponse>(`${this.apiBase}/quran/${EDITION_TRANSLITERATION_EN}`),
     ]);
     const arabicSurahs = arabicRes.data.surahs;
     const frSurahs = frRes.data.surahs;
+    const enSurahs = enRes.data.surahs;
     const translitSurahs = translitRes.data.surahs;
     if (arabicSurahs.length !== 114) {
       throw new Error(`Al Quran Cloud API: expected 114 surahs, got ${arabicSurahs.length}`);
@@ -110,6 +120,7 @@ export class AlQuranCloudClient {
     for (let s = 0; s < arabicSurahs.length; s++) {
       const ar = arabicSurahs[s]!;
       const fr = frSurahs[s];
+      const en = enSurahs[s];
       const tr = translitSurahs[s];
       for (let a = 0; a < ar.ayahs.length; a++) {
         const ayah = ar.ayahs[a]!;
@@ -120,6 +131,7 @@ export class AlQuranCloudClient {
           hizbNumber: Math.ceil(ayah.hizbQuarter / 4),
           textUthmani: ayah.text,
           translationFr: fr?.ayahs[a]?.text ?? null,
+          translationEn: en?.ayahs[a]?.text ?? null,
           transliterationEn: tr?.ayahs[a]?.text ?? null,
           audioUrl: `${this.cdnBase}/quran/audio/${bitrateKbps}/ar.${reciter}/${globalAyah}.mp3`,
         });

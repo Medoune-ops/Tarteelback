@@ -19,6 +19,20 @@
  *
  * Idempotent: re-running upserts surahs/verses and replaces translations.
  * Configure editions/recitation via .env (QURAN_* / ALQURAN_CLOUD_* vars).
+ *
+ * ⚠️ AJOUTER UNE LANGUE À UNE BASE DÉJÀ REMPLIE : FORCE_REIMPORT=1 EST OBLIGATOIRE.
+ *
+ * Le contrôle de reprise ci-dessous saute toute sourate dont le nombre de
+ * versets est complet et dont les mots sont présents. Sur une base déjà
+ * importée, le script affiche donc « ✅ complete » SANS RIEN ÉCRIRE — il
+ * paraît avoir réussi alors qu'aucune traduction n'a été ajoutée (vérifié sur
+ * base de test : 0 ligne `en` créée sans ce drapeau).
+ *
+ *   FORCE_REIMPORT=1 npm run seed:quran
+ *
+ * Sans risque pour les langues déjà en place : chaque deleteMany est filtré
+ * par `langue`, donc un réimport ne touche que la langue qu'il réécrit
+ * (vérifié : le français reste intact quand l'anglais est ajouté).
  */
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
@@ -154,10 +168,23 @@ async function importVerset(sourateId: string, v: AcVerse, words: WordRow[]): Pr
     update: { texteArabe: v.textUthmani, audioUrl: v.audioUrl },
   });
 
+  // ⚠️ Les deleteMany sont filtrés PAR LANGUE : réimporter l'anglais ne peut
+  // pas effacer le français, et inversement. Ne jamais retirer ce filtre.
   await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id, langue: 'fr' } });
   if (v.translationFr) {
     await prisma.versetTraduction.create({
       data: { versetId: verset.id, langue: 'fr', texte: v.translationFr, source: 'alquran.cloud#fr.hamidullah' },
+    });
+  }
+
+  // Anglais (Sahih International). Absent de l'import d'origine : l'app
+  // affichait donc le sens des versets en français aux utilisateurs anglophones
+  // — resolveI18n retombe sur la langue par défaut quand la ligne `en` manque,
+  // ce qui ressemblait à un bug alors que c'était un manque de données.
+  await prisma.versetTraduction.deleteMany({ where: { versetId: verset.id, langue: 'en' } });
+  if (v.translationEn) {
+    await prisma.versetTraduction.create({
+      data: { versetId: verset.id, langue: 'en', texte: v.translationEn, source: 'alquran.cloud#en.sahih' },
     });
   }
 
