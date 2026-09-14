@@ -34,8 +34,22 @@
  * sont ignorés).
  */
 import { PrismaClient } from '@prisma/client';
-import { env } from '../src/config/env.js';
 import { AlQuranCloudClient } from './alquranCloudClient.js';
+
+/**
+ * ⚠️ NE PAS importer `../src/config/env.js` ici.
+ *
+ * L'image de production ne contient PAS `src/` : le Dockerfile ne recopie que
+ * `dist/`, `prisma/`, `node_modules/` et `package*.json`. Un import vers `src/`
+ * fait échouer le script au démarrage dans le conteneur
+ * (ERR_MODULE_NOT_FOUND '/app/src/config/env.js'), alors qu'il fonctionne en
+ * local — constaté sur le serveur.
+ *
+ * Ce script n'a besoin que de deux URLs publiques, lues directement depuis
+ * l'environnement avec les mêmes valeurs par défaut que src/config/env.ts.
+ */
+const API_BASE = process.env.ALQURAN_CLOUD_API_BASE ?? 'https://api.alquran.cloud/v1';
+const CDN_BASE = process.env.ALQURAN_CLOUD_CDN_BASE ?? 'https://cdn.islamic.network';
 
 const prisma = new PrismaClient();
 
@@ -67,9 +81,11 @@ async function main() {
   if (dryRun) console.log('MODE SIMULATION — aucune écriture ne sera faite.\n');
   else console.log('Mode réel — seules des traductions MANQUANTES seront créées.\n');
 
-  const client = new AlQuranCloudClient(env.ALQURAN_CLOUD_API_BASE, env.ALQURAN_CLOUD_CDN_BASE);
+  const client = new AlQuranCloudClient(API_BASE, CDN_BASE);
   console.log('Téléchargement des traductions depuis Al Quran Cloud…');
-  const verses = await client.allVerses(env.QURAN_RECITATION_ID ? 'alafasy' : 'alafasy');
+  // Le récitateur ne sert qu'à construire les URLs audio, dont ce script ne
+  // fait rien : il n'écrit que du texte.
+  const verses = await client.allVerses('alafasy');
 
   // Index (sourate, verset) -> texte traduit, pour un accès direct ensuite.
   const byKey = new Map<string, string>();
