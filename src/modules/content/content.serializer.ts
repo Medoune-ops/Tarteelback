@@ -179,6 +179,17 @@ export function serializeLesson(
             : { ...paire, traduction: resolveI18n(paire.traduction as I18nText, lang, defaultLang) },
         );
       }
+      // Idem pour les propositions des quiz (`written`), imbriquées dans
+      // payload.options[].text. `bonneReponse` désigne un identifiant d'option
+      // (A/B/C/D) et non un texte : traduire ici ne peut pas fausser la
+      // correction, qui compare `answer.optionId === bonneReponse`.
+      if (Array.isArray(payload.options)) {
+        payload.options = (payload.options as Record<string, unknown>[]).map((option) =>
+          option?.text == null
+            ? option
+            : { ...option, text: resolveI18n(option.text as I18nText, lang, defaultLang) },
+        );
+      }
       return {
         id: step.id,
         type: step.type,
