@@ -168,6 +168,17 @@ export function serializeLesson(
           payload[field] = resolveI18n(payload[field] as I18nText, lang, defaultLang);
         }
       }
+      // Les étapes « matching » portent leurs traductions IMBRIQUÉES dans
+      // payload.paires[].traduction, hors de portée de la boucle ci-dessus.
+      // Sans ce traitement, ces étapes resteraient dans la langue par défaut
+      // même une fois les payloads passés au format {fr, en}.
+      if (Array.isArray(payload.paires)) {
+        payload.paires = (payload.paires as Record<string, unknown>[]).map((paire) =>
+          paire?.traduction == null
+            ? paire
+            : { ...paire, traduction: resolveI18n(paire.traduction as I18nText, lang, defaultLang) },
+        );
+      }
       return {
         id: step.id,
         type: step.type,
