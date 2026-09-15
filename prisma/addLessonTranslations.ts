@@ -48,9 +48,39 @@ function arg(name: string): string | undefined {
   return process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
 }
 
-/** Normalise un texte arabe pour servir de clé de correspondance. */
+/**
+ * Normalise un texte arabe pour servir de clé de correspondance.
+ *
+ * ⚠️ Les diacritiques et la graphie varient entre la table Verset et les
+ * payloads de leçon (alif wasla ٱ vs alif ا, tatweel, espaces multiples…).
+ * Une comparaison brute échouait donc sur la quasi-totalité des versets.
+ * On réduit au squelette consonantique, seul élément stable entre les deux.
+ */
 function key(arabe: string): string {
-  return arabe.replace(/\s+/g, ' ').trim();
+  return arabe
+    .normalize('NFC')
+    // Harakat, tanwin, shadda, sukun, marques coraniques (0610–061A, 064B–065F,
+    // 0670, 06D6–06ED) : purement diacritiques, absents ou différents d'une
+    // source à l'autre.
+    .replace(/[ؐ-ًؚ-ٰٟۖ-ۭ]/g, '')
+    .replace(/ـ/g, '')            // tatweel (allongement décoratif)
+    .replace(/[آأإٱ]/g, 'ا') // variantes d'alif -> alif nu
+    .replace(/ة/g, 'ه')      // ta marbuta -> ha
+    .replace(/[ى]/g, 'ي')    // alif maqsura -> ya
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** La Basmala préfixe le verset 1 de presque chaque sourate en base, mais pas
+ *  l'étape de leçon correspondante. On indexe donc aussi la version sans elle. */
+const BASMALA_KEY = key('بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ');
+
+/** Variantes de clé sous lesquelles indexer un verset. */
+function keyVariants(arabe: string): string[] {
+  const k = key(arabe);
+  const out = [k];
+  if (k.startsWith(BASMALA_KEY + ' ')) out.push(k.slice(BASMALA_KEY.length + 1));
+  return out;
 }
 
 /**
@@ -87,7 +117,12 @@ async function main() {
   const enByArabe = new Map<string, string>();
   for (const v of versets) {
     const en = v.traductions[0]?.texte;
-    if (en) enByArabe.set(key(v.texteArabe), en);
+    if (!en) continue;
+    // `set` sans garde : si deux versets partagent une clé (rare), le premier
+    // rencontré gagne — l'ordre de findMany est stable, donc le résultat l'est.
+    for (const variant of keyVariants(v.texteArabe)) {
+      if (!enByArabe.has(variant)) enByArabe.set(variant, en);
+    }
   }
   console.log(`  ${enByArabe.size} versets avec traduction anglaise.\n`);
 
