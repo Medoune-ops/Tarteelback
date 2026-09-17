@@ -79,6 +79,10 @@ export function serializeUser(user: User, now: Date = new Date()) {
  * timestamp (null when full). `currentLesson`, `sourates` and `precision` are
  * derived stats (see computeUserStats). This is the contract for GET /me and
  * POST /lesson/complete; the richer serializeUser stays for auth responses.
+ *
+ * Tout champ que le store hydrate DOIT figurer ici : une clé absente arrive
+ * `undefined` côté RN, et hydrateFromBackend ignore ces valeurs-là. Ajouter le
+ * champ à serializeUser seul ne suffit donc pas — /me ne passe pas par elle.
  */
 export function serializeUserFlat(user: User, stats: UserStats, now: Date = new Date()) {
   const premium = isPremiumActive(user, now);
@@ -90,6 +94,9 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
 
   return {
     streak: user.streak,
+    // Sans lui le store RN garde `null` (il n'écrit que si !== undefined) : le
+    // PUT /me/streak-goal réussissait mais l'objectif restait invisible.
+    streakGoal: user.streakGoal,
     // Single weekly XP counter — resets with the league rollover.
     xp: user.weeklyXp,
     hearts: hearts.hearts,
