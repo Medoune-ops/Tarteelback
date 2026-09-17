@@ -45,6 +45,26 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     // No rich/nested fields leak into the flat contract.
     expect(body.user).toBeUndefined();
     expect(typeof body.hearts).toBe('number');
+    // Présents même vides : le store n'hydrate que les clés !== undefined, et
+    // l'écran Série lit lastStreakValue directement depuis fetchMe().
+    expect('streakGoal' in body).toBe(true);
+    expect(body.streakGoal).toBeNull();
+    expect('lastStreakValue' in body).toBe(true);
+    expect(body.lastStreakValue).toBe(0);
+  });
+
+  it('GET /me reflects the streak goal set via PUT /me/streak-goal', async () => {
+    const u = await registerUser(app);
+    const put = await app.inject({
+      method: 'PUT', url: '/me/streak-goal',
+      headers: authHeader(u.accessToken), payload: { days: 30 },
+    });
+    expect(put.statusCode).toBe(200);
+
+    const res = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
+    // La régression : le PUT réussissait, mais /me omettait le champ et l'app
+    // affichait toujours « Fixer un défi ».
+    expect(res.json().streakGoal).toBe(30);
   });
 
   it('POST /lesson/complete credits XP and returns the flat shape; currentLesson advances', async () => {
