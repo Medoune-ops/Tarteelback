@@ -97,6 +97,9 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     // Sans lui le store RN garde `null` (il n'écrit que si !== undefined) : le
     // PUT /me/streak-goal réussissait mais l'objectif restait invisible.
     streakGoal: user.streakGoal,
+    // Série sauvegardée à la casse = ce que la restauration payante rendrait.
+    // L'écran Série le lit via fetchMe ; absent, il proposait toujours 0 jour.
+    lastStreakValue: user.lastStreakValue,
     // Single weekly XP counter — resets with the league rollover.
     xp: user.weeklyXp,
     hearts: hearts.hearts,

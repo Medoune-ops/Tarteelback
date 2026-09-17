@@ -26,6 +26,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     displayName: 'Test',
     username: null,
     streak: 3,
+    lastStreakValue: 0,
     weeklyXp: 120,
     hearts: 5,
     lastHeartLossAt: null,
@@ -71,6 +72,17 @@ describe('serializeUserFlat — contrat du store RN', () => {
     expect(out.streakGoal).toBe(7);
   });
 
+  it('renvoie lastStreakValue (jours que la restauration payante rendrait)', () => {
+    const out = serializeUserFlat(makeUser({ lastStreakValue: 12 }), stats, now);
+    expect(out.lastStreakValue).toBe(12);
+  });
+
+  it('renvoie lastStreakValue: 0 plutôt que de l’omettre', () => {
+    const out = serializeUserFlat(makeUser({ lastStreakValue: 0 }), stats, now);
+    expect('lastStreakValue' in out).toBe(true);
+    expect(out.lastStreakValue).toBe(0);
+  });
+
   it('garde hearts en nombre (le store ne sait pas lire un objet)', () => {
     const out = serializeUserFlat(makeUser(), stats, now);
     expect(typeof out.hearts).toBe('number');
@@ -79,5 +91,24 @@ describe('serializeUserFlat — contrat du store RN', () => {
   it('n’enveloppe rien dans `user` — la forme reste plate', () => {
     const out = serializeUserFlat(makeUser(), stats, now) as Record<string, unknown>;
     expect(out.user).toBeUndefined();
+  });
+
+  /**
+   * Garde-fou : le front déclare ce contrat dans MeResponse (lib/api/me.ts) et
+   * le store dans hydrateFromBackend. Les deux bugs corrigés ici — streakGoal
+   * et lastStreakValue — étaient exactement ça : un champ que l'app lit, que
+   * le serveur enregistre, mais que /me n'a jamais renvoyé. Ajouter une clé à
+   * MeResponse sans l'ajouter ici doit faire échouer ce test.
+   */
+  it('couvre tout le contrat MeResponse (hors champs de /lesson/complete)', () => {
+    const attendus = [
+      'streak', 'xp', 'hearts', 'isPremium', 'premiumUntil', 'currentLesson',
+      'lastHeartLossAt', 'gems', 'streakFreezes', 'lastStreakValue',
+      'doubleXpUntil', 'sourates', 'precision', 'name', 'username', 'email',
+      'avatar', 'onboardingDone', 'level', 'objectif', 'dailyMinutes',
+      'voiceEnabled', 'streakGoal',
+    ];
+    const produits = Object.keys(serializeUserFlat(makeUser(), stats, now));
+    expect(attendus.filter((k) => !produits.includes(k))).toEqual([]);
   });
 });

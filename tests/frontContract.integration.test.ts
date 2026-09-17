@@ -45,9 +45,12 @@ d('front contract: flat /me, /lesson/complete, settings (integration)', () => {
     // No rich/nested fields leak into the flat contract.
     expect(body.user).toBeUndefined();
     expect(typeof body.hearts).toBe('number');
-    // Présent même sans objectif : le store n'hydrate que les clés !== undefined.
+    // Présents même vides : le store n'hydrate que les clés !== undefined, et
+    // l'écran Série lit lastStreakValue directement depuis fetchMe().
     expect('streakGoal' in body).toBe(true);
     expect(body.streakGoal).toBeNull();
+    expect('lastStreakValue' in body).toBe(true);
+    expect(body.lastStreakValue).toBe(0);
   });
 
   it('GET /me reflects the streak goal set via PUT /me/streak-goal', async () => {
