@@ -71,8 +71,9 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => (v ? v : undefined)),
   MAIL_FROM: z.string().default('Tarteel <onboarding@resend.dev>'),
-  // Base URL of the app for building the reset link (deep link or web).
-  APP_RESET_URL: z.string().default('tarteel://reset-password'),
+  // Base URL for building the reset link. Must be https: mail clients strip
+  // custom schemes (tarteel://), leaving the user with no clickable link.
+  APP_RESET_URL: z.string().url().startsWith('https://').default('https://tarteel.sn/reset-password.html'),
   // Reset-token lifetime.
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().default(30),
 

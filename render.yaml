@@ -80,4 +80,4 @@ services:
       - key: RESEND_API_KEY
         sync: false # à saisir manuellement (secret) dans le dashboard Render
       - key: APP_RESET_URL
-        value: tarteel://reset-password
+        value: https://tarteel.sn/reset-password.html
