@@ -4,6 +4,7 @@ import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { localDayKey } from '../../core/streak.js';
 import { MAX_HEARTS, computeHearts } from '../../core/hearts.js';
 import { leagueService } from '../leagues/league.service.js';
+import { meService } from '../me/me.service.js';
 import {
   streakReward,
   podiumReward,
@@ -13,10 +14,18 @@ import {
 } from '../../core/rewards.js';
 
 export const rewardService = {
-  /** Set/replace the user's streak goal. */
-  async setStreakGoal(userId: string, days: number) {
-    const user = await prisma.user.update({ where: { id: userId }, data: { streakGoal: days } });
-    return { streakGoal: user.streakGoal };
+  /**
+   * Set/replace the user's streak goal.
+   *
+   * Renvoie l'utilisateur FLAT complet, comme les autres mutations montées sur
+   * /me (cf. referralService.redeem). L'écran Objectif passe la réponse du PUT
+   * à `hydrateFromBackend` : avec l'ancien `{ streakGoal }` seul, le store
+   * recevait un objet sans `streak`, `xp`, `hearts`… et l'objectif retombait à
+   * 0 dès la sortie de l'écran. La valeur était pourtant bien en base.
+   */
+  async setStreakGoal(userId: string, days: number, now: Date = new Date()) {
+    await prisma.user.update({ where: { id: userId }, data: { streakGoal: days } });
+    return meService.getFlat(userId, now);
   },
 
   /**

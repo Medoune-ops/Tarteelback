@@ -34,6 +34,30 @@ d('rewards: streak goal (integration)', () => {
     expect(again.statusCode).toBe(409);
   });
 
+  /**
+   * Régression : le PUT renvoyait `{ streakGoal }` seul. L'écran Objectif
+   * passe cette réponse à `hydrateFromBackend`, qui n'écrit que les clés
+   * !== undefined — le reste du store restait figé et le compteur affichait 0
+   * en sortant de l'écran, alors que la valeur était bien enregistrée.
+   */
+  it('PUT /me/streak-goal renvoie l’utilisateur flat complet (pas juste le but)', async () => {
+    const u = await registerUser(app);
+    const set = await app.inject({ method: 'PUT', url: '/me/streak-goal', headers: authHeader(u.accessToken), payload: { days: 7 } });
+
+    expect(set.statusCode).toBe(200);
+    const body = set.json();
+    expect(body.streakGoal).toBe(7);
+    // Mêmes champs que GET /me : le store peut hydrater sans re-fetch.
+    for (const k of ['streak', 'xp', 'hearts', 'gems', 'isPremium', 'lastStreakValue']) {
+      expect(k in body).toBe(true);
+    }
+    expect(body.user).toBeUndefined(); // forme plate, pas de wrapper
+
+    // Et la valeur est bien celle que renverra le prochain GET /me.
+    const me = await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
+    expect(me.json().streakGoal).toBe(7);
+  });
+
   it('doubles the streak reward for premium', async () => {
     const u = await registerUser(app);
     await prisma.user.update({
