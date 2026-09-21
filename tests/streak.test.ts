@@ -122,4 +122,51 @@ describe('streak — paid repair', () => {
     const s = repairStreak({ streak: 3, streakFrozen: false, lastStreakValue: 0, lastActivityDate: null });
     expect(s.streak).toBe(3);
   });
+
+  it('consomme le snapshot : plus rien à racheter après la restauration', () => {
+    const broken = refreshStreak(base, TZ, day('2026-01-13'));
+    const repaired = repairStreak(broken);
+    expect(repaired.streak).toBe(5);
+    // Sinon l'écran Série reproposerait « restaurer 5 jours » indéfiniment.
+    expect(repaired.lastStreakValue).toBe(0);
+  });
+});
+
+/**
+ * L'écran Série lit `lastStreakValue` pour annoncer ce que la restauration
+ * payante rendrait. Il doit toujours refléter la PLUS LONGUE série perdue :
+ * revenir 2 jours après avoir cassé 30 jours ne doit pas ramener l'offre à 2.
+ */
+describe('streak — mémoire de la plus longue série perdue', () => {
+  it('une reprise courte cassée n’écrase pas la longue série perdue', () => {
+    const long: StreakState = {
+      streak: 30,
+      streakFrozen: false,
+      lastStreakValue: 0,
+      lastActivityDate: day('2026-01-10'),
+    };
+    const casse = refreshStreak(long, TZ, day('2026-01-13'));
+    expect(casse.lastStreakValue).toBe(30);
+
+    // L'utilisateur revient, fait une leçon : la série repart à 1.
+    const reprise = applyActivity(casse, TZ, day('2026-01-14'));
+    expect(reprise.streak).toBe(1);
+    expect(reprise.lastStreakValue).toBe(30);
+
+    // Puis il recasse cette reprise de 1 jour.
+    const recasse = refreshStreak(reprise, TZ, day('2026-01-17'));
+    expect(recasse.streak).toBe(0);
+    expect(recasse.lastStreakValue).toBe(30); // et non 1
+  });
+
+  it('une reprise PLUS longue que la précédente met bien à jour le snapshot', () => {
+    const state: StreakState = {
+      streak: 12,
+      streakFrozen: false,
+      lastStreakValue: 4,
+      lastActivityDate: day('2026-01-10'),
+    };
+    const casse = refreshStreak(state, TZ, day('2026-01-13'));
+    expect(casse.lastStreakValue).toBe(12);
+  });
 });

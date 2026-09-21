@@ -172,7 +172,14 @@ export async function applyPaidTransaction(reference: string): Promise<void> {
       await prisma.$transaction([
         prisma.user.update({
           where: { id: transaction.userId },
-          data: { streak: restored.streak, streakFrozen: false, lastActivityDate: restored.lastActivityDate },
+          data: {
+            streak: restored.streak,
+            streakFrozen: false,
+            // Remis à 0 par repairStreak : sans ce champ dans le update, la
+            // restauration resterait proposée en boucle après l'achat.
+            lastStreakValue: restored.lastStreakValue,
+            lastActivityDate: restored.lastActivityDate,
+          },
         }),
         prisma.transaction.update({ where: { id: transaction.id }, data: { statut: 'success' } }),
       ]);

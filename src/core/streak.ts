@@ -111,7 +111,11 @@ export function settleStreak(
     state: {
       streak: 0,
       streakFrozen: false,
-      lastStreakValue: state.streak,
+      // On garde la plus longue des deux : une série de 30 cassée, puis une
+      // reprise de 2 jours cassée à son tour, doit toujours proposer 30 à la
+      // restauration payante — sinon le retour de l'utilisateur écrase la
+      // série qu'il voulait justement racheter.
+      lastStreakValue: Math.max(state.streak, state.lastStreakValue),
       lastActivityDate: state.lastActivityDate,
     },
     freezesConsumed: 0,
@@ -178,6 +182,10 @@ export function repairStreak(state: StreakState, now: Date = new Date()): Streak
     ...state,
     streak: state.lastStreakValue,
     streakFrozen: false,
+    // Consommé : la série est rendue, il n'y a plus rien à racheter. Sans ce
+    // reset l'écran Série continuerait d'afficher « restaurer N jours » alors
+    // que ces N jours sont déjà de retour dans le compteur.
+    lastStreakValue: 0,
     lastActivityDate: now,
   };
 }
