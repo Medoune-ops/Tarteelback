@@ -53,7 +53,7 @@ export async function setRankXp(weekId: string, userId: string, weeklyXp: number
  * seeds, migrations, batch jobs), rebuild it from the DB. This keeps the Redis
  * projection authoritative and self-healing. No-op without Redis.
  */
-export async function ensureWarm(weekId: string): Promise<void> {
+export async function ensureWarm(weekId: string, viewerId?: string): Promise<void> {
   if (!redis) return;
   await withRedis(
     async (r) => {
@@ -61,7 +61,20 @@ export async function ensureWarm(weekId: string): Promise<void> {
         r.zcard(key(weekId)),
         leagueRepository.countParticipants(weekId),
       ]);
-      if (zsize === dbCount) return;
+      if (zsize === dbCount) {
+        // Same size doesn't mean same scores: a DB-side correction (manual
+        // repair, missed mirror after a crash) leaves a stale score behind.
+        // Cheap check on the viewer's own row, realigned from the DB.
+        if (!viewerId) return;
+        const [score, row] = await Promise.all([
+          r.zscore(key(weekId), viewerId),
+          leagueRepository.membership(viewerId, weekId),
+        ]);
+        if (row && Number(score) !== row.weeklyXp) {
+          await r.zadd(key(weekId), row.weeklyXp, viewerId);
+        }
+        return;
+      }
       const members = await leagueRepository.allScores(weekId);
       const pipe = r.multi();
       pipe.del(key(weekId));

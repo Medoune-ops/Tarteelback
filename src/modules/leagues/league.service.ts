@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../../core/errors.js';
-import { leagueRepository } from './league.repository.js';
+import { leagueRepository, currentWeekQuery, lowestOpenWeekQuery } from './league.repository.js';
 import {
   bumpRankXp,
   setRankXp,
@@ -72,22 +72,18 @@ export const leagueService = {
   ): Promise<{ weekId: string; amount: number } | null> {
     if (amount === 0) return null;
     const now = new Date();
+    // Same week the League screen displays (currentWeekQuery) — never diverge.
     let week = await tx.leagueWeek.findFirst({
-      where: {
-        dateDebut: { lte: now },
-        dateFin: { gt: now },
-        memberships: { some: { userId } },
-      },
+      ...currentWeekQuery(userId, now),
       select: { id: true },
     });
 
     if (!week) {
       // Not enrolled anywhere for the current week — auto-join the lowest
-      // league's active week (mirrors POST /leagues/join), starting from 0:
+      // league's open week (mirrors POST /leagues/join), starting from 0:
       // this XP gain becomes their first contribution to the new membership.
       const lowest = await tx.leagueWeek.findFirst({
-        where: { dateDebut: { lte: now }, dateFin: { gt: now } },
-        orderBy: [{ league: { ordre: 'asc' } }, { dateDebut: 'desc' }],
+        ...lowestOpenWeekQuery(now),
         select: { id: true },
       });
       if (!lowest) return null; // no league weeks exist at all — nothing to join
@@ -125,7 +121,7 @@ export const leagueService = {
 
     // Self-heal the Redis projection if it drifted from the DB (cold cache, or
     // memberships created outside the app), then read the ranking from it.
-    await ensureWarm(week.id);
+    await ensureWarm(week.id, userId);
 
     // Ranking served from Redis sorted sets (O(log n), scales to millions),
     // with automatic SQL fallback when Redis is unavailable.

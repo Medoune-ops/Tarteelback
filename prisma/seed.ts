@@ -297,8 +297,32 @@ async function seedLeagues(demoUserId: string) {
   // (emails like "sb@league.demo"). Cascades to their memberships.
   await prisma.user.deleteMany({ where: { email: { endsWith: '@league.demo' } } });
 
-  // Current week (Mon→Sun around now), with the REAL ISO week number.
   const now = new Date();
+
+  // Leagues already running (the weekly rollover owns the week chain): enrol
+  // the demo user in the existing open Bronze week. Creating an ISO-numbered
+  // week here would start a SECOND parallel chain, where a user can end up
+  // enrolled twice and earn XP in a week the League screen doesn't show.
+  const openWeek = await prisma.leagueWeek.findFirst({
+    where: { leagueId: bronze.id, dateDebut: { lte: now }, closedAt: null },
+    orderBy: { dateDebut: 'desc' },
+  });
+  if (openWeek) {
+    // Already in an open week (any league)? Leave it alone: one week per user.
+    const enrolled = await prisma.leagueMembership.findFirst({
+      where: { userId: demoUserId, leagueWeek: { closedAt: null } },
+    });
+    if (enrolled) return;
+    await prisma.leagueMembership.upsert({
+      where: { userId_leagueWeekId: { userId: demoUserId, leagueWeekId: openWeek.id } },
+      update: {},
+      create: { userId: demoUserId, leagueWeekId: openWeek.id, weeklyXp: 0 },
+    });
+    console.log(`  ✓ leagues: existing open week ${openWeek.numeroSemaine} kept (no new chain)`);
+    return;
+  }
+
+  // First run: current week (Mon→Sun around now), with the REAL ISO week number.
   const start = new Date(now);
   start.setUTCHours(0, 0, 0, 0);
   start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7)); // Monday

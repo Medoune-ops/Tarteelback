@@ -1,30 +1,47 @@
 ﻿import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 
+type WeekQuery = Pick<Prisma.LeagueWeekFindFirstArgs, 'where' | 'orderBy'>;
+
+/**
+ * THE definition of "the user's current week", shared by the League screen
+ * (GET /leagues/me) and XP crediting (addXpIfMemberTx). They used to pick
+ * weeks differently, so a user enrolled in two open weeks earned XP in one
+ * while the other (stuck at 0) was displayed.
+ *
+ * A week stays current until the rollover CLOSES it, not merely until its
+ * dateFin: between dateFin and the cron run, XP keeps going to the ending week
+ * (the rollover then ranks it) instead of auto-enrolling the user elsewhere.
+ */
+export function currentWeekQuery(userId: string, now: Date): WeekQuery {
+  return {
+    where: { dateDebut: { lte: now }, closedAt: null, memberships: { some: { userId } } },
+    orderBy: [{ dateDebut: 'desc' }, { id: 'desc' }],
+  };
+}
+
+/** The open week of the lowest league (same "open" rule) - where a new joiner is placed. */
+export function lowestOpenWeekQuery(now: Date): WeekQuery {
+  return {
+    where: { dateDebut: { lte: now }, closedAt: null },
+    orderBy: [{ league: { ordre: 'asc' } }, { dateDebut: 'desc' }, { id: 'desc' }],
+  };
+}
+
 /** Data access for leagues, weeks and memberships. */
 export const leagueRepository = {
-  /**
-   * The user's CURRENT active week â€” the week they're a member of that is live
-   * right now. This correctly handles multiple leagues having an active week
-   * simultaneously (a user belongs to exactly one).
-   */
+  /** The user's current week (see currentWeekQuery). */
   currentWeekForUser(userId: string, now: Date = new Date()) {
     return prisma.leagueWeek.findFirst({
-      where: {
-        dateDebut: { lte: now },
-        dateFin: { gt: now },
-        memberships: { some: { userId } },
-      },
-      orderBy: { dateDebut: 'desc' },
+      ...currentWeekQuery(userId, now),
       include: { league: true },
     });
   },
 
-  /** The active week of the lowest league â€” where a new joiner is placed. */
+  /** The open week of the lowest league - where a new joiner is placed. */
   lowestActiveWeek(now: Date = new Date()) {
     return prisma.leagueWeek.findFirst({
-      where: { dateDebut: { lte: now }, dateFin: { gt: now } },
-      orderBy: [{ league: { ordre: 'asc' } }, { dateDebut: 'desc' }],
+      ...lowestOpenWeekQuery(now),
       include: { league: true },
     });
   },
