@@ -454,6 +454,10 @@ model RefreshToken {
   deviceId  String // identifies the installation/device
   expiresAt DateTime
   revokedAt DateTime?
+  // Set only when this token was revoked by rotation: id of the token that
+  // replaced it. Lets a client that lost the rotation response (network drop,
+  // app killed) replay the old token during a short grace window.
+  replacedById String?
   createdAt DateTime  @default(now())
 
   @@index([userId])

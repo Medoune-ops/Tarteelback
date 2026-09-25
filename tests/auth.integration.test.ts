@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { prisma } from '../src/config/prisma.js';
 import { DB_TESTS, makeApp, resetDb, registerUser } from './helpers/testApp.js';
 
 const d = DB_TESTS ? describe : describe.skip;
@@ -43,7 +44,7 @@ d('auth & persistent session (integration)', () => {
     expect(bad.json().error.code).toBe('INVALID_CREDENTIALS');
   });
 
-  it('refresh rotates the token; the old one stops working', async () => {
+  it('refresh rotates the token; the old one stops working after the grace window', async () => {
     const u = await registerUser(app, { deviceId: 'phone-A' });
 
     const r1 = await app.inject({
@@ -54,10 +55,56 @@ d('auth & persistent session (integration)', () => {
     const newRefresh = r1.json().refreshToken;
     expect(newRefresh).not.toBe(u.refreshToken);
 
-    // Old token is now revoked (rotation).
+    // Push the rotation outside the grace window: the old token is dead.
+    await prisma.refreshToken.updateMany({
+      where: { userId: u.userId, replacedById: { not: null } },
+      data: { revokedAt: new Date(Date.now() - 10 * 60 * 1000) },
+    });
     const reuse = await app.inject({
       method: 'POST', url: '/auth/refresh',
       payload: { refreshToken: u.refreshToken, deviceId: 'phone-A' },
+    });
+    expect(reuse.statusCode).toBe(401);
+    expect(reuse.json().error.code).toBe('TOKEN_REVOKED');
+  });
+
+  it('a lost rotation response can be recovered once, within the grace window', async () => {
+    const u = await registerUser(app, { deviceId: 'phone-G' });
+    const refresh = (refreshToken: string) => app.inject({
+      method: 'POST', url: '/auth/refresh',
+      payload: { refreshToken, deviceId: 'phone-G' },
+    });
+
+    // The client never receives this response (network drop).
+    const lost = await refresh(u.refreshToken);
+    expect(lost.statusCode).toBe(200);
+
+    // It retries with the old token: still accepted, a fresh pair is issued.
+    const retry = await refresh(u.refreshToken);
+    expect(retry.statusCode).toBe(200);
+    const kept = retry.json().refreshToken;
+
+    // The lost replacement is retired and the old token can't be reused again.
+    expect((await refresh(u.refreshToken)).statusCode).toBe(401);
+    expect((await refresh(lost.json().refreshToken)).statusCode).toBe(401);
+    expect((await refresh(kept)).statusCode).toBe(200);
+  });
+
+  it('logout closes the grace window of a rotated token', async () => {
+    const u = await registerUser(app, { deviceId: 'phone-H' });
+    const r1 = await app.inject({
+      method: 'POST', url: '/auth/refresh',
+      payload: { refreshToken: u.refreshToken, deviceId: 'phone-H' },
+    });
+    expect(r1.statusCode).toBe(200);
+    await app.inject({
+      method: 'POST', url: '/auth/logout',
+      payload: { refreshToken: r1.json().refreshToken },
+    });
+
+    const reuse = await app.inject({
+      method: 'POST', url: '/auth/refresh',
+      payload: { refreshToken: u.refreshToken, deviceId: 'phone-H' },
     });
     expect(reuse.statusCode).toBe(401);
   });
