@@ -210,4 +210,53 @@ d('leagues ranking (integration)', () => {
     const membership = await prisma.leagueMembership.findFirst({ where: { userId: me.userId, leagueWeekId: week.id } });
     expect(membership?.weeklyXp).toBe(15);
   });
+
+  async function completeALesson(token: string) {
+    const section = await prisma.section.create({
+      data: { ordre: 1, kicker: 'T', titre: 'T', sousTitre: '', couleur: '#000', degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x' },
+    });
+    const lesson = await prisma.lesson.create({ data: { sectionId: section.id, ordre: 1, titre: 'L' } });
+    await app.inject({ method: 'POST', url: `/lessons/${lesson.id}/complete`, headers: authHeader(token), payload: {} });
+  }
+
+  it('enrolled in two open weeks: XP goes to the week the League screen shows', async () => {
+    const league = await prisma.league.create({ data: { nom: 'Émeraude', niveau: 4, ordre: 4 } });
+    const now = Date.now();
+    // A stray parallel week (older start) and the real one (newer start).
+    const stray = await prisma.leagueWeek.create({
+      data: { leagueId: league.id, numeroSemaine: 39, dateDebut: new Date(now - 2 * 86400000), dateFin: new Date(now + 5 * 86400000) },
+    });
+    const real = await prisma.leagueWeek.create({
+      data: { leagueId: league.id, numeroSemaine: 10, dateDebut: new Date(now - 86400000), dateFin: new Date(now + 6 * 86400000) },
+    });
+    const me = await registerUser(app);
+    await prisma.leagueMembership.create({ data: { userId: me.userId, leagueWeekId: stray.id, weeklyXp: 0 } });
+    await prisma.leagueMembership.create({ data: { userId: me.userId, leagueWeekId: real.id, weeklyXp: 0 } });
+
+    await completeALesson(me.accessToken);
+
+    const res = await app.inject({ method: 'GET', url: '/leagues/me', headers: authHeader(me.accessToken) });
+    const mine = [...res.json().podium, ...res.json().around].find((m: { me: boolean }) => m.me);
+    expect(res.json().semaine).toBe(10);
+    expect(mine.weeklyXp).toBe(15);
+    const strayRow = await prisma.leagueMembership.findFirst({ where: { userId: me.userId, leagueWeekId: stray.id } });
+    expect(strayRow?.weeklyXp).toBe(0);
+  });
+
+  it('between a week end and the rollover, XP stays in the ending week (no auto-join elsewhere)', async () => {
+    const league = await prisma.league.create({ data: { nom: 'Or', niveau: 3, ordre: 3 } });
+    const now = Date.now();
+    // Ended 10 min ago, not closed yet by the cron.
+    const ending = await prisma.leagueWeek.create({
+      data: { leagueId: league.id, numeroSemaine: 9, dateDebut: new Date(now - 7 * 86400000), dateFin: new Date(now - 600000) },
+    });
+    const me = await registerUser(app);
+    await prisma.leagueMembership.create({ data: { userId: me.userId, leagueWeekId: ending.id, weeklyXp: 0 } });
+
+    await completeALesson(me.accessToken);
+
+    const rows = await prisma.leagueMembership.findMany({ where: { userId: me.userId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.weeklyXp).toBe(15);
+  });
 });
