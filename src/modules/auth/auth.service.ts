@@ -59,23 +59,56 @@ function accessClaimsFor(user: User, emailVerificationEnabled: boolean): AccessC
   };
 }
 
-/** Issue an access + refresh pair and persist the refresh hash for a device. */
+/**
+ * Issue an access + refresh pair and persist the refresh hash for a device.
+ * Also returns the id of the stored refresh token (needed by rotation).
+ */
+async function mintTokens(
+  user: User,
+  deviceId: string,
+  sign: AccessSigner,
+  emailVerificationEnabled: boolean,
+): Promise<{ tokens: AuthTokens; refreshTokenId: string }> {
+  const accessToken = sign(accessClaimsFor(user, emailVerificationEnabled));
+  const refreshToken = generateRefreshToken();
+  const expiresAt = refreshExpiry();
+  const record = await authRepository.createRefreshToken({
+    userId: user.id,
+    tokenHash: hashToken(refreshToken),
+    deviceId,
+    expiresAt,
+  });
+  return {
+    tokens: { accessToken, refreshToken, refreshExpiresAt: expiresAt },
+    refreshTokenId: record.id,
+  };
+}
+
 async function issueTokens(
   user: User,
   deviceId: string,
   sign: AccessSigner,
   emailVerificationEnabled: boolean,
 ): Promise<AuthTokens> {
-  const accessToken = sign(accessClaimsFor(user, emailVerificationEnabled));
-  const refreshToken = generateRefreshToken();
-  const expiresAt = refreshExpiry();
-  await authRepository.createRefreshToken({
-    userId: user.id,
-    tokenHash: hashToken(refreshToken),
-    deviceId,
-    expiresAt,
-  });
-  return { accessToken, refreshToken, refreshExpiresAt: expiresAt };
+  return (await mintTokens(user, deviceId, sign, emailVerificationEnabled)).tokens;
+}
+
+/**
+ * Grace window for a token revoked by rotation: if the client never received
+ * the replacement (network drop mid-response, app killed), it still holds the
+ * old token. We accept it for REFRESH_REUSE_GRACE_SECONDS, provided the
+ * replacement is still live — so a logout, password change or ban (which
+ * revoke the replacement) closes the window. Returns the replacement to retire.
+ */
+async function reusableReplacement(
+  record: { revokedAt: Date | null; replacedById: string | null },
+  now: number,
+) {
+  if (!record.revokedAt || !record.replacedById) return null;
+  if (now - record.revokedAt.getTime() > env.REFRESH_REUSE_GRACE_SECONDS * 1000) return null;
+  const replacement = await authRepository.findRefreshTokenById(record.replacedById);
+  if (!replacement || replacement.revokedAt || replacement.expiresAt.getTime() <= now) return null;
+  return replacement;
 }
 
 /**
@@ -232,7 +265,9 @@ export const authService = {
   /**
    * Rotate a refresh token: validate the presented token for the device,
    * revoke it, and issue a fresh pair (sliding 90-day window). A revoked or
-   * expired token is rejected — enabling logout and "new install" semantics.
+   * expired token is rejected — enabling logout and "new install" semantics —
+   * except a just-rotated token replayed within the grace window (see
+   * reusableReplacement).
    */
   async refresh(input: RefreshInput, sign: AccessSigner): Promise<AuthResult> {
     const record = await authRepository.findRefreshToken(hashToken(input.refreshToken));
@@ -240,7 +275,14 @@ export const authService = {
     if (record.deviceId !== input.deviceId) {
       throw new AppError('UNAUTHENTICATED', 'Refresh token does not match device');
     }
-    if (record.revokedAt) throw new AppError('TOKEN_REVOKED', 'Session was revoked');
+    // The token to retire on success: the presented one, or — when an already
+    // rotated token is replayed within the grace window — its lost replacement.
+    let retiredId = record.id;
+    if (record.revokedAt) {
+      const replacement = await reusableReplacement(record, Date.now());
+      if (!replacement) throw new AppError('TOKEN_REVOKED', 'Session was revoked');
+      retiredId = replacement.id;
+    }
     if (record.expiresAt.getTime() <= Date.now()) {
       throw new AppError('TOKEN_EXPIRED', 'Session expired, please sign in again');
     }
@@ -256,9 +298,9 @@ export const authService = {
       throw new AppError('EMAIL_NOT_VERIFIED', 'Confirm your email before continuing');
     }
 
-    // Rotation: invalidate the old token, mint a new pair.
-    await authRepository.revokeRefreshToken(record.id, new Date());
-    const tokens = await issueTokens(user, input.deviceId, sign, true);
+    // Rotation: mint a new pair, then retire the old token pointing at it.
+    const { tokens, refreshTokenId } = await mintTokens(user, input.deviceId, sign, true);
+    await authRepository.markRotated(retiredId, refreshTokenId, new Date());
     return { user, tokens };
   },
 

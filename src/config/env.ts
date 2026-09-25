@@ -29,6 +29,9 @@ const EnvSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(90),
+  // A rotated refresh token stays usable this long, in case the client never
+  // received its replacement (see authService.refresh).
+  REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().nonnegative().default(60),
 
   // Back-office (web admin panel) — a *different* secret from the mobile app's,
   // plus a distinct JWT audience (see plugins/adminAuth.ts), so a leaked mobile

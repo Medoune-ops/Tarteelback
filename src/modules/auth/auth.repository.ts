@@ -28,10 +28,22 @@ export const authRepository = {
     return prisma.refreshToken.findUnique({ where: { tokenHash } });
   },
 
+  findRefreshTokenById(id: string) {
+    return prisma.refreshToken.findUnique({ where: { id } });
+  },
+
   revokeRefreshToken(id: string, when: Date) {
     return prisma.refreshToken.update({
       where: { id },
       data: { revokedAt: when },
+    });
+  },
+
+  /** Revoke a token because it was rotated, remembering its replacement. */
+  markRotated(id: string, replacedById: string, when: Date) {
+    return prisma.refreshToken.update({
+      where: { id },
+      data: { revokedAt: when, replacedById },
     });
   },
 
