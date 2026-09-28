@@ -241,15 +241,25 @@ PATCH  /me/notifications/preferences { notifDailyReminder?, notifStreakAlert?, r
   `expo-notifications` (`getExpoPushTokenAsync`). Register it on login and after
   any token refresh; delete it on logout.
 - `reminderHour` (0–23) = preferred local hour for the daily reminder.
-- The server sends two kinds of notification via the Expo Push API (run by the
-  `jobs:reminders` job, hourly): a **daily learning reminder** (if you haven't
-  practised today, at your preferred local hour) and a **streak alert** (when
-  your streak is frozen / about to break). Both are timezone-aware and sent at
-  most once per local day. Invalid tokens are auto-disabled.
-- The daily reminder uses a fixed library of **spiritual/heartfelt messages**
-  (`reminderMessages.ts`), one picked at random per send (verbatim, never edited),
-  so reminders don't feel repetitive. The notification `data` carries
-  `{ type: 'daily_reminder' }` / `{ type: 'streak_alert', streak }`.
+- The **daily learning reminder** is a local notification scheduled by the app
+  at `reminderHour` (`notifDailyReminder` / `reminderHour` are only stored here
+  so they follow the account across devices). The server does **not** push it —
+  doing both delivered two notifications at the same time.
+- The server sends two kinds of push via the Expo Push API (run by the
+  `jobs:reminders` job), timezone-aware. Invalid tokens are auto-disabled.
+  - **Streak alert**: when your streak is frozen / about to break, at most once
+    per local day (`notifStreakAlert`).
+  - **Inactivity reminder**: when the app hasn't been opened for 3, then 7, 14
+    and 30 days — one push per threshold, nothing after 30 days. Sent at 13:00
+    local (18:00 if `reminderHour` is within 2h of 13:00, so it never lands with
+    the app's local reminder). Opt-out: `notifDailyReminder`. "Opening the app"
+    = any call to `GET /me`, `POST /me/hearts/sync` or `POST /me/streak/refresh`;
+    it resets the cycle.
+- Both use a fixed library of **spiritual/heartfelt messages**
+  (`reminderMessages.ts`), one picked at random per send (verbatim, never
+  edited), in the account's `language`: French for `fr`, English for `en` and
+  any other language. The notification `data` carries
+  `{ type: 'streak_alert', streak }` / `{ type: 'inactivity_reminder', days }`.
 
 > Note: in-app feedback **sounds & animations** (the "ding"/confetti when you
 > answer correctly) are played by the app itself — they are not push

@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
 import { prisma } from '../src/config/prisma.js';
 import { notificationService } from '../src/modules/notifications/notification.service.js';
-import { sendDueDailyReminders, sendDueStreakAlerts } from '../src/modules/notifications/reminders.js';
+import { sendDueInactivityReminders, sendDueStreakAlerts } from '../src/modules/notifications/reminders.js';
 
 const d = DB_TESTS ? describe : describe.skip;
 
@@ -94,34 +94,6 @@ d('notifications: reminders (integration)', () => {
   // test files (they all share one fork in DB mode).
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('sends a daily reminder only to opted-in users who have a token and have not practised today', async () => {
-    const spy = mockExpoOk();
-    const u = await registerUser(app);
-    await notificationService.registerToken(u.userId, { token: TOKEN_A, deviceId: 'd' });
-    // 19:00 UTC, reminderHour default 19, no activity, opted in.
-    await prisma.user.update({ where: { id: u.userId }, data: { timezone: 'UTC', reminderHour: 19, lastActivityDate: null } });
-
-    const at19 = new Date('2026-06-28T19:30:00Z');
-    const r = await sendDueDailyReminders(at19);
-    expect(r.sent).toBe(1);
-    expect(spy).toHaveBeenCalled();
-
-    // Running again the same local day does NOT re-send (idempotent).
-    const again = await sendDueDailyReminders(at19);
-    expect(again.sent).toBe(0);
-  });
-
-  it('does not remind before the preferred hour', async () => {
-    mockExpoOk();
-    const u = await registerUser(app);
-    await notificationService.registerToken(u.userId, { token: TOKEN_A, deviceId: 'd' });
-    await prisma.user.update({ where: { id: u.userId }, data: { timezone: 'UTC', reminderHour: 19 } });
-
-    const at10 = new Date('2026-06-28T10:00:00Z');
-    const r = await sendDueDailyReminders(at10);
-    expect(r.sent).toBe(0);
-  });
-
   it('sends a streak alert when the streak is frozen, once per day', async () => {
     mockExpoOk();
     const u = await registerUser(app);
@@ -133,5 +105,49 @@ d('notifications: reminders (integration)', () => {
     expect(r.sent).toBe(1);
     const again = await sendDueStreakAlerts(now);
     expect(again.sent).toBe(0);
+  });
+
+  it('sends one inactivity push per threshold, and restarts once the user comes back', async () => {
+    const spy = mockExpoOk();
+    const u = await registerUser(app);
+    await notificationService.registerToken(u.userId, { token: TOKEN_A, deviceId: 'd' });
+    // reminderHour 19 → relance à 13h locale.
+    await prisma.user.update({
+      where: { id: u.userId },
+      data: { timezone: 'UTC', reminderHour: 19, language: 'en', lastSeenAt: new Date('2026-06-20T09:00:00Z') },
+    });
+
+    // 2 jours d'absence : rien.
+    expect((await sendDueInactivityReminders(new Date('2026-06-22T14:00:00Z'))).sent).toBe(0);
+    // 3 jours, mais avant 13h locale : rien.
+    expect((await sendDueInactivityReminders(new Date('2026-06-23T10:00:00Z'))).sent).toBe(0);
+    // 3 jours, 14h : envoyé une fois, en anglais.
+    expect((await sendDueInactivityReminders(new Date('2026-06-23T14:00:00Z'))).sent).toBe(1);
+    const body = JSON.parse(String((spy.mock.calls.at(-1)![1] as RequestInit).body))[0];
+    expect(body.data).toMatchObject({ type: 'inactivity_reminder', days: 3 });
+    expect((await sendDueInactivityReminders(new Date('2026-06-23T15:00:00Z'))).sent).toBe(0);
+    // 7 jours : palier suivant.
+    expect((await sendDueInactivityReminders(new Date('2026-06-27T14:00:00Z'))).sent).toBe(1);
+
+    // La personne rouvre l'app : lastSeenAt mis à jour, cycle remis à zéro.
+    await app.inject({ method: 'GET', url: '/me', headers: authHeader(u.accessToken) });
+    const back = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(back.inactivityReminderStage).toBe(0);
+    expect(back.lastSeenAt!.getTime()).toBeGreaterThan(new Date('2026-06-20T09:00:00Z').getTime());
+  });
+
+  it('jumps straight to the current threshold for long-gone users (no burst)', async () => {
+    mockExpoOk();
+    const u = await registerUser(app);
+    await notificationService.registerToken(u.userId, { token: TOKEN_A, deviceId: 'd' });
+    await prisma.user.update({
+      where: { id: u.userId },
+      data: { timezone: 'UTC', reminderHour: 19, lastSeenAt: new Date('2026-06-01T09:00:00Z') },
+    });
+    const at = new Date('2026-06-21T14:00:00Z'); // 20 jours
+    expect((await sendDueInactivityReminders(at)).sent).toBe(1);
+    expect((await sendDueInactivityReminders(at)).sent).toBe(0);
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: u.userId } });
+    expect(after.inactivityReminderStage).toBe(3);
   });
 });

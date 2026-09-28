@@ -200,6 +200,12 @@ model User {
   // Marks the last local-day a daily reminder was sent, to avoid duplicates.
   lastDailyReminderOn String?
   lastStreakAlertOn   String?
+  // Dernière ouverture de l'app (GET /me et endpoints de sync), écrite au plus
+  // une fois par heure. Sert à la relance d'inactivité.
+  lastSeenAt              DateTime?
+  // Relance d'inactivité : nombre de paliers (INACTIVITY_THRESHOLDS_DAYS) déjà
+  // envoyés depuis lastSeenAt. Remis à 0 quand la personne revient.
+  inactivityReminderStage Int       @default(0)
 
   // Gems (virtual currency) — server-authoritative balance. Every change goes
   // through a GemTransaction row (ledger) inside the same DB transaction.
