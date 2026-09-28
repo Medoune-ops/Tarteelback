@@ -11,7 +11,7 @@ import { prisma } from '../config/prisma.js';
 import { redis } from '../config/redis.js';
 import { withLock } from '../core/lock.js';
 import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
-import { sendDueDailyReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
+import { sendDueInactivityReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
 import { householdService } from '../modules/household/household.service.js';
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
@@ -49,14 +49,16 @@ export async function expireHouseholds(now: Date = new Date()) {
   });
 }
 
-/** Send all due push reminders (daily learning + streak alerts). */
+/** Send all due push reminders (streak alerts + inactivity). The daily
+ *  learning reminder is a local notification scheduled by the app, not sent
+ *  from here. */
 export async function runReminders(now: Date = new Date()) {
   return withLock('job:reminders', LOCK_TTL_MS, async () => {
-    const [daily, streak] = await Promise.all([
-      sendDueDailyReminders(now),
+    const [streak, inactivity] = await Promise.all([
       sendDueStreakAlerts(now),
+      sendDueInactivityReminders(now),
     ]);
-    return { daily, streak };
+    return { streak, inactivity };
   });
 }
 

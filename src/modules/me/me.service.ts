@@ -15,6 +15,8 @@ import { getLearnedSourates } from './learnedSourates.js';
 import { serializeUserFlat } from './user.serializer.js';
 import { applyOnboardingStart } from './onboardingStart.js';
 
+const LAST_SEEN_THROTTLE_MS = 60 * 60 * 1000;
+
 /**
  * Recompute the time-sensitive parts of a user's state (hearts regen, streak
  * freeze/break, premium expiry) and persist any change. Centralised so GET /me
@@ -83,6 +85,14 @@ export async function syncUserState(user: User, now: Date = new Date()): Promise
     // re-counted on the next sync.
     data.lastActivityDate = streak.lastActivityDate;
   }
+
+  // Présence : l'app appelle ces endpoints à l'ouverture. Écrit au plus une
+  // fois par heure pour ne pas ajouter un UPDATE à chaque requête, et relance le
+  // cycle des rappels d'inactivité.
+  if (user.lastSeenAt == null || now.getTime() - user.lastSeenAt.getTime() >= LAST_SEEN_THROTTLE_MS) {
+    data.lastSeenAt = now;
+  }
+  if (user.inactivityReminderStage !== 0) data.inactivityReminderStage = 0;
 
   if (Object.keys(data).length === 0) return user;
   return userRepository.update(user.id, data);
