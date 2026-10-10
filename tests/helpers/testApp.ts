@@ -63,6 +63,16 @@ export async function resetDb() {
     'PodiumReward',
     'PasswordResetToken',
     'RefreshToken',
+    'FriendActivityCheer',
+    'FriendActivity',
+    'ChallengeParticipant',
+    'Challenge',
+    'FriendMessage',
+    'FriendSendLog',
+    'FriendReport',
+    'FriendBlock',
+    'FriendCode',
+    'Friendship',
     'User',
   ];
   await prisma.$executeRawUnsafe(

@@ -34,7 +34,13 @@ export type ErrorCode =
   | 'INTERNAL'
   // Email verification (feature-flagged — see auth.service.ts).
   | 'INVALID_CODE'
-  | 'TOO_MANY_ATTEMPTS';
+  | 'TOO_MANY_ATTEMPTS'
+  // Amis (feature-flagged — see modules/friends).
+  | 'FRIEND_LIMIT_REACHED'
+  | 'FRIEND_SEND_QUOTA_EXCEEDED'
+  | 'FRIEND_CODE_INVALID'
+  | 'FRIEND_BLOCKED'
+  | 'FRIEND_EXISTS';
 
 /** Default HTTP status for each error code. */
 const STATUS: Record<ErrorCode, number> = {
@@ -68,6 +74,11 @@ const STATUS: Record<ErrorCode, number> = {
   INTERNAL: 500,
   INVALID_CODE: 400,
   TOO_MANY_ATTEMPTS: 429,
+  FRIEND_LIMIT_REACHED: 409,
+  FRIEND_SEND_QUOTA_EXCEEDED: 429,
+  FRIEND_CODE_INVALID: 404,
+  FRIEND_BLOCKED: 403,
+  FRIEND_EXISTS: 409,
 };
 
 /**

@@ -138,22 +138,22 @@ enum TransactionStatus {
 // ─── User & session ──────────────────────────────────────────────────────────
 
 model User {
-  id             String  @id @default(cuid())
-  email          String  @unique
-  passwordHash   String? // null when the account is OAuth-only
-  displayName    String
+  id                String                  @id @default(cuid())
+  email             String                  @unique
+  passwordHash      String? // null when the account is OAuth-only
+  displayName       String
   // Vérification d'email par code à 4 chiffres — feature flag EMAIL_VERIFICATION_ENABLED
   // (désactivée par défaut, voir auth.service.ts). Défaut `true` : les comptes
   // créés AVANT l'activation du flag (ou pendant qu'il est désactivé) ne sont
   // jamais bloqués rétroactivement quand la fonctionnalité sera activée plus tard.
-  emailVerified  Boolean @default(true)
+  emailVerified     Boolean                 @default(true)
   verificationCodes EmailVerificationCode[]
   // Pseudo public (ligues, classements) — le nom complet reste privé au
   // profil. Optionnel pour les comptes créés avant son introduction :
   // l'affichage retombe alors sur displayName. Stocké en minuscules.
-  username       String? @unique
-  avatarInitials String  @default("")
-  role           Role    @default(user)
+  username          String?                 @unique
+  avatarInitials    String                  @default("")
+  role              Role                    @default(user)
 
   // Profile / onboarding
   level          UserLevel @default(debutant)
@@ -257,6 +257,25 @@ model User {
   sentInvitations HouseholdInvitation[] @relation("InvitedBy")
   pendingGifts    PendingGift[]
   supportMessages SupportMessage[]
+
+  // Amis (feature flag FRIENDS_ENABLED). Voir modèles en fin de fichier.
+  friendshipsAsUser1 Friendship[]           @relation("FriendshipUser1")
+  friendshipsAsUser2 Friendship[]           @relation("FriendshipUser2")
+  friendCode         FriendCode?
+  friendBlocksMade   FriendBlock[]          @relation("FriendBlocksInitiated")
+  friendBlocksGot    FriendBlock[]          @relation("FriendBlocksReceived")
+  friendReportsMade  FriendReport[]         @relation("FriendReportsSent")
+  friendReportsGot   FriendReport[]         @relation("FriendReportsReceived")
+  friendSends        FriendSendLog[]
+  // Réussites (fil d'activité ami) + réactions.
+  friendActivities   FriendActivity[]
+  friendCheers       FriendActivityCheer[]
+  // Défis partagés (créateur + participants).
+  challengesCreated  Challenge[]            @relation("ChallengeCreator")
+  challengeEntries   ChallengeParticipant[]
+  // Messages « à un ami » (boîte de réception) + envois.
+  friendMessagesSent FriendMessage[]        @relation("FriendMessagesSent")
+  friendMessagesGot  FriendMessage[]        @relation("FriendMessagesReceived")
 
   @@index([weeklyXp])
   @@index([bannedAt])
@@ -906,8 +925,8 @@ model Transaction {
  * PATCH /backoffice/config (admin only).
  */
 model AppConfig {
-  id              String   @id @default("singleton")
-  paymentsEnabled Boolean  @default(true)
+  id                       String  @id @default("singleton")
+  paymentsEnabled          Boolean @default(true)
   // Interrupteur "premium pour tout le monde" : tant qu'actif, isPremiumActive()
   // renvoie true pour CHAQUE user, existant ou inscrit pendant que c'est actif —
   // sans jamais toucher au statut individuel (personalPremiumUntil/premiumUntil)
@@ -947,7 +966,198 @@ model AppConfig {
  * — pas de détail par route/utilisateur, juste un compteur agrégé.
  */
 model RequestCount {
-  /** Jour UTC, minuit (ex: 2026-07-24T00:00:00Z). */
+  /**
+   * Jour UTC, minuit (ex: 2026-07-24T00:00:00Z).
+   */
   day   DateTime @id
   count Int      @default(0)
+}
+
+// ─── Amis (feature flag FRIENDS_ENABLED) ─────────────────────────────────────
+// Toutes ces tables ne sont utilisées que si FRIENDS_ENABLED=true ; le module
+// src/modules/friends renvoie 404 sinon. Aucune donnée n'est préchargée.
+
+/// Amitié symétrique. La paire est stockée de façon CANONIQUE (user1Id < user2Id
+/// en ordre lexicographique) : une amitié A→B et B→A n'est qu'UNE seule ligne.
+model Friendship {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user1     User     @relation("FriendshipUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id   String
+  user2     User     @relation("FriendshipUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([user1Id, user2Id])
+  @@index([user2Id])
+}
+
+/// Code de partage à 6 caractères (alphabet sans O/0/I/1), unique et
+/// régénérable. Permet d'ajouter un ami hors réseau local (contrairement au
+/// QR). Un compte = au plus un code.
+model FriendCode {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+}
+
+/// Blocage d'un utilisateur par un autre. Empêche tout ajout d'amitié futur
+/// dans les DEUX sens (le bloqué ne peut pas non plus ajouter le bloqueur).
+/// Effet de bord : retire le bloqué des défis partagés (voir challenges).
+model FriendBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("FriendBlocksInitiated", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("FriendBlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+/// Signalement d'abus — visible en back-office pour modération.
+model FriendReport {
+  id         String   @id @default(cuid())
+  reporterId String
+  reporter   User     @relation("FriendReportsSent", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId String
+  reported   User     @relation("FriendReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+  reason     String
+  createdAt  DateTime @default(now())
+
+  @@index([reportedId, createdAt])
+}
+
+/// Journal des envois « à un ami » — support du QUOTA (3/jour, tous types
+/// confondus : hadith, réussite, encouragement, relance). Une ligne par envoi ;
+/// `day` = jour calendaire UTC à minuit, utilisé pour compter.
+model FriendSendLog {
+  id        String         @id @default(cuid())
+  senderId  String
+  sender    User           @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  type      FriendSendType
+  day       DateTime
+  createdAt DateTime       @default(now())
+
+  @@index([senderId, day])
+}
+
+/// Types d'envoi soumis au quota quotidien d'amis.
+enum FriendSendType {
+  hadith // hadith partagé
+  success // réussite (sourate maîtrisée)
+  encouragement // mot d'encouragement
+  reminder // relance d'un défi
+}
+
+/// Réussite d'un utilisateur, publiée dans le fil d'activité vu par ses amis
+/// (phase 2). `data` porte les détails (ex: { numero, nom } pour une sourate).
+model FriendActivity {
+  id        String                @id @default(cuid())
+  userId    String
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      FriendActivityType
+  /// Détails libres de la réussite (référence sourate, palier de série…).
+  data      Json?
+  createdAt DateTime              @default(now())
+  cheers    FriendActivityCheer[]
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Réaction « bravo » d'un ami sur une réussite (une par personne et par post).
+model FriendActivityCheer {
+  id         String         @id @default(cuid())
+  activityId String
+  activity   FriendActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime       @default(now())
+
+  @@unique([activityId, userId])
+  @@index([activityId])
+}
+
+/// Nature d'une réussite publiée dans le fil.
+enum FriendActivityType {
+  sourate_mastered // sourate maîtrisée
+  streak_milestone // palier de série atteint
+  level_up // passage de niveau
+}
+
+/// Défi partagé entre amis (phase 3). On mesure une métrique (XP de la
+/// semaine, série, sourates maîtrisées) et des objectifs sur une fenêtre.
+/// `winnerIds` liste les gagnants une fois le défi terminé (égalité autorisée
+/// → co-vainqueurs, départagés par date d'atteinte : chronologie).
+model Challenge {
+  id          String                 @id @default(cuid())
+  creatorId   String
+  creator     User                   @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  title       String
+  metric      ChallengeMetric
+  targetValue Int
+  startsAt    DateTime               @default(now())
+  endsAt      DateTime
+  status      ChallengeStatus        @default(active)
+  /// Gagnants (1 ou plusieurs en cas d'égalité). Vide tant que non résolu.
+  winnerIds   String[]
+  createdAt   DateTime               @default(now())
+  entries     ChallengeParticipant[]
+
+  @@index([creatorId, createdAt])
+  @@index([status, endsAt])
+}
+
+/// Participation d'un ami à un défi. `progress` est recalculé côté serveur à
+/// la lecture (dérivé des stats réelles de l'utilisateur sur la fenêtre).
+/// Le départ est DÉFINITIF (pas de rejoin) : supprimer la ligne = quitter.
+model ChallengeParticipant {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress    Int       @default(0)
+  achievedAt  DateTime?
+  joinedAt    DateTime  @default(now())
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+}
+
+/// Métrique mesurée par un défi.
+enum ChallengeMetric {
+  xp // XP de la semaine
+  streak // jours de série
+  sourates // sourates maîtrisées sur la fenêtre
+}
+
+/// Statut d'un défi.
+enum ChallengeStatus {
+  active
+  ended
+}
+
+/// Message « à un ami » (phase 4) : hadith partagé, réussite, mot
+/// d'encouragement ou relance de défi. `payload` porte le contenu (référence
+/// hadith (collection, n), texte libre…). Visible par le destinataire dans sa
+/// boîte de réception ; `readAt` = lecture.
+model FriendMessage {
+  id          String         @id @default(cuid())
+  senderId    String
+  sender      User           @relation("FriendMessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User           @relation("FriendMessagesReceived", fields: [recipientId], references: [id], onDelete: Cascade)
+  type        FriendSendType
+  payload     Json?
+  readAt      DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([senderId, createdAt])
 }

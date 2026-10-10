@@ -35,6 +35,9 @@ function serializePublic(row: ConfigRow) {
     // savoir si elle doit afficher l'écran de vérification par code après
     // l'inscription. `false` par défaut : invisible tant que non activé.
     emailVerificationEnabled: env.EMAIL_VERIFICATION_ENABLED,
+    // Fonctionnalité "Amis" — réglage serveur (variable d'env), pas en base :
+    // l'app masque tout l'accès tant que c'est faux. `false` par défaut.
+    friendsEnabled: env.FRIENDS_ENABLED,
     pricing: serializePricing(row),
     updatedAt: row.updatedAt,
   };

@@ -15,6 +15,8 @@ import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
+import { friendsRoutes } from './modules/friends/friends.routes.js';
+import { friendsShareRoutes } from './modules/friends/friends.share.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { adminAuthRoutes } from './modules/adminAuth/adminAuth.routes.js';
 import { adminUsersRoutes } from './modules/adminUsers/adminUsers.routes.js';
@@ -61,6 +63,10 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(referralRoutes, { prefix: '/me' });
   // Plan familial (foyer : owner + jusqu'à 5 membres, premium partagé).
   await app.register(householdRoutes, { prefix: '/me' });
+  // Amis (flag FRIENDS_ENABLED) : code/QR, liste, progrès, blocage, signalement.
+  await app.register(friendsRoutes, { prefix: '/me/friends' });
+  // Page de partage publique d'un code ami (redirige vers le deep link tarteel://).
+  await app.register(friendsShareRoutes, { prefix: '/f' });
   // Support (Paramètres → Support) : message texte libre, visible en back-office.
   await app.register(supportRoutes, { prefix: '/me' });
   // Back-office web admin panel: separate population/auth from mobile `/auth`

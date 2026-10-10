@@ -25,6 +25,8 @@ import { leagueService } from '../leagues/league.service.js';
 import { lessonRepository } from './lesson.repository.js';
 import { computeUserStats } from '../me/user.stats.js';
 import { serializeUserFlat } from '../me/user.serializer.js';
+import { env } from '../../config/env.js';
+import { friendsActivityService } from '../friends/friends.activity.js';
 
 /**
  * Lesson XP formula — mirrors the front (`play.tsx`): a flat base plus a bonus
@@ -325,6 +327,14 @@ export const lessonService = {
     // down or cold).
     if (result.league) {
       await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+    }
+
+    // Fil d'activité amis (phase 2) — best-effort, jamais bloquant.
+    if (env.FRIENDS_ENABLED && result.firstCompletion) {
+      if (lesson.sourateNumero != null) {
+        void friendsActivityService.recordSourateIfMastered(userId, lesson.sourateNumero);
+      }
+      void friendsActivityService.recordStreakMilestone(userId, result.u.streak);
     }
 
     return {

@@ -88,6 +88,17 @@ const EnvSchema = z.object({
   EMAIL_VERIFICATION_CODE_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   EMAIL_VERIFICATION_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
 
+  // Fonctionnalité "Amis" (amis, QR/code, réussites, défis, boîte de réception).
+  // OFF par défaut : construite puis activée progressivement en prod. Tant que
+  // c'est faux, toutes les routes du module friends renvoient 404 (la feature
+  // n'existe pas du point de vue du client) et l'app masque tout l'accès via
+  // GET /config (friendsEnabled).
+  FRIENDS_ENABLED: z
+    .string()
+    .trim()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+
   // ASR serveur (microservice asr/ — Whisper base fine-tuné Coran). Optionnel :
   // quand ASR_URL est absent, les étapes voice gardent le chemin client
   // indulgent (score on-device, jamais de coeur en jeu).
