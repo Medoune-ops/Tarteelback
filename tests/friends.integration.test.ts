@@ -126,5 +126,46 @@ d('friends (integration)', () => {
     expect(prog.json().user.id).toBe(a.userId);
     expect(typeof prog.json().streak).toBe('number');
     expect(Array.isArray(prog.json().masteredSourateNumeros)).toBe(true);
+    // Règle 6 : aucune fuite de champ sensible dans la vue ami.
+    expect(Object.keys(prog.json().user).sort()).toEqual([
+      'avatarInitials', 'displayName', 'id', 'username',
+    ]);
+  });
+
+  it('l’acteur est toujours le token, jamais un userId du body/query (règle 5)', async () => {
+    const a = await registerUser(app, { email: 'r5a@test.app' });
+    const b = await registerUser(app, { email: 'r5b@test.app' });
+
+    const aCode = (await app.inject({
+      method: 'GET', url: '/me/friends/code', headers: authHeader(a.accessToken),
+    })).json().code as string;
+
+    // B tente de se faire passer pour A via la query : on renvoie le code de B.
+    const bCode = (await app.inject({
+      method: 'GET', url: `/me/friends/code?userId=${a.userId}`, headers: authHeader(b.accessToken),
+    })).json().code as string;
+    expect(bCode).toHaveLength(6);
+    expect(bCode).not.toBe(aCode);
+
+    const aStill = (await app.inject({
+      method: 'GET', url: '/me/friends/code', headers: authHeader(a.accessToken),
+    })).json().code as string;
+    expect(aStill).toBe(aCode);
+  });
+
+  it('un non-ami n’accède ni au progrès ni à l’envoi (règle 5)', async () => {
+    const a = await registerUser(app, { email: 'r5c@test.app' });
+    const b = await registerUser(app, { email: 'r5d@test.app' });
+
+    const prog = await app.inject({
+      method: 'GET', url: `/me/friends/${a.userId}/progress`, headers: authHeader(b.accessToken),
+    });
+    expect(prog.statusCode).toBe(404);
+
+    const send = await app.inject({
+      method: 'POST', url: `/me/friends/${a.userId}/send`, headers: authHeader(b.accessToken),
+      payload: { type: 'encouragement' },
+    });
+    expect(send.statusCode).toBe(404);
   });
 });

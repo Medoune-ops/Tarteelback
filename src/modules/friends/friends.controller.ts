@@ -12,6 +12,11 @@ import {
   createChallengeSchema,
 } from './friends.schemas.js';
 
+/**
+ * Règle 5 : l'acteur est TOUJOURS `req.auth.sub` (jamais un userId venu du
+ * body/query). Les `userId` de params/body ne sont que des CIBLES, et chaque
+ * service concerné vérifie la relation (amitié non bloquée) avant d'agir.
+ */
 export const friendsController = {
   // ── Code de partage ─────────────────────────────────────────────────────
   async getCode(req: FastifyRequest, reply: FastifyReply) {
