@@ -85,26 +85,21 @@ MAIL_FROM=Tarteel <no-reply@votredomaine>
 
 Le `CMD` de l'image exécute `prisma migrate deploy` avant de démarrer
 (idempotent). Au premier déploiement, lancer les seeds — **une seule fois** —
-au choix :
-
-**Sans terminal Dokploy (depuis votre PC)** : dans Dokploy, activer l'**External
-Port** de `tarteel-postgres` (ex. 5433), puis en local :
-
-```powershell
-$env:DATABASE_URL = "postgresql://tarteel:<pwd>@<ip-serveur>:5433/tarteel?schema=public"
-npm run seed:quran   # 114 sourates (long)
-npm run seed
-```
-
-puis **désactiver l'External Port** aussitôt (la base ne doit pas rester
-exposée sur Internet).
-
-**Ou via le terminal du conteneur Dokploy** :
+depuis le **terminal du conteneur Dokploy** (DATABASE_URL ne quitte jamais le
+serveur) :
 
 ```sh
 npx tsx prisma/importQuran.ts   # 114 sourates (long)
 npx tsx prisma/seed.ts
 ```
+
+> **Garde-fou base de données (ticket 0.B1).** Les scripts `npm run seed*`,
+> `npm run prisma:migrate` et `npm run db:reset` refusent de s'exécuter si
+> l'hôte de `DATABASE_URL` n'est pas `localhost`/`127.0.0.1`/`::1` : un `.env`
+> local pointant sur la prod ne peut plus l'effacer (deux incidents passés).
+> En PROD, la seule commande Prisma autorisée est `prisma migrate deploy`
+> (déjà dans le `CMD` de l'image) et le seed initial via `npx tsx` ci-dessus.
+> Ne JAMAIS pointer un `.env` local sur la prod pour lancer un seed.
 
 - **Healthcheck** Dokploy : path `/ready` (503 si la DB est injoignable ; Redis
   et ASR n'y participent pas — ce sont des accélérateurs optionnels).

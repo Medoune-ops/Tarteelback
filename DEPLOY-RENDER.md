@@ -60,12 +60,19 @@ C'est l'étape qui te manquait à comprendre. Les tables existent mais sont vide
 On lance le script d'import depuis le terminal intégré de Render :
 
 1. Dashboard Render → service **tarteel-api** → onglet **Shell**.
-2. Lance :
+2. Lance (directement via `npx tsx` : la garde ticket 0.B1 bloque les wrappers
+   `npm run seed*` hors localhost, par sécurité) :
    ```bash
-   npm run seed        # données de base (sections, leçons de démo)
-   npm run seed:quran  # importe sourates + versets + traductions depuis quran.com
+   npx tsx prisma/seed.ts          # données de base (sections, leçons de démo)
+   npx tsx prisma/importQuran.ts   # sourates + versets + traductions (quran.com)
    ```
 3. Attends la fin (quelques minutes pour les 114 sourates).
+
+> **Garde-fou base de données (ticket 0.B1).** `npm run seed*`, `npm run
+> prisma:migrate` et `npm run db:reset` refusent de s'exécuter si l'hôte de
+> `DATABASE_URL` n'est pas local/test — un `.env` local pointé sur la prod ne
+> peut plus l'effacer. En prod : uniquement `prisma migrate deploy` (automatique)
+> et le seed initial via `npx tsx` ci-dessus.
 
 > Astuce dev : pour un import rapide (Juz Amma seulement), définis la variable
 > `QURAN_IMPORT_LIMIT=37` avant de lancer, puis relance plus tard sans limite.

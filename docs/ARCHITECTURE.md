@@ -26,6 +26,18 @@ Mobile ──HTTPS──►│   Load Balancer    │  health=/health (liveness)
         Maintenance worker (cron): rollover, purge tokens, downgrade premium
 ```
 
+## Database safety (ticket 0.B1)
+
+Destructive commands (`prisma migrate dev`, `db:reset`, `seed*`, and
+`RUN_DB_TESTS=1`) are gated by `src/config/dbGuard.ts`: they refuse to run
+unless `DATABASE_URL` targets an explicitly local/test host
+(`localhost`/`127.0.0.1`/`::1`, or a host listed in `DB_TEST_HOSTS`). A host
+merely *containing* "test" is NOT enough — production was wiped twice that way.
+Local work uses `npm run db:up` (docker compose) with a `localhost` URL;
+production only ever runs `prisma migrate deploy` (the Docker `CMD`). The gate
+is also enforced at the test-runner level (`vitest.config.ts` global setup), so
+a misdirected integration run fails before any `TRUNCATE`.
+
 ## Statelessness
 
 API instances hold **no per-request state in memory**. Auth is a stateless

@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     globals: true,
+    // Ticket 0.B1 : refuse de lancer la suite DB si DATABASE_URL n'est pas
+    // locale/test (avant même qu'un resetDb() TRUNCATE puisse s'exécuter).
+    globalSetup: ['tests/helpers/globalSetup.ts'],
     // Ensure the app sees test mode (relaxes rate limits so the shared Redis
     // bucket isn't exhausted by the whole suite hitting auth from one IP).
     env: { NODE_ENV: 'test' },
