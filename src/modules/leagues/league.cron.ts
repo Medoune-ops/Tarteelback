@@ -21,6 +21,7 @@ import { withLock } from '../../core/lock.js';
 import { PODIUM_REWARD } from '../../core/rewards.js';
 import { promotionGems } from '../../core/gems.js';
 import { xpService } from '../xp/xp.service.js';
+import { recomputeGemsTx } from '../gems/gem.ledger.js';
 
 const PODIUM_XP = PODIUM_REWARD;
 const PROMOTION = 3;
@@ -150,10 +151,8 @@ async function closeWeek(
               ref: `w${week.numeroSemaine}`,
             },
           });
-          await tx.user.update({
-            where: { id: batch[i]!.userId },
-            data: { gems: { increment: gems } },
-          });
+          // Règle 4 : solde de gemmes recalculé depuis le registre.
+          await recomputeGemsTx(tx, batch[i]!.userId);
         }
 
         // Top-3 finish → record a claimable podium reward (idempotent per week).

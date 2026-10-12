@@ -6,6 +6,7 @@ import { isPremiumActive } from '../../core/premium.js';
 import { repairStreak } from '../../core/streak.js';
 import { userRepository } from '../me/user.repository.js';
 import { GEM_PACKS } from '../../core/gems.js';
+import { recomputeGemsTx } from '../gems/gem.ledger.js';
 import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
 import { MAX_HEARTS } from '../../core/hearts.js';
 import { isFamilyPlan, recomputePremium } from '../../core/household.js';
@@ -137,13 +138,14 @@ export async function applyPaidTransaction(reference: string): Promise<void> {
     case 'gem_pack': {
       const packId = payload.pack as keyof typeof GEM_PACKS;
       const pack = GEM_PACKS[packId];
-      await prisma.$transaction([
-        prisma.user.update({ where: { id: transaction.userId }, data: { gems: { increment: pack.gems } } }),
-        prisma.transaction.update({ where: { id: transaction.id }, data: { statut: 'success' } }),
-        prisma.gemTransaction.create({
+      await prisma.$transaction(async (tx) => {
+        await tx.gemTransaction.create({
           data: { userId: transaction.userId, amount: pack.gems, reason: 'pack_purchase', ref: reference },
-        }),
-      ]);
+        });
+        // Règle 4 : solde de gemmes recalculé depuis le registre.
+        await recomputeGemsTx(tx, transaction.userId);
+        await tx.transaction.update({ where: { id: transaction.id }, data: { statut: 'success' } });
+      });
       break;
     }
 

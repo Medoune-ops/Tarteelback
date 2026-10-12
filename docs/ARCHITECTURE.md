@@ -63,8 +63,13 @@ current league week (`recomputeWeeklyXpTx`) — never `increment`ed. Consequence
   upward either;
 - `LessonProgress.xpAwarded` freezes the XP credited per lesson.
 
-`tests/xp.noIncrement.test.ts` statically forbids `weeklyXp: { increment }` in
-`src/`, so the rule can't regress.
+The gem balance follows the same rule: `User.gems` is the SIGNED SUM of the
+`GemTransaction` ledger (`recomputeGemsTx`, `src/modules/gems/gem.ledger.ts`),
+written as an absolute value — never an increment/decrement.
+
+`tests/xp.noIncrement.test.ts` statically forbids `weeklyXp: { increment }`,
+`gems: { increment }` and `gems: { decrement }` in `src/`, so the rule can't
+regress.
 
 ## Statelessness
 

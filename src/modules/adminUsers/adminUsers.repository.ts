@@ -1,5 +1,6 @@
 import type { Prisma, User } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
+import { recomputeGemsTx } from '../gems/gem.ledger.js';
 
 const LIST_SELECT = {
   id: true,
@@ -75,14 +76,17 @@ export const adminUsersRepository = {
     return prisma.user.update({ where: { id }, data: { hearts, lastHeartLossAt: hearts >= 5 ? null : undefined } });
   },
 
-  /** Grants gems and writes the corresponding ledger row in the same transaction. */
+  /**
+   * Grants gems: writes the ledger row then RECOMPUTES the balance from the
+   * ledger (règle 4 — never a bare increment), in the same transaction.
+   */
   grantGems(id: string, amount: number) {
     return prisma.$transaction(async (tx) => {
-      const user = await tx.user.update({ where: { id }, data: { gems: { increment: amount } } });
       await tx.gemTransaction.create({
         data: { userId: id, amount, reason: 'admin_grant', ref: null },
       });
-      return user;
+      await recomputeGemsTx(tx, id);
+      return tx.user.findUniqueOrThrow({ where: { id } });
     });
   },
 

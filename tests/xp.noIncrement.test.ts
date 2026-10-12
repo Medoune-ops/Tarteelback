@@ -16,13 +16,20 @@ function walk(dir: string): string[] {
   return out;
 }
 
-describe('règle 4 — aucun increment de weeklyXp', () => {
-  it('le code source ne contient plus weeklyXp: { increment', () => {
+const FORBIDDEN = [
+  /weeklyXp\s*:\s*\{\s*increment/,
+  /gems\s*:\s*\{\s*increment/,
+  /gems\s*:\s*\{\s*decrement/,
+];
+
+describe('règle 4 — aucun increment de weeklyXp ni de gems', () => {
+  it('weeklyXp et gems sont toujours recalculés, jamais incrémentés/décrémentés', () => {
     const srcDir = join(process.cwd(), 'src');
     expect(statSync(srcDir).isDirectory()).toBe(true);
-    const offenders = walk(srcDir).filter((f) =>
-      /weeklyXp\s*:\s*\{\s*increment/.test(readFileSync(f, 'utf8')),
-    );
+    const offenders = walk(srcDir).filter((f) => {
+      const content = readFileSync(f, 'utf8');
+      return FORBIDDEN.some((re) => re.test(content));
+    });
     expect(offenders).toEqual([]);
   });
 });

@@ -11,11 +11,13 @@ import {
   isDoubleXpActive,
 } from '../../core/gems.js';
 import { getPricingConfig } from '../adminConfig/adminConfig.service.js';
+import { recomputeGemsTx } from './gem.ledger.js';
 
 /**
  * Gem economy sinks + the free "réviser pour regagner" heart gate. Every spend
- * is atomic: the user row is locked, the balance is checked and decremented in
- * the same transaction as the ledger row (no double-spend race).
+ * runs with the user row locked (FOR UPDATE at the call site): the balance is
+ * read from the ledger, checked, then the spend row is written and the balance
+ * RECOMPUTED (règle 4) — never a bare decrement.
  */
 async function spendGems(
   tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
@@ -24,17 +26,18 @@ async function spendGems(
   reason: 'heart_refill' | 'streak_freeze' | 'double_xp',
   ref?: string,
 ) {
-  // Conditional decrement = atomic "has enough" check (no read-modify-write).
-  const res = await tx.user.updateMany({
-    where: { id: userId, gems: { gte: cost } },
-    data: { gems: { decrement: cost } },
+  const agg = await tx.gemTransaction.aggregate({
+    _sum: { amount: true },
+    where: { userId },
   });
-  if (res.count === 0) {
+  const balance = agg._sum.amount ?? 0;
+  if (balance < cost) {
     throw new AppError('INSUFFICIENT_GEMS', `This costs ${cost} gems`);
   }
   await tx.gemTransaction.create({
     data: { userId, amount: -cost, reason, ref },
   });
+  await recomputeGemsTx(tx, userId);
 }
 
 export const gemService = {

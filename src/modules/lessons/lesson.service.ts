@@ -23,6 +23,7 @@ import { transcribeAudio } from './asr.client.js';
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
 import { xpService } from '../xp/xp.service.js';
+import { recomputeGemsTx } from '../gems/gem.ledger.js';
 import { lessonRepository } from './lesson.repository.js';
 import { computeUserStats } from '../me/user.stats.js';
 import { serializeUserFlat } from '../me/user.serializer.js';
@@ -301,11 +302,12 @@ export const lessonService = {
         await tx.gemTransaction.createMany({
           data: gemRows.map((r) => ({ userId, ...r })),
         });
+        // Règle 4 : le solde de gemmes est RECALCULÉ depuis le registre.
+        await recomputeGemsTx(tx, userId);
 
         u = await tx.user.update({
           where: { id: userId },
           data: {
-            gems: { increment: gemsGained },
             ...(freezesConsumed > 0 ? { streakFreezes: { decrement: freezesConsumed } } : {}),
             streak: streak.streak,
             streakFrozen: streak.streakFrozen,

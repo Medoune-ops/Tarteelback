@@ -5,6 +5,7 @@ import { localDayKey } from '../../core/streak.js';
 import { MAX_HEARTS, computeHearts } from '../../core/hearts.js';
 import { leagueService } from '../leagues/league.service.js';
 import { xpService } from '../xp/xp.service.js';
+import { recomputeGemsTx } from '../gems/gem.ledger.js';
 import {
   streakReward,
   podiumReward,
@@ -151,10 +152,11 @@ export const rewardService = {
       if (reward.type === 'xp') {
         xpGained = applyXpMultiplier(reward.amount, premium);
       } else if (reward.type === 'gems') {
-        data.gems = { increment: reward.amount };
         await tx.gemTransaction.create({
           data: { userId, amount: reward.amount, reason: 'daily_chest', ref: today },
         });
+        // Règle 4 : solde de gemmes recalculé depuis le registre.
+        await recomputeGemsTx(tx, userId);
       } else {
         // Hearts capped at MAX.
         data.hearts = Math.min(MAX_HEARTS, synced.hearts + reward.amount);
