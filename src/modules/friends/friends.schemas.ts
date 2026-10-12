@@ -64,7 +64,9 @@ const FRIEND_SEND_TYPES = ['hadith', 'success', 'encouragement', 'reminder'] as 
  *  - hadith        : collectionId + n (référence locale du destinataire)
  *  - encouragement : text
  *  - reminder      : challengeId
- *  - success       : texte/sourate optionnels
+ *  - success       : numero (sourate) obligatoire — le serveur vérifie que
+ *                    l'expéditeur l'a réellement maîtrisée (règle 2). `text`
+ *                    optionnel.
  */
 export const sendMessageSchema = z
   .object({
@@ -85,6 +87,11 @@ export const sendMessageSchema = z
     }
     if (v.type === 'reminder' && v.challengeId == null) {
       ctx.addIssue({ code: 'custom', message: 'reminder requires challengeId' });
+    }
+    // Règle 2 : une réussite partagée doit référencer une sourate que le
+    // serveur pourra vérifier (le client n'affirme jamais la réussite).
+    if (v.type === 'success' && v.numero == null) {
+      ctx.addIssue({ code: 'custom', message: 'success requires a mastered sourate (numero)' });
     }
   });
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

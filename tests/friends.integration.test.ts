@@ -153,6 +153,22 @@ d('friends (integration)', () => {
     expect(aStill).toBe(aCode);
   });
 
+  it('refuse une réussite non maîtrisée (règle 2)', async () => {
+    const a = await registerUser(app, { email: 'r2a@test.app' });
+    const b = await registerUser(app, { email: 'r2b@test.app' });
+    const code = (await app.inject({
+      method: 'GET', url: '/me/friends/code', headers: authHeader(a.accessToken),
+    })).json().code as string;
+    await app.inject({ method: 'POST', url: '/me/friends/add', headers: authHeader(b.accessToken), payload: { code } });
+
+    // B n'a terminé aucune leçon : il ne peut pas prétendre avoir maîtrisé une sourate.
+    const res = await app.inject({
+      method: 'POST', url: `/me/friends/${a.userId}/send`, headers: authHeader(b.accessToken),
+      payload: { type: 'success', numero: 1 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('un non-ami n’accède ni au progrès ni à l’envoi (règle 5)', async () => {
     const a = await registerUser(app, { email: 'r5c@test.app' });
     const b = await registerUser(app, { email: 'r5d@test.app' });

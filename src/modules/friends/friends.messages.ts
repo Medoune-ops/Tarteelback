@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { notificationService } from '../notifications/notification.service.js';
+import { getLearnedSourates } from '../me/learnedSourates.js';
 import { friendsRepository } from './friends.repository.js';
 import { serializePublicUser } from './friends.serializer.js';
 import { consumeSendQuota, getSendQuota } from './friends.quota.js';
@@ -41,6 +42,28 @@ export const friendsMessagesService = {
     if (!friendship) throw new AppError('NOT_FOUND', 'Friend not found');
     if (await friendsRepository.findBlockBetween(userId, recipientId)) {
       throw new AppError('FRIEND_BLOCKED', 'Unable to send to this user');
+    }
+
+    // Règle 2 : le serveur est la seule autorité sur « j'ai réussi ». Pour un
+    // envoi de type `success`, on NE FAIT PAS confiance au payload client : on
+    // vérifie que l'expéditeur a réellement maîtrisé la sourate (calcul serveur
+    // depuis LessonProgress) et on reconstruit le payload depuis cette vérité.
+    if (type === 'success') {
+      const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+      const numero = typeof obj.numero === 'number' ? obj.numero : null;
+      if (numero == null) {
+        throw new AppError('VALIDATION_ERROR', 'success requires a mastered sourate');
+      }
+      const learned = await getLearnedSourates(userId);
+      const match = learned.find((s) => s.numero === numero);
+      if (!match) {
+        throw new AppError('VALIDATION_ERROR', 'You have not mastered this sourate');
+      }
+      payload = {
+        numero: match.numero,
+        nom: match.nom,
+        ...(typeof obj.text === 'string' ? { text: obj.text } : {}),
+      };
     }
 
     const { message, quota } = await prisma.$transaction(async (tx) => {
