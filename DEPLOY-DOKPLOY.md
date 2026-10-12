@@ -44,5 +44,16 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 curl http://localhost:4000/health
 ```
 
+## Drapeaux de fonctionnalités (livraison)
+
+Livrer avec les fonctionnalités inachevées **coupées** :
+
+```env
+FRIENDS_ENABLED=false   # Amis : toutes les routes renvoient 404, l'app masque l'entrée
+```
+
+Le défaut du code est déjà `false` (règle 8 : un drapeau absent = fonctionnalité
+coupée). Ne le passer à `true` qu'une fois la fonctionnalité prête à sortir.
+
 Le front (Expo) n'a qu'une seule variable à changer :
 `EXPO_PUBLIC_API_URL=https://ton-domaine.tld` dans son `.env`.

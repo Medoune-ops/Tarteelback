@@ -129,3 +129,6 @@ Ton code utilise déjà Prisma Client — c'est l'accès normal de l'application
   au plan payant (`plan: basic` dans `render.yaml`) AVANT l'expiration, sinon
   la base (et donc tes données) est supprimée.
 - **Sommeil du free web** : le service s'endort après ~15 min d'inactivité.
+- **Fonctionnalités inachevées** : livrer avec `FRIENDS_ENABLED=false` (défaut
+  du code). Quand c'est `false`, les routes Amis renvoient 404 et l'app masque
+  l'entrée ; on ne passe à `true` que lorsque la fonctionnalité est prête.
