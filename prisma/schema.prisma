@@ -176,8 +176,9 @@ model User {
   personalPremiumUntil DateTime?
 
   // Stats / hearts / streak (kept on User for atomic 1-1 updates)
-  // Single XP counter — resets to 0 every week alongside the league rollover
-  // (no separate lifetime total: see league.cron.ts).
+  // Single weekly XP counter — RECOMPUTED from the XpEvent ledger for the
+  // current league week (never incremented; ticket 0.B4). A new week starts at
+  // 0 because it has no events yet (no separate lifetime total).
   weeklyXp        Int       @default(0)
   hearts          Int       @default(5)
   // Anchor for heart regeneration; null when hearts are full.
@@ -249,6 +250,9 @@ model User {
   passwordResets    PasswordResetToken[]
   activityDays      ActivityDay[]
   gemTransactions   GemTransaction[]
+  // Registre XP append-only (règle 4) : `weeklyXp` est TOUJOURS recalculé comme
+  // la somme des XpEvent de la semaine courante, jamais incrémenté.
+  xpEvents          XpEvent[]
 
   // Plan familial (foyer) : un compte possède au plus un foyer (owner) et
   // appartient à au plus un foyer (membership).
@@ -746,6 +750,10 @@ model LessonProgress {
   etat        LessonState @default(locked)
   score       Int         @default(0)
   completedAt DateTime?
+  // XP crédité pour cette leçon (0 tant que non terminée, figé à la 1re
+  // complétion). Rend le XP d'une leçon reconstructible/auditable depuis la
+  // progression, sans dépendre du compteur global (ticket 0.B4).
+  xpAwarded   Int         @default(0)
 
   @@unique([userId, lessonId])
   @@index([userId])
@@ -842,6 +850,7 @@ model LeagueWeek {
   closedAt      DateTime?
 
   memberships LeagueMembership[]
+  xpEvents    XpEvent[]
 
   @@unique([leagueId, numeroSemaine])
   @@index([leagueId])
@@ -879,7 +888,33 @@ model GemTransaction {
   ref       String?
   createdAt DateTime  @default(now())
 
-  @@index([userId, createdAt])
+   @@index([userId, createdAt])
+}
+
+/// XP ledger: one append-only row per XP GAIN (règle 4 — « recalculer, jamais
+/// incrémenter »). `User.weeklyXp` and `LeagueMembership.weeklyXp` are NOT
+/// incremented: they are recomputed as the SUM of the current week's rows. This
+/// makes the two counters impossible to drift and makes a weekly reset implicit
+/// (a new league week simply has no rows yet).
+model XpEvent {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // The league week this gain counts for (null when no league week exists yet
+  // — carryover backfill of pre-ledger balances, or leagues not seeded).
+  leagueWeekId String?
+  leagueWeek   LeagueWeek? @relation(fields: [leagueWeekId], references: [id], onDelete: SetNull)
+  // Positive XP amount (gains only; the ledger is append-only).
+  amount   Int
+  // Origin of the gain, e.g. 'lesson' | 'streak_goal' | 'podium' | 'daily_chest'
+  // | 'carryover'.
+  source   String
+  // Optional link to the source (lessonId, day key…).
+  ref      String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, leagueWeekId])
+  @@index([leagueWeekId])
 }
 
 // ─── Billing ─────────────────────────────────────────────────────────────────

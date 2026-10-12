@@ -4,6 +4,7 @@ import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { localDayKey } from '../../core/streak.js';
 import { MAX_HEARTS, computeHearts } from '../../core/hearts.js';
 import { leagueService } from '../leagues/league.service.js';
+import { xpService } from '../xp/xp.service.js';
 import {
   streakReward,
   podiumReward,
@@ -35,13 +36,15 @@ export const rewardService = {
       const gained = applyXpMultiplier(base, isPremiumActive(user));
       const updated = await tx.user.update({
         where: { id: userId },
-        data: { weeklyXp: { increment: gained }, streakGoal: null },
+        data: { streakGoal: null },
       });
-      const league = await leagueService.addXpIfMemberTx(tx, userId, gained);
-      return { xpGained: gained, totalXp: updated.weeklyXp, streakGoal: null, league };
+      // Règle 4 : événement d'XP + recalcul (jamais d'increment).
+      const xp = await xpService.grantTx(tx, userId, gained, 'streak_goal', `d${user.streakGoal}`);
+      const league = xp?.weekId ? { weekId: xp.weekId, weeklyXp: xp.weeklyXp } : null;
+      return { xpGained: gained, totalXp: xp?.weeklyXp ?? updated.weeklyXp, streakGoal: null, league };
     });
     if (result.league) {
-      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.weeklyXp);
     }
     return { xpGained: result.xpGained, totalXp: result.totalXp, streakGoal: result.streakGoal };
   },
@@ -89,15 +92,13 @@ export const rewardService = {
       });
       if (marked.count === 0) throw new AppError('CONFLICT', 'Podium reward already claimed');
 
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: { weeklyXp: { increment: gained } },
-      });
-      const league = await leagueService.addXpIfMemberTx(tx, userId, gained);
-      return { xpGained: gained, totalXp: updated.weeklyXp, ref, league };
+      // Règle 4 : événement d'XP + recalcul (jamais d'increment).
+      const xp = await xpService.grantTx(tx, userId, gained, 'podium', ref);
+      const league = xp?.weekId ? { weekId: xp.weekId, weeklyXp: xp.weeklyXp } : null;
+      return { xpGained: gained, totalXp: xp?.weeklyXp ?? user.weeklyXp, ref, league };
     });
     if (result.league) {
-      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.weeklyXp);
     }
     return { xpGained: result.xpGained, totalXp: result.totalXp, ref: result.ref };
   },
@@ -149,7 +150,6 @@ export const rewardService = {
       let xpGained = 0;
       if (reward.type === 'xp') {
         xpGained = applyXpMultiplier(reward.amount, premium);
-        data.weeklyXp = { increment: xpGained };
       } else if (reward.type === 'gems') {
         data.gems = { increment: reward.amount };
         await tx.gemTransaction.create({
@@ -161,11 +161,13 @@ export const rewardService = {
         if (data.hearts === MAX_HEARTS) data.lastHeartLossAt = null;
       }
       const updated = await tx.user.update({ where: { id: userId }, data });
-      const league = xpGained > 0 ? await leagueService.addXpIfMemberTx(tx, userId, xpGained) : null;
-      return { reward, totalXp: updated.weeklyXp, hearts: updated.hearts, gems: updated.gems, league };
+      // Règle 4 : événement d'XP + recalcul (jamais d'increment).
+      const xp = xpGained > 0 ? await xpService.grantTx(tx, userId, xpGained, 'daily_chest', today) : null;
+      const league = xp?.weekId ? { weekId: xp.weekId, weeklyXp: xp.weeklyXp } : null;
+      return { reward, totalXp: xp?.weeklyXp ?? updated.weeklyXp, hearts: updated.hearts, gems: updated.gems, league };
     });
     if (result.league) {
-      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.weeklyXp);
     }
     return { reward: result.reward, totalXp: result.totalXp, hearts: result.hearts, gems: result.gems };
   },

@@ -49,6 +49,23 @@ is not rewritten); any *new* destructive migration fails the guard and the
 `tests/migrationGuard.test.ts` suite. To retire a column, stop using it and
 leave it nullable — do not drop it.
 
+## XP ledger — recompute, never increment (ticket 0.B4)
+
+Every XP gain is written as an append-only `XpEvent` row
+(`src/modules/xp/xp.service.ts`, `grantTx`). `User.weeklyXp` and
+`LeagueMembership.weeklyXp` are then RECOMPUTED as `SUM(amount)` over the
+current league week (`recomputeWeeklyXpTx`) — never `increment`ed. Consequences:
+
+- the two projections can never drift apart;
+- the weekly reset is implicit: a new league week has no rows yet, so the sum
+  is 0 (the rollover still recomputes rather than blindly zeroing);
+- the Redis ranking is mirrored with `ZADD` (absolute score), so it can't drift
+  upward either;
+- `LessonProgress.xpAwarded` freezes the XP credited per lesson.
+
+`tests/xp.noIncrement.test.ts` statically forbids `weeklyXp: { increment }` in
+`src/`, so the rule can't regress.
+
 ## Statelessness
 
 API instances hold **no per-request state in memory**. Auth is a stateless
@@ -78,8 +95,9 @@ tracking needed. `/sections` caches only the shared content; the per-user
 progress overlay is always fetched fresh and merged on top.
 
 ### League ranking at scale
-`weeklyXp` lives in Postgres (source of truth, atomic increments). After each
-commit it's mirrored into a Redis **sorted set** per week. Reads use
+`weeklyXp` lives in Postgres (source of truth, recomputed from the XpEvent
+ledger — never incremented). After each commit it's mirrored into a Redis
+**sorted set** per week (ZADD absolute score). Reads use
 `ZCARD`/`ZREVRANK`/`ZREVRANGE` — O(log n), serving rank/podium/neighbours without
 ever loading the whole league. If Redis is cold/absent, the same data is served
 by index-backed SQL (`@@index([leagueWeekId, weeklyXp])`).
@@ -90,8 +108,8 @@ by index-backed SQL (`@@index([leagueWeekId, weeklyXp])`).
   read-modify-write race.
 - **Lesson completion** runs in a transaction with `SELECT ... FOR UPDATE` on the
   user row and is **idempotent** (XP/streak/league credited only on first
-  completion). League XP increments in the same DB transaction; the Redis mirror
-  happens after commit (best-effort, DB remains truth).
+  completion). Weekly XP is recorded as an XpEvent and RECOMPUTED in the same DB
+  transaction; the Redis mirror happens after commit (best-effort, DB is truth).
 - **Rollover** is idempotent (`closedAt` flag), locked, and per-week transactional.
 
 ## Maintenance jobs (`src/jobs/maintenance.ts`)

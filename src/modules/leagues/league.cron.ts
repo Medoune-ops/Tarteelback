@@ -20,6 +20,7 @@ import { prisma } from '../../config/prisma.js';
 import { withLock } from '../../core/lock.js';
 import { PODIUM_REWARD } from '../../core/rewards.js';
 import { promotionGems } from '../../core/gems.js';
+import { xpService } from '../xp/xp.service.js';
 
 const PODIUM_XP = PODIUM_REWARD;
 const PROMOTION = 3;
@@ -129,9 +130,13 @@ async function closeWeek(
         await tx.leagueMembership.upsert({
           where: { userId_leagueWeekId: { userId: batch[i]!.userId, leagueWeekId: targetWeek.id } },
           create: { userId: batch[i]!.userId, leagueWeekId: targetWeek.id, weeklyXp: 0 },
-          update: { weeklyXp: 0 },
+          update: {},
         });
-        await tx.user.update({ where: { id: batch[i]!.userId }, data: { weeklyXp: 0 } });
+        // Règle 4 : weeklyXp est RECALCULÉ depuis le registre pour la nouvelle
+        // semaine (0 s'il n'y a aucun événement). On n'écrit jamais un increment
+        // ni un 0 aveugle — un gain déjà réalisé dans la nouvelle semaine (si le
+        // rollover tourne en retard) reste intact.
+        await xpService.recomputeWeeklyXpTx(tx, batch[i]!.userId, targetWeek.id);
 
         // Actual promotion (not already at the top tier) → gems, ledgered.
         // Idempotency comes from `closedAt`: a closed week is never re-run.

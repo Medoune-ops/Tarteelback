@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
 import { prisma } from '../src/config/prisma.js';
 import { runWeeklyRollover } from '../src/modules/leagues/league.cron.js';
-import { leagueService } from '../src/modules/leagues/league.service.js';
+import { xpService } from '../src/modules/xp/xp.service.js';
 
 const d = DB_TESTS ? describe : describe.skip;
 
@@ -121,7 +121,7 @@ d('league auto-enrolment on XP gain (integration)', () => {
    * Reproduit le symptôme rapporté : l'XP affiché sur l'écran Apprendre
    * (User.weeklyXp) monte à chaque leçon/coffre, mais l'écran Ligue
    * (LeagueMembership.weeklyXp) reste figé si l'utilisateur n'a pas
-   * d'adhésion active — `addXpIfMemberTx` faisait un no-op silencieux.
+   * d'adhésion active — `xpService.grantTx` auto-inscrit désormais.
    * Il doit désormais auto-inscrire l'utilisateur dans la ligue la plus
    * basse au lieu de laisser les deux compteurs diverger.
    */
@@ -142,7 +142,7 @@ d('league auto-enrolment on XP gain (integration)', () => {
     const membershipBefore = await prisma.leagueMembership.findFirst({ where: { userId: u.userId } });
     expect(membershipBefore).toBeNull();
 
-    const result = await prisma.$transaction((tx) => leagueService.addXpIfMemberTx(tx, u.userId, 50));
+    const result = await prisma.$transaction((tx) => xpService.grantTx(tx, u.userId, 50, 'lesson', 'test'));
     expect(result).not.toBeNull();
 
     const membershipAfter = await prisma.leagueMembership.findFirst({ where: { userId: u.userId } });
@@ -166,8 +166,8 @@ d('league auto-enrolment on XP gain (integration)', () => {
     });
     const u = await registerUser(app);
 
-    await prisma.$transaction((tx) => leagueService.addXpIfMemberTx(tx, u.userId, 30));
-    await prisma.$transaction((tx) => leagueService.addXpIfMemberTx(tx, u.userId, 20));
+    await prisma.$transaction((tx) => xpService.grantTx(tx, u.userId, 30, 'lesson', 'l1'));
+    await prisma.$transaction((tx) => xpService.grantTx(tx, u.userId, 20, 'lesson', 'l2'));
 
     const memberships = await prisma.leagueMembership.findMany({ where: { userId: u.userId } });
     expect(memberships).toHaveLength(1);

@@ -22,6 +22,7 @@ import { scoreRecitation } from '../../core/arabic.js';
 import { transcribeAudio } from './asr.client.js';
 import { userRepository } from '../me/user.repository.js';
 import { leagueService } from '../leagues/league.service.js';
+import { xpService } from '../xp/xp.service.js';
 import { lessonRepository } from './lesson.repository.js';
 import { computeUserStats } from '../me/user.stats.js';
 import { serializeUserFlat } from '../me/user.serializer.js';
@@ -240,15 +241,23 @@ export const lessonService = {
         ? applyXpMultiplier(baseXp, premium) * (doubleXp ? DOUBLE_XP_MULTIPLIER : 1)
         : 0;
 
-      // Mark progress (idempotent).
+      // Mark progress (idempotent). `xpAwarded` is frozen on the first
+      // completion only (replays must not overwrite the credited XP).
+      const progressData = {
+        etat: 'completed' as const,
+        score: score ?? 100,
+        completedAt: now,
+        ...(firstCompletion ? { xpAwarded: gained } : {}),
+      };
       await tx.lessonProgress.upsert({
         where: { userId_lessonId: { userId, lessonId } },
-        create: { userId, lessonId, etat: 'completed', score: score ?? 100, completedAt: now },
-        update: { etat: 'completed', score: score ?? 100, completedAt: now },
+        create: { userId, lessonId, ...progressData },
+        update: progressData,
       });
 
       let u = user;
-      let league: { weekId: string; amount: number } | null = null;
+      let league: { weekId: string; weeklyXp: number } | null = null;
+      let weeklyXp = user.weeklyXp;
       let gemsGained = 0;
       if (firstCompletion) {
         // Pending missed days may consume streak-freeze items (Plus: unlimited,
@@ -296,7 +305,6 @@ export const lessonService = {
         u = await tx.user.update({
           where: { id: userId },
           data: {
-            weeklyXp: { increment: gained },
             gems: { increment: gemsGained },
             ...(freezesConsumed > 0 ? { streakFreezes: { decrement: freezesConsumed } } : {}),
             streak: streak.streak,
@@ -305,8 +313,16 @@ export const lessonService = {
             lastActivityDate: streak.lastActivityDate,
           },
         });
-        // League weekly XP, in the SAME transaction (no divergence with the DB).
-        league = await leagueService.addXpIfMemberTx(tx, userId, gained);
+
+        // Règle 4 : on enregistre un événement d'XP puis on RECALCULE weeklyXp
+        // (jamais d'increment). Les deux projections (User + membership) sont
+        // mises à jour en valeur absolue dans la même transaction.
+        const xp = await xpService.grantTx(tx, userId, gained, 'lesson', lessonId);
+        if (xp) {
+          weeklyXp = xp.weeklyXp;
+          u = { ...u, weeklyXp };
+          if (xp.weekId) league = { weekId: xp.weekId, weeklyXp };
+        }
       }
 
       // Record today's LOCAL day as active (idempotent per day) so the profile
@@ -319,14 +335,14 @@ export const lessonService = {
         update: {},
       });
 
-      return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
+      return { u, gained, weeklyXp, gemsGained, premium, firstCompletion, league, doubleXp };
     });
 
     // Mirror the league XP into Redis AFTER the DB commit (best-effort; the DB
     // remains the source of truth and ranking falls back to SQL if Redis is
     // down or cold).
     if (result.league) {
-      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
+      await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.weeklyXp);
     }
 
     // Fil d'activité amis (phase 2) — BEST-EFFORT, jamais bloquant (règle 3).
