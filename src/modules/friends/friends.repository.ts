@@ -2,7 +2,11 @@ import type { Prisma, FriendActivityType, ChallengeMetric, FriendSendType } from
 import { prisma } from '../../config/prisma.js';
 import { canonicalPair } from '../../core/friends.js';
 
-/** Champs publics d'un ami (jamais d'email/données sensibles). */
+/**
+ * Champs publics d'un ami (jamais d'email/fuseau/gemmes/cœurs/abonnement).
+ * Doit rester aligné sur `PublicUserRow` : la sortie réelle est de toute façon
+ * filtrée par `serializePublicUser` (friends.serializer.ts) — règle 6.
+ */
 export const friendUserSelect = {
   id: true,
   displayName: true,

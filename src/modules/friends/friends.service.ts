@@ -14,6 +14,7 @@ import { friendsRepository, friendUserSelect } from './friends.repository.js';
 import {
   serializeFriend,
   serializeFriendProgress,
+  serializePublicUser,
   type FriendView,
 } from './friends.serializer.js';
 
@@ -175,12 +176,7 @@ export const friendsService = {
       entries: sorted.map((u, i) => ({
         rank: i + 1,
         isMe: u.id === userId,
-        user: {
-          id: u.id,
-          displayName: u.displayName,
-          username: u.username,
-          avatarInitials: u.avatarInitials,
-        },
+        user: serializePublicUser(u),
         weeklyXp: u.weeklyXp,
         streak: u.streak,
       })),

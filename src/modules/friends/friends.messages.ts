@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { notificationService } from '../notifications/notification.service.js';
 import { friendsRepository } from './friends.repository.js';
+import { serializePublicUser } from './friends.serializer.js';
 import { consumeSendQuota, getSendQuota } from './friends.quota.js';
 
 export type FriendSendTypeName = 'hadith' | 'success' | 'encouragement' | 'reminder';
@@ -74,7 +75,7 @@ export const friendsMessagesService = {
         payload: r.payload,
         read: r.readAt != null,
         createdAt: r.createdAt.toISOString(),
-        sender: r.sender,
+        sender: serializePublicUser(r.sender),
       })),
     };
   },

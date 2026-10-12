@@ -2,13 +2,14 @@ import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
 import { friendsRepository } from './friends.repository.js';
+import { serializePublicUser, type FriendUserView } from './friends.serializer.js';
 
 /** Paliers de série publiés dans le fil d'activité. */
 const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100, 180, 365];
 
 export interface ActivityView {
   id: string;
-  user: { id: string; displayName: string; username: string | null; avatarInitials: string };
+  user: FriendUserView;
   type: 'sourate_mastered' | 'streak_milestone' | 'level_up';
   data: unknown;
   createdAt: string;
@@ -73,7 +74,7 @@ export const friendsActivityService = {
       .filter((r) => !blocked.has(r.userId))
       .map((r) => ({
         id: r.id,
-        user: r.user,
+        user: serializePublicUser(r.user),
         type: r.type,
         data: r.data,
         createdAt: r.createdAt.toISOString(),

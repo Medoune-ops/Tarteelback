@@ -3,9 +3,10 @@ import { AppError } from '../../core/errors.js';
 import { getLearnedSourates } from '../me/learnedSourates.js';
 import { notificationService } from '../notifications/notification.service.js';
 import { friendsRepository, friendUserSelect } from './friends.repository.js';
+import { serializePublicUser, type FriendUserView } from './friends.serializer.js';
 
 export interface ChallengeParticipantView {
-  user: { id: string; displayName: string; username: string | null; avatarInitials: string };
+  user: FriendUserView;
   progress: number;
   achieved: boolean;
   isMe: boolean;
@@ -20,7 +21,7 @@ export interface ChallengeView {
   startsAt: string;
   endsAt: string;
   status: 'active' | 'ended';
-  creator: { id: string; displayName: string; username: string | null; avatarInitials: string };
+  creator: FriendUserView;
   isCreator: boolean;
   participants: ChallengeParticipantView[];
   winnerIds: string[];
@@ -162,13 +163,13 @@ export const friendsChallengesService = {
       status: 'active' | 'ended';
       winnerIds: string[];
       creatorId: string;
-      creator: { id: string; displayName: string; username: string | null; avatarInitials: string };
+      creator: FriendUserView;
       entries: Array<{
         id: string;
         userId: string;
         progress: number;
         achievedAt: Date | null;
-        user: { id: string; displayName: string; username: string | null; avatarInitials: string };
+        user: FriendUserView;
       }>;
     },
     meId: string,
@@ -225,7 +226,7 @@ export const friendsChallengesService = {
 
     const participants: ChallengeParticipantView[] = computed
       .map((c) => ({
-        user: c.entry.user,
+        user: serializePublicUser(c.entry.user),
         progress: c.progress,
         achieved: c.achievedAt != null,
         isMe: c.entry.userId === meId,
@@ -241,7 +242,7 @@ export const friendsChallengesService = {
       startsAt: challenge.startsAt.toISOString(),
       endsAt: challenge.endsAt.toISOString(),
       status: shouldEnd ? 'ended' : 'active',
-      creator: challenge.creator,
+      creator: serializePublicUser(challenge.creator),
       isCreator: challenge.creatorId === meId,
       participants,
       winnerIds,

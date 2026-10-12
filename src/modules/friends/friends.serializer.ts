@@ -1,11 +1,42 @@
 import type { LearnedSourate } from '../me/learnedSourates.js';
 
-/** Profil public minimal d'un utilisateur (jamais d'email). */
+/**
+ * Profil public d'un utilisateur — LISTE BLANCHE (règle 6). Un ami ne voit
+ * JAMAIS l'email, le fuseau horaire, les gemmes, les cœurs ni l'abonnement.
+ *
+ * C'est le seul type d'utilisateur qui franchit la frontière « ami → ami ».
+ * `serializePublicUser` est LA seule fonction de sérialisation autorisée : tous
+ * les modules amis passent par elle (liste, classement, activité, défis, inbox).
+ * Les colonnes lues en base sont aussi limitées par `friendUserSelect`
+ * (friends.repository.ts) — double protection lecture + sortie.
+ */
 export interface FriendUserView {
   id: string;
   displayName: string;
   username: string | null;
   avatarInitials: string;
+}
+
+/** Ligne d'utilisateur brute — on tolère un superset, on ne recopie que la liste. */
+export interface PublicUserRow {
+  id: string;
+  displayName: string;
+  username: string | null;
+  avatarInitials: string;
+}
+
+/**
+ * Unique point de sortie d'un profil public. Toute donnée hors liste blanche
+ * (email, timezone, gems, hearts, isPremium, abonnement…) est supprimée, même
+ * si elle est présente sur l'objet d'entrée.
+ */
+export function serializePublicUser(row: PublicUserRow): FriendUserView {
+  return {
+    id: row.id,
+    displayName: row.displayName,
+    username: row.username,
+    avatarInitials: row.avatarInitials,
+  };
 }
 
 export interface FriendView {
@@ -15,20 +46,13 @@ export interface FriendView {
   since: string;
 }
 
-interface FriendUserRow {
-  id: string;
-  displayName: string;
-  username: string | null;
-  avatarInitials: string;
-}
-
 interface FriendshipRow {
   id: string;
   user1Id: string;
   user2Id: string;
   createdAt: Date;
-  user1: FriendUserRow;
-  user2: FriendUserRow;
+  user1: PublicUserRow;
+  user2: PublicUserRow;
 }
 
 /** Sérialise une amitié en vue « ami » du point de vue de `meId`. */
@@ -36,7 +60,7 @@ export function serializeFriend(row: FriendshipRow, meId: string): FriendView {
   const other = row.user1Id === meId ? row.user2 : row.user1;
   return {
     friendshipId: row.id,
-    user: other,
+    user: serializePublicUser(other),
     since: row.createdAt.toISOString(),
   };
 }
@@ -51,16 +75,11 @@ export interface FriendProgressView {
 }
 
 export function serializeFriendProgress(
-  user: FriendUserRow & { streak: number; weeklyXp: number },
+  user: PublicUserRow & { streak: number; weeklyXp: number },
   learned: LearnedSourate[],
 ): FriendProgressView {
   return {
-    user: {
-      id: user.id,
-      displayName: user.displayName,
-      username: user.username,
-      avatarInitials: user.avatarInitials,
-    },
+    user: serializePublicUser(user),
     streak: user.streak,
     weeklyXp: user.weeklyXp,
     masteredSourates: learned.length,
