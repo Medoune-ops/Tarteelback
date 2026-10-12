@@ -20,6 +20,7 @@
     "db:reset": "tsx scripts/guard-db.ts db-reset && prisma migrate reset",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "migrations:guard": "tsx scripts/guard-migrations.ts",
     "seed": "tsx scripts/guard-db.ts seed && tsx prisma/seed.ts",
     "seed:backoffice": "tsx scripts/guard-db.ts seed:backoffice && tsx prisma/seedBackoffice.ts",
     "seed:quran": "tsx scripts/guard-db.ts seed:quran && tsx prisma/importQuran.ts",

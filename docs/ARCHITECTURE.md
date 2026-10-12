@@ -38,6 +38,17 @@ production only ever runs `prisma migrate deploy` (the Docker `CMD`). The gate
 is also enforced at the test-runner level (`vitest.config.ts` global setup), so
 a misdirected integration run fails before any `TRUNCATE`.
 
+## Additive migrations only (ticket 0.B7)
+
+A migration must ADD (nullable columns, new tables/indexes), never DROP.
+`src/config/migrationGuard.ts` + `npm run migrations:guard` scan every
+`prisma/migrations/*/migration.sql` and reject `DROP TABLE`/`DROP COLUMN`/
+`DROP TYPE`/`TRUNCATE`/`DELETE FROM`/`ALTER COLUMN ... TYPE`. Three migrations
+predating the rule are grandfathered in `KNOWN_DESTRUCTIVE_MIGRATIONS` (history
+is not rewritten); any *new* destructive migration fails the guard and the
+`tests/migrationGuard.test.ts` suite. To retire a column, stop using it and
+leave it nullable — do not drop it.
+
 ## Statelessness
 
 API instances hold **no per-request state in memory**. Auth is a stateless
