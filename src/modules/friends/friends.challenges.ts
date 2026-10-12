@@ -16,6 +16,7 @@ export interface ChallengeView {
   title: string;
   metric: 'xp' | 'streak' | 'sourates';
   targetValue: number;
+  sourateNumeros?: number[];
   startsAt: string;
   endsAt: string;
   status: 'active' | 'ended';
@@ -28,22 +29,29 @@ export interface ChallengeView {
 const MAX_TARGET = 100_000;
 const MAX_DURATION_DAYS = 60;
 
-/** Progrès d'un utilisateur pour la métrique d'un défi. */
-async function progressFor(
-  user: { id: string; weeklyXp: number; streak: number },
-  metric: 'xp' | 'streak' | 'sourates',
-  learnedCache: Map<string, number>,
-): Promise<number> {
-  if (metric === 'xp') return user.weeklyXp;
-  if (metric === 'streak') return user.streak;
-  // 'sourates' — total des sourates maîtrisées (pas de bornage temporel : les
-  // sourates apprises n'ont pas d'horodatage de maîtrise).
-  const cached = learnedCache.get(user.id);
-  if (cached != null) return cached;
-  const learned = await getLearnedSourates(user.id);
-  learnedCache.set(user.id, learned.length);
-  return learned.length;
-}
+  /** Progrès d'un utilisateur pour la métrique d'un défi. */
+  async function progressFor(
+    user: { id: string; weeklyXp: number; streak: number },
+    metric: 'xp' | 'streak' | 'sourates',
+    learnedCache: Map<string, number[]>,
+    chosen: number[],
+  ): Promise<number> {
+    if (metric === 'xp') return user.weeklyXp;
+    if (metric === 'streak') return user.streak;
+    // 'sourates' — nombre de sourates choisies maîtrisées parmi sourateNumeros
+    let learnedNums = learnedCache.get(user.id);
+    if (learnedNums == null) {
+      const learned = await getLearnedSourates(user.id);
+      learnedNums = learned.map((s) => s.numero);
+      learnedCache.set(user.id, learnedNums);
+    }
+    const target = chosen;
+    if (target.length === 0) return learnedNums.length;
+    const set = new Set(learnedNums);
+    let count = 0;
+    for (const n of target) if (set.has(n)) count++;
+    return count;
+  }
 
 /**
  * Défis partagés (phase 3). Les participants sont ajoutés à la création (pas
@@ -54,10 +62,12 @@ async function progressFor(
 export const friendsChallengesService = {
   async create(
     userId: string,
-    input: { title: string; metric: 'xp' | 'streak' | 'sourates'; targetValue: number; endsAt: Date; friendIds: string[] },
+    input: { title: string; metric: 'xp' | 'streak' | 'sourates'; targetValue: number; endsAt: Date; friendIds: string[]; sourateNumeros?: number[] },
   ): Promise<ChallengeView> {
-    if (input.targetValue < 1 || input.targetValue > MAX_TARGET) {
-      throw new AppError('VALIDATION_ERROR', 'Invalid target');
+    if (input.metric !== 'sourates') {
+      if (input.targetValue < 1 || input.targetValue > MAX_TARGET) {
+        throw new AppError('VALIDATION_ERROR', 'Invalid target');
+      }
     }
     const now = new Date();
     if (input.endsAt.getTime() <= now.getTime()) {
@@ -85,9 +95,15 @@ export const friendsChallengesService = {
       }
     }
 
+    let sourateNumeros: number[] | undefined = undefined;
+    if (input.metric === 'sourates') {
+      sourateNumeros = Array.from(new Set(input.sourateNumeros ?? [])).filter((n)=>n>=1&&n<=114).sort((a,b)=>a-b);
+      if (sourateNumeros.length === 0) throw new AppError('VALIDATION_ERROR', 'Select at least one sourate');
+    }
+
     const created = await friendsRepository.createChallenge(
       userId,
-      { title: input.title, metric: input.metric, targetValue: input.targetValue, endsAt: input.endsAt },
+      { title: input.title, metric: input.metric, targetValue: input.targetValue, endsAt: input.endsAt, sourateNumeros },
       [userId, ...uniqueFriendIds],
     );
 
@@ -134,12 +150,13 @@ export const friendsChallengesService = {
   },
 
   /** Recalcule les progrès, persiste les atteintes, résout les gagnants au terme. */
-  async toView(
+  async   toView(
     challenge: {
       id: string;
       title: string;
       metric: 'xp' | 'streak' | 'sourates';
       targetValue: number;
+      sourateNumeros: number[];
       startsAt: Date;
       endsAt: Date;
       status: 'active' | 'ended';
@@ -157,7 +174,8 @@ export const friendsChallengesService = {
     meId: string,
   ): Promise<ChallengeView> {
     const now = new Date();
-    const learnedCache = new Map<string, number>();
+    const learnedCache = new Map<string, number[]>();
+    const chosen = challenge.sourateNumeros ?? [];
 
     const stats = await prisma.user.findMany({
       where: { id: { in: challenge.entries.map((e) => e.userId) } },
@@ -168,7 +186,7 @@ export const friendsChallengesService = {
     const computed = await Promise.all(
       challenge.entries.map(async (e) => {
         const stat = byId.get(e.userId) ?? { id: e.userId, weeklyXp: 0, streak: 0 };
-        const progress = Math.max(e.progress, await progressFor(stat, challenge.metric, learnedCache));
+        const progress = Math.max(e.progress, await progressFor(stat, challenge.metric, learnedCache, chosen));
         const achievedAt = e.achievedAt ?? (progress >= challenge.targetValue ? now : null);
         return { entry: e, progress, achievedAt };
       }),
@@ -219,6 +237,7 @@ export const friendsChallengesService = {
       title: challenge.title,
       metric: challenge.metric,
       targetValue: challenge.targetValue,
+      ...(challenge.sourateNumeros?.length ? { sourateNumeros: challenge.sourateNumeros } : {}),
       startsAt: challenge.startsAt.toISOString(),
       endsAt: challenge.endsAt.toISOString(),
       status: shouldEnd ? 'ended' : 'active',

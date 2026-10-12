@@ -1099,11 +1099,12 @@ model Challenge {
   creatorId   String
   creator     User                   @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   title       String
-  metric      ChallengeMetric
-  targetValue Int
-  startsAt    DateTime               @default(now())
-  endsAt      DateTime
-  status      ChallengeStatus        @default(active)
+  metric         ChallengeMetric
+  targetValue    Int
+  sourateNumeros Int[]                 @default([])
+  startsAt       DateTime              @default(now())
+  endsAt         DateTime
+  status         ChallengeStatus       @default(active)
   /// Gagnants (1 ou plusieurs en cas d'égalité). Vide tant que non résolu.
   winnerIds   String[]
   createdAt   DateTime               @default(now())

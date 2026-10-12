@@ -330,9 +330,12 @@ export const lessonService = {
     }
 
     // Fil d'activité amis (phase 2) — best-effort, jamais bloquant.
+    let sourateMastered: { numero: number; nom: string } | null = null;
     if (env.FRIENDS_ENABLED && result.firstCompletion) {
       if (lesson.sourateNumero != null) {
-        void friendsActivityService.recordSourateIfMastered(userId, lesson.sourateNumero);
+        sourateMastered = await friendsActivityService
+          .recordSourateIfMastered(userId, lesson.sourateNumero)
+          .catch(() => null);
       }
       void friendsActivityService.recordStreakMilestone(userId, result.u.streak);
     }
@@ -348,6 +351,7 @@ export const lessonService = {
       streakFrozen: result.u.streakFrozen,
       premium: result.premium,
       doubleXpWasActive: result.doubleXp,
+      ...(sourateMastered ? { sourateMastered } : {}),
     };
   },
 
@@ -368,6 +372,7 @@ export const lessonService = {
       ...serializeUserFlat(user, stats, now),
       xpGained: result.xpGained,
       doubleXpWasActive: result.doubleXpWasActive,
+      ...(result as any).sourateMastered ? { sourateMastered: (result as any).sourateMastered } : {},
     };
   },
 };

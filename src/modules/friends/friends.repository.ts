@@ -171,15 +171,20 @@ export const friendsRepository = {
   // ── Défis (phase 3) ─────────────────────────────────────────────────────
   createChallenge(
     creatorId: string,
-    input: { title: string; metric: ChallengeMetric; targetValue: number; endsAt: Date },
+    input: { title: string; metric: ChallengeMetric; targetValue: number; endsAt: Date; sourateNumeros?: number[] },
     participantIds: string[],
   ) {
+    const sourateNumeros = input.metric === 'sourates' && input.sourateNumeros
+      ? Array.from(new Set(input.sourateNumeros)).sort((a,b)=>a-b)
+      : [];
+    const targetValue = input.metric === 'sourates' ? sourateNumeros.length : input.targetValue;
     return prisma.challenge.create({
       data: {
         creatorId,
         title: input.title,
         metric: input.metric,
-        targetValue: input.targetValue,
+        targetValue,
+        sourateNumeros,
         endsAt: input.endsAt,
         entries: {
           create: participantIds.map((userId) => ({ userId })),

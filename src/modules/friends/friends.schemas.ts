@@ -97,8 +97,24 @@ export const createChallengeSchema = z
     targetValue: z.number().int().positive().max(100000),
     endsAt: z.coerce.date(),
     friendIds: z.array(z.string().min(1)).min(1).max(19),
+    sourateNumeros: z.array(z.number().int().min(1).max(114)).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.metric === 'sourates') {
+      if (!v.sourateNumeros || v.sourateNumeros.length === 0) {
+        ctx.addIssue({ code: 'custom', message: 'sourateNumeros required for sourates metric' });
+        return;
+      }
+      if (v.sourateNumeros.length > 114) {
+        ctx.addIssue({ code: 'custom', message: 'too many sourates selected' });
+      }
+      const unique = new Set(v.sourateNumeros);
+      if (unique.size !== v.sourateNumeros.length) {
+        ctx.addIssue({ code: 'custom', message: 'duplicate sourate selected' });
+      }
+    }
+  });
 export type CreateChallengeInput = z.infer<typeof createChallengeSchema>;
 
 /** Paramètre de route `:challengeId`. */

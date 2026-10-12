@@ -24,16 +24,18 @@ export interface ActivityView {
  */
 export const friendsActivityService = {
   /** Publie « sourate maîtrisée » si elle est bien complète et pas déjà publiée. */
-  async recordSourateIfMastered(userId: string, numero: number): Promise<void> {
+  async recordSourateIfMastered(userId: string, numero: number): Promise<{ numero: number; nom: string } | null> {
     try {
       const learned = await getLearnedSourates(userId);
       const s = learned.find((x) => x.numero === numero);
-      if (!s) return;
+      if (!s) return null;
       const existing = await friendsRepository.findSourateMasteredActivity(userId, numero);
-      if (existing) return;
+      if (existing) return { numero: s.numero, nom: s.nom };
       await friendsRepository.createActivity(userId, 'sourate_mastered', { numero: s.numero, nom: s.nom });
+      return { numero: s.numero, nom: s.nom };
     } catch {
       // best-effort : le fil d'activité ne doit jamais casser la leçon.
+      return null;
     }
   },
 
