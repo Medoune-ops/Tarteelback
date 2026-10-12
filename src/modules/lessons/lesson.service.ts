@@ -329,15 +329,25 @@ export const lessonService = {
       await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
     }
 
-    // Fil d'activité amis (phase 2) — best-effort, jamais bloquant.
+    // Fil d'activité amis (phase 2) — BEST-EFFORT, jamais bloquant (règle 3).
+    // La leçon est déjà validée/commitée ci-dessus : quoi qu'il arrive côté
+    // amis/défis (table absente, service cassé, throw synchrone), on renvoie
+    // quand même la réussite. Double protection : try/catch ici + les méthodes
+    // de friendsActivityService avalent déjà leurs erreurs.
     let sourateMastered: { numero: number; nom: string } | null = null;
     if (env.FRIENDS_ENABLED && result.firstCompletion) {
-      if (lesson.sourateNumero != null) {
-        sourateMastered = await friendsActivityService
-          .recordSourateIfMastered(userId, lesson.sourateNumero)
-          .catch(() => null);
+      try {
+        if (lesson.sourateNumero != null) {
+          sourateMastered = await friendsActivityService
+            .recordSourateIfMastered(userId, lesson.sourateNumero)
+            .catch(() => null);
+        }
+        void friendsActivityService
+          .recordStreakMilestone(userId, result.u.streak)
+          .catch(() => {});
+      } catch {
+        sourateMastered = null;
       }
-      void friendsActivityService.recordStreakMilestone(userId, result.u.streak);
     }
 
     return {
