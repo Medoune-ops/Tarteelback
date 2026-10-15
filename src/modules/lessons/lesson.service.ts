@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
+import { enqueue, scheduleOutboxDrain } from '../../core/outbox.js';
 import { isPremiumActive, applyXpMultiplier } from '../../core/premium.js';
 import { computeHearts, snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { applyActivity, localDayKey } from '../../core/streak.js';
@@ -323,6 +324,22 @@ export const lessonService = {
         update: {},
       });
 
+      // Outbox — UN SEUL INSERT, au premier passage uniquement, aucune autre
+      // logique « amis » dans cette transaction. Traitement en tâche de fond.
+      if (firstCompletion) {
+        await enqueue(tx, {
+          type: 'lesson.completed',
+          userId,
+          payload: {
+            lessonId,
+            sourateNumero: lesson.sourateNumero ?? null,
+            firstCompletion: true,
+            xpGained: gained,
+            dayKey,
+          },
+        });
+      }
+
       return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
     });
 
@@ -332,6 +349,9 @@ export const lessonService = {
     if (result.league) {
       await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
     }
+
+    // Déclenchement immédiat, non bloquant, de la file d'événements.
+    scheduleOutboxDrain();
 
     return {
       xpGained: result.gained,
