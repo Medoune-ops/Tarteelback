@@ -33,7 +33,22 @@ export type ErrorCode =
   // Email verification (feature-flagged — see auth.service.ts).
   | 'INVALID_CODE'
   | 'TOO_MANY_ATTEMPTS'
-  | 'EMAIL_NOT_VERIFIED';
+  | 'EMAIL_NOT_VERIFIED'
+  // Friends
+  | 'NOT_FRIENDS'
+  | 'BLOCKED'
+  | 'FRIEND_LIMIT'
+  | 'ALREADY_FRIENDS'
+  | 'FRIEND_REQUEST_PENDING'
+  | 'INVITE_INVALID'
+  | 'INVITE_EXPIRED'
+  | 'CANNOT_ADD_SELF'
+  | 'FRIENDS_DISABLED'
+  // Challenges
+  | 'CHALLENGE_CLOSED'
+  | 'CHALLENGE_FULL'
+  // Quotas
+  | 'QUOTA_EXCEEDED';
 
 /** Default HTTP status for each error code. */
 const STATUS: Record<ErrorCode, number> = {
@@ -66,6 +81,21 @@ const STATUS: Record<ErrorCode, number> = {
   INVALID_CODE: 400,
   TOO_MANY_ATTEMPTS: 429,
   EMAIL_NOT_VERIFIED: 403,
+  // Friends
+  NOT_FRIENDS: 403,
+  BLOCKED: 403,
+  FRIEND_LIMIT: 409,
+  ALREADY_FRIENDS: 409,
+  FRIEND_REQUEST_PENDING: 409,
+  INVITE_INVALID: 400,
+  INVITE_EXPIRED: 410,
+  CANNOT_ADD_SELF: 400,
+  FRIENDS_DISABLED: 503,
+  // Challenges
+  CHALLENGE_CLOSED: 409,
+  CHALLENGE_FULL: 409,
+  // Quotas
+  QUOTA_EXCEEDED: 429,
 };
 
 /**
