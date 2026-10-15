@@ -1,5 +1,6 @@
 import { adminConfigRepository } from './adminConfig.repository.js';
 import type { UpdateConfigBody } from './adminConfig.schemas.js';
+import { env } from '../../config/env.js';
 
 type ConfigRow = Awaited<ReturnType<typeof adminConfigRepository.get>>;
 
@@ -51,8 +52,12 @@ function serializeAdmin(row: ConfigRow) {
 
 export const adminConfigService = {
   /** GET /config (public) */
-  async getPublic() {
-    return serializePublic(await adminConfigRepository.get());
+  async getPublic(userId?: string | null) {
+    const row = await adminConfigRepository.get();
+    return {
+      ...serializePublic(row),
+      friendsEnabled: isFriendsEnabledFor(userId),
+    };
   },
 
   /** GET /backoffice/config */
@@ -76,3 +81,11 @@ export async function isEmailVerificationEnabled(): Promise<boolean> {
   const row = await adminConfigRepository.get();
   return row.emailVerificationEnabled;
 }
+
+function isFriendsEnabledFor(userId?: string | null): boolean {
+  if (!env.FRIENDS_ENABLED) return false;
+  const beta = env.FRIENDS_BETA_USER_IDS;
+  if (beta.length === 0) return true;
+  return !!userId && beta.includes(userId);
+}
+

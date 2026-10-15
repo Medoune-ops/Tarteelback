@@ -57,6 +57,16 @@ const EnvSchema = z.object({
 
   DEFAULT_LANG: z.string().default('en'),
 
+  // Amis (ticket 0.B3) �?" interrupteur global et allowlist beta.
+  FRIENDS_ENABLED: z.coerce.boolean().default(false),
+  FRIENDS_BETA_USER_IDS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v.split(',').map((s) => s.trim()).filter((s) => s.length > 0),
+    ),
+  PUBLIC_WEB_URL: z.string().trim().default(''),
+
   // Quran.com: used ONLY for chapter names/metadata and word-by-word audio
   // (which Al Quran Cloud does not provide) — see prisma/importQuran.ts.
   QURAN_API_BASE: z.string().default('https://api.quran.com/api/v4'),
