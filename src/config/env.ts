@@ -1,4 +1,13 @@
 import 'dotenv/config';
+import dotenv from 'dotenv';
+
+// Ticket 0.B1 : en environnement de test, on complète avec .env.test (sans
+// écraser les variables déjà présentes dans l'environnement, pour garder
+// la garde DB efficace).
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: '.env.test', override: false });
+}
+
 import { z } from 'zod';
 
 /**
