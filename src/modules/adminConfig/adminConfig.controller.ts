@@ -2,11 +2,13 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
 import { adminConfigService } from './adminConfig.service.js';
 import { updateConfigBodySchema } from './adminConfig.schemas.js';
+import { tryAuth } from '../../core/optionalAuth.js';
 
 export const adminConfigController = {
   /** GET /config (public) */
-  async getPublic(_req: FastifyRequest, reply: FastifyReply) {
-    return reply.send(await adminConfigService.getPublic());
+  async getPublic(req: FastifyRequest, reply: FastifyReply) {
+    const claims = await tryAuth(req);
+    return reply.send(await adminConfigService.getPublic(claims?.sub ?? null));
   },
 
   /** GET /backoffice/config */
