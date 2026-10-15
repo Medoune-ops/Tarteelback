@@ -13,6 +13,7 @@ import { withLock } from '../core/lock.js';
 import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
 import { sendDueInactivityReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
 import { householdService } from '../modules/household/household.service.js';
+import { drainOutbox as runOutboxDrain } from '../core/outbox.js';
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
 
@@ -62,18 +63,24 @@ export async function runReminders(now: Date = new Date()) {
   });
 }
 
-/** Run every due maintenance job. Returns a summary. */
+/** Drain the transactional outbox (DomainEvent). Runs under lock; 5 attempts max per event. */
+export async function processOutbox(now: Date = new Date()) {
+  return withLock('job:process-outbox', LOCK_TTL_MS, async () => {
+    return runOutboxDrain();
+  });
+}
 export async function runAllMaintenance(now: Date = new Date()) {
   // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
   // avant le downgrade global.
   const households = await expireHouseholds(now);
-  const [tokens, premium, rollover, reminders] = await Promise.all([
+  const [tokens, premium, rollover, reminders, outbox] = await Promise.all([
     purgeRefreshTokens(now),
     downgradeExpiredPremium(now),
     runWeeklyRollover(now),
     runReminders(now),
+    processOutbox(now),
   ]);
-  return { households, tokens, premium, rollover, reminders };
+  return { households, tokens, premium, rollover, reminders, outbox };
 }
 
 // CLI entrypoint. `pathToFileURL` (et non une concaténation `file://`) pour que
@@ -111,6 +118,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         return runWeeklyRollover();
       case 'reminders':
         return runReminders();
+      case 'process-outbox':
+      case 'outbox':
+        return processOutbox();
       default:
         return runAllMaintenance();
     }
