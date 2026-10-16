@@ -417,4 +417,158 @@ export const friendsService = {
   async revokeLinksForUser(userId: string) {
     await friendsRepository.revokeActiveLinksForUser(userId);
   },
+
+  async block(meId: string, otherId: string) {
+    requireFriendsEnabled(meId);
+    if (meId === otherId) throw new AppError('CANNOT_ADD_SELF', 'Cannot block yourself');
+    await friendsRepository.createBlock(meId, otherId);
+    // révoque les invitations actives de l'autre vers moi / de moi vers l'autre
+    await friendsRepository.revokeActiveLinksForUser(otherId);
+    await friendsRepository.revokeActiveLinksForUser(meId);
+    return { blocked: true };
+  },
+
+  async unblock(meId: string, otherId: string) {
+    requireFriendsEnabled(meId);
+    await friendsRepository.deleteBlock(meId, otherId);
+    return { unblocked: true };
+  },
+
+  async listBlocks(meId: string) {
+    requireFriendsEnabled(meId);
+    const blocks = await friendsRepository.listBlocks(meId);
+    const items = await Promise.all(
+      blocks.map(async (b) => {
+        const u = await userRepository.findById(b.blockedId);
+        if (!u || u.bannedAt) return null;
+        return { id: u.id, displayName: u.displayName, avatarInitials: u.avatarInitials };
+      }),
+    );
+    return { items: items.filter(Boolean) };
+  },
+
+  async getFriendProfile(meId: string, otherId: string) {
+    requireFriendsEnabled(meId);
+    const { low, high } = orderPair(meId, otherId);
+    const fri = await prisma.friendship.findUnique({
+      where: { userLowId_userHighId: { userLowId: low, userHighId: high } },
+    });
+    if (!fri || fri.status !== 'accepted') throw new AppError('NOT_FOUND', 'Not friends');
+    // bloqué → même 404
+    if (await friendsRepository.isBlockedEither(meId, otherId)) throw new AppError('NOT_FOUND', 'Not friends');
+    const user = await userRepository.getOrThrow(otherId);
+    if (user.bannedAt) throw new AppError('NOT_FOUND', 'Not friends');
+    const masteredSourates = await (async () => {
+      try {
+        const { getLearnedSourates } = await import('../me/learnedSourates.js');
+        return await getLearnedSourates(otherId);
+      } catch {
+        return [];
+      }
+    })();
+    const publicProfile = await toPublicProfile(user);
+    return {
+      user: publicProfile,
+      masteredSourates,
+      commonChallenges: [],
+    };
+  },
+
+  async leaderboard(meId: string) {
+    requireFriendsEnabled(meId);
+    const accepted = await friendsRepository.listAccepted(meId, null, 200);
+    const otherIds = accepted.map((f) => (f.userLowId === meId ? f.userHighId : f.userLowId));
+    const ids = [meId, ...otherIds];
+    const users = await prisma.user.findMany({
+      where: { id: { in: ids }, bannedAt: null },
+      select: { id: true, displayName: true, avatarInitials: true, username: true, streak: true, weeklyXp: true },
+    });
+    const blockedSet = new Set<string>();
+    for (const u of users) {
+      if (u.id !== meId && (await friendsRepository.isBlockedEither(meId, u.id))) blockedSet.add(u.id);
+    }
+    const filtered = users.filter((u) => !blockedSet.has(u.id));
+    filtered.sort((a, b) => b.weeklyXp - a.weeklyXp);
+    const items = filtered.map((u, idx) => ({
+      rank: idx + 1,
+      user: {
+        id: u.id,
+        displayName: u.displayName,
+        username: u.username,
+        avatarInitials: u.avatarInitials,
+        streak: u.streak,
+        learnedSouratesCount: 0,
+        leagueTier: '',
+        weeklyXp: u.weeklyXp,
+      },
+      weeklyXp: u.weeklyXp,
+    }));
+    return { items };
+  },
+
+  async summary(meId: string) {
+    requireFriendsEnabled(meId);
+    const pendingRequests = await prisma.friendship.count({
+      where: { status: 'pending', OR: [{ userLowId: meId }, { userHighId: meId }], NOT: { requestedById: meId } },
+    });
+    return {
+      pendingRequests,
+      unreadMessages: 0,
+      challengeInvites: 0,
+      activeChallenges: 0,
+      unseenFeed: 0,
+    };
+  },
+
+  async getSettings(meId: string) {
+    requireFriendsEnabled(meId);
+    const u = await userRepository.getOrThrow(meId);
+    return {
+      friendsDiscoverable: u.friendsDiscoverable,
+      friendsVisibility: u.friendsVisibility,
+      notifFriends: u.notifFriends,
+    };
+  },
+
+  async updateSettings(meId: string, input: { friendsDiscoverable?: boolean; friendsVisibility?: 'friends' | 'private'; notifFriends?: boolean }) {
+    requireFriendsEnabled(meId);
+    if (input.friendsDiscoverable === false) {
+      await this.revokeLinksForUser(meId);
+    }
+    const updated = await userRepository.update(meId, {
+      ...(input.friendsDiscoverable !== undefined ? { friendsDiscoverable: input.friendsDiscoverable } : {}),
+      ...(input.friendsVisibility !== undefined ? { friendsVisibility: input.friendsVisibility } : {}),
+      ...(input.notifFriends !== undefined ? { notifFriends: input.notifFriends } : {}),
+    });
+    return {
+      friendsDiscoverable: updated.friendsDiscoverable,
+      friendsVisibility: updated.friendsVisibility,
+      notifFriends: updated.notifFriends,
+    };
+  },
+
+  async createReport(meId: string, input: {
+    targetUserId: string;
+    targetKind: 'user' | 'message' | 'achievement';
+    targetRef: string;
+    reason: 'spam' | 'harassment' | 'inappropriate' | 'other';
+    details?: string;
+  }) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+    const { start } = dayWindow(me, new Date());
+    const count = await friendsRepository.countReportsToday(meId, start);
+    if (count >= 10) throw new AppError('QUOTA_EXCEEDED', 'Daily report quota exceeded');
+    const target = await userRepository.getOrThrow(input.targetUserId);
+    if (target.bannedAt) throw new AppError('NOT_FOUND', 'User not found');
+    const report = await friendsRepository.createReport({
+      reporterId: meId,
+      targetUserId: input.targetUserId,
+      targetKind: input.targetKind,
+      targetRef: input.targetRef,
+      reason: input.reason,
+      details: input.details,
+    });
+    return { reported: true, id: report.id };
+  },
 };
