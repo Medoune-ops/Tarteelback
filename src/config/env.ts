@@ -65,7 +65,11 @@ const EnvSchema = z.object({
     .transform((v) =>
       v.split(',').map((s) => s.trim()).filter((s) => s.length > 0),
     ),
-  PUBLIC_WEB_URL: z.string().trim().default(''),
+  PUBLIC_WEB_URL: z
+    .string()
+    .trim()
+    .default('https://tarteel.sn')
+    .refine((v) => /^https:\/\/.+/.test(v), { message: 'PUBLIC_WEB_URL must be an https URL' }),
 
   // Quran.com: used ONLY for chapter names/metadata and word-by-word audio
   // (which Al Quran Cloud does not provide) — see prisma/importQuran.ts.
