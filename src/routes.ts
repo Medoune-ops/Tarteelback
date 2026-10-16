@@ -16,6 +16,7 @@ import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { friendsRoutes } from './modules/friends/friends.routes.js';
+import { friendsShareRoutes } from './modules/friends/friends.share.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { adminAuthRoutes } from './modules/adminAuth/adminAuth.routes.js';
@@ -65,6 +66,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(referralRoutes, { prefix: '/me' });
   // Amis (flag FRIENDS_ENABLED) �?" garde + routes communes.
   await app.register(friendsRoutes, { prefix: '/me/friends' });
+  // Page publique /f/:token (aucune auth).
+  await app.register(friendsShareRoutes, { prefix: '/f' });
   // Plan familial (foyer : owner + jusqu'à 5 membres, premium partagé).
   await app.register(householdRoutes, { prefix: '/me' });
   // Support (Paramètres → Support) : message texte libre, visible en back-office.
