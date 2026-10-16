@@ -263,6 +263,10 @@ model User {
   reportsSent        Report[]      @relation("Reporter")
   reportsReceived    Report[]      @relation("ReportTarget")
 
+  // Défis (3.B1)
+  challengesCreated Challenge[] @relation("ChallengeCreator")
+  challengeEntries  ChallengeParticipant[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1111,4 +1115,70 @@ model Report {
 
   @@index([status, createdAt])
   @@index([targetUserId])
+}
+
+
+enum ChallengeType {
+  streak
+  sourates
+}
+
+enum ChallengeStatus {
+  pending
+  active
+  completed
+  cancelled
+}
+
+enum ParticipantStatus {
+  invited
+  accepted
+  declined
+  expired
+  left
+}
+
+model Challenge {
+  id          String                 @id @default(cuid())
+  creatorId   String
+  creator     User                   @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  type        ChallengeType
+  title       String                 @db.VarChar(60)
+  goal        Json
+  timezone    String
+  startDay    String
+  endDay      String
+  startsAt    DateTime
+  endsAt      DateTime
+  status      ChallengeStatus        @default(pending)
+  winnerIds   String[]               @default([])
+  finishedAt  DateTime?
+  createdAt   DateTime               @default(now())
+
+  participants ChallengeParticipant[]
+
+  @@index([status, startsAt])
+  @@index([status, endsAt])
+  @@index([creatorId])
+}
+
+model ChallengeParticipant {
+  id          String            @id @default(cuid())
+  challengeId String
+  challenge   Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      ParticipantStatus @default(invited)
+  baseline    Int               @default(0)
+  progress    Int               @default(0)
+  target      Int
+  reachedAt   DateTime?
+  rank        Int?
+  rewardGems  Int               @default(0)
+  lastNudgedAt DateTime?
+  invitedAt   DateTime          @default(now())
+  respondedAt DateTime?
+
+  @@unique([challengeId, userId])
+  @@index([userId, status])
 }
