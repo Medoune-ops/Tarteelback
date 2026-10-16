@@ -109,6 +109,44 @@ export const friendsRepository = {
     });
     return count > 0;
   },
+
+  async createInvite(data: {
+    tokenHash: string;
+    userId: string;
+    kind: 'qr' | 'link';
+    expiresAt: Date;
+    maxUses: number;
+  }) {
+    return prisma.friendInvite.create({ data });
+  },
+
+  findInviteByTokenHash(tokenHash: string) {
+    return prisma.friendInvite.findUnique({ where: { tokenHash } });
+  },
+
+  async incrementInviteUse(id: string): Promise<number> {
+    const res = await prisma.$executeRaw`
+      UPDATE "FriendInvite"
+      SET "uses" = "uses" + 1
+      WHERE "id" = ${id} AND "uses" < "maxUses"
+        AND "revokedAt" IS NULL AND "expiresAt" > NOW()
+    `;
+    return Number(res ?? 0);
+  },
+
+  revokeInvite(id: string) {
+    return prisma.friendInvite.update({
+      where: { id },
+      data: { revokedAt: new Date() },
+    });
+  },
+
+  revokeActiveLinksForUser(userId: string) {
+    return prisma.friendInvite.updateMany({
+      where: { userId, kind: 'link', revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  },
 };
 
 function orderPair(a: string, b: string) {

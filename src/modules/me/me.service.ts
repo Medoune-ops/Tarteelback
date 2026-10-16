@@ -13,6 +13,7 @@ import { initialsFrom } from '../../core/tokens.js';
 import { computeUserStats } from './user.stats.js';
 import { getLearnedSourates } from './learnedSourates.js';
 import { serializeUserFlat } from './user.serializer.js';
+import { friendsService } from '../friends/friends.service.js';
 import { applyOnboardingStart } from './onboardingStart.js';
 
 const LAST_SEEN_THROTTLE_MS = 60 * 60 * 1000;
@@ -134,6 +135,9 @@ export const meService = {
 
   /** PATCH /me/settings: app preferences (voice toggle, language). */
   async updateSettings(userId: string, input: UpdateSettingsInput): Promise<User> {
+    if (input.friendsDiscoverable === false) {
+      await friendsService.revokeLinksForUser(userId);
+    }
     const user = await userRepository.update(userId, { ...input });
     return syncUserState(user);
   },

@@ -1,4 +1,6 @@
 import { AppError } from '../../core/errors.js';
+import crypto from 'node:crypto';
+import { env } from '../../config/env.js';
 import { isPremiumActive } from '../../core/premium.js';
 import { orderPair, canAddFriend, canBecomeFriends, dayWindow } from '../../core/friendship.js';
 import { requireFriendsEnabled } from './friends.guard.js';
@@ -273,5 +275,146 @@ export const friendsService = {
     const last = pageRows[pageRows.length - 1];
     const nextCursor = hasMore && last ? last.id : null;
     return { items, nextCursor };
+  },
+
+  hashToken(raw: string): string {
+    return crypto.createHash('sha256').update(raw).digest('hex');
+  },
+
+  async createQrInvite(meId: string) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+    if (me.bannedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    const raw = crypto.randomBytes(16).toString('base64url'); // 128 bits
+    const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+    const invite = await friendsRepository.createInvite({
+      tokenHash,
+      userId: meId,
+      kind: 'qr',
+      expiresAt,
+      maxUses: 5,
+    });
+    const base = env.PUBLIC_WEB_URL || '';
+    return { url: `${base}/f/${raw}`, expiresAt: invite.expiresAt };
+  },
+
+  async createLinkInvite(meId: string) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+    if (!me.friendsDiscoverable) {
+      throw new AppError('FORBIDDEN', 'Friends discoverability disabled');
+    }
+    if (me.bannedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+
+    const rawToken = crypto.randomBytes(16).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const invite = await friendsRepository.createInvite({
+      tokenHash,
+      userId: meId,
+      kind: 'link',
+      expiresAt,
+      maxUses: 20,
+    });
+    const base = env.PUBLIC_WEB_URL || '';
+    return { url: `${base}/f/${rawToken}`, expiresAt: invite.expiresAt };
+  },
+
+
+  async previewInvite(token: string) {
+    const invite = await friendsRepository.findInviteByTokenHash(this.hashToken(token));
+    const now = new Date();
+    if (!invite || invite.revokedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    if (invite.expiresAt.getTime() <= now.getTime()) throw new AppError('INVITE_EXPIRED', 'Invite expired');
+    if (invite.uses >= invite.maxUses) throw new AppError('INVITE_EXPIRED', 'Invite expired');
+    const owner = await userRepository.getOrThrow(invite.userId);
+    if (owner.bannedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    if (invite.kind === 'link' && !owner.friendsDiscoverable) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    return { displayName: owner.displayName, avatarInitials: owner.avatarInitials, kind: invite.kind };
+  },
+
+  async acceptInvite(meId: string, token: string) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+    const invite = await friendsRepository.findInviteByTokenHash(this.hashToken(token));
+    const now = new Date();
+    if (!invite || invite.revokedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    if (invite.expiresAt.getTime() <= now.getTime()) throw new AppError('INVITE_EXPIRED', 'Invite expired');
+    if (invite.uses >= invite.maxUses) throw new AppError('INVITE_EXPIRED', 'Invite expired');
+    const owner = await userRepository.getOrThrow(invite.userId);
+    if (owner.bannedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    if (invite.kind === 'link' && !owner.friendsDiscoverable) throw new AppError('INVITE_INVALID', 'Invalid invite');
+    if (invite.userId === meId) throw new AppError('CANNOT_ADD_SELF', 'Cannot add yourself');
+
+    const blocked = await friendsRepository.isBlockedEither(meId, owner.id);
+    if (blocked) throw new AppError('BLOCKED', 'Blocked');
+
+    const [meFriends, ownerFriends] = await Promise.all([
+      friendsRepository.countAcceptedFriends(meId),
+      friendsRepository.countAcceptedFriends(owner.id),
+    ]);
+    const mePremium = isPremiumActive(me, now);
+    const ownerPremium = isPremiumActive(owner, now);
+    if (!canBecomeFriends(meFriends, mePremium, ownerFriends, ownerPremium)) {
+      throw new AppError('FRIEND_LIMIT', 'Friend limit reached');
+    }
+
+    // Incrément atomique de uses.
+    const incremented = await friendsRepository.incrementInviteUse(invite.id);
+    if (incremented === 0) throw new AppError('INVITE_EXPIRED', 'Invite expired');
+
+    const { low, high } = orderPair(meId, owner.id);
+    const existing = await friendsRepository.findPair(low, high);
+    if (existing?.status === 'accepted') throw new AppError('ALREADY_FRIENDS', 'Already friends');
+
+    if (invite.kind === 'qr') {
+      // amitié immédiate
+      if (existing?.status === 'pending') {
+        const updated = await prisma.friendship.update({
+          where: { id: existing.id },
+          data: { status: 'accepted', acceptedAt: new Date(), source: 'qr' },
+        });
+        return { accepted: true, friendshipId: updated.id };
+      }
+      const created = await prisma.friendship.create({
+        data: {
+          userLowId: low,
+          userHighId: high,
+          requestedById: meId,
+          status: 'accepted',
+          source: 'qr',
+          acceptedAt: new Date(),
+        },
+      });
+      return { accepted: true, friendshipId: created.id };
+    }
+
+    // lien : crée/envoie une demande (pending)
+    if (existing?.status === 'pending') {
+      if (existing.requestedById === meId) throw new AppError('FRIEND_REQUEST_PENDING', 'Friend request already pending');
+      // croisé → acceptation directe
+      const updated = await prisma.friendship.update({
+        where: { id: existing.id },
+        data: { status: 'accepted', acceptedAt: new Date(), source: 'link' },
+      });
+      return { accepted: true, friendshipId: updated.id };
+    }
+    const created = await prisma.friendship.create({
+      data: {
+        userLowId: low,
+        userHighId: high,
+        requestedById: meId,
+        status: 'pending',
+        source: 'link',
+      },
+    });
+    return { accepted: false, friendshipId: created.id, pending: true };
+  },
+
+  async revokeLinksForUser(userId: string) {
+    await friendsRepository.revokeActiveLinksForUser(userId);
   },
 };

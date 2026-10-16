@@ -56,6 +56,7 @@ export const updateSettingsSchema = z
   .object({
     voiceEnabled: z.boolean().optional(),
     language: z.enum(['fr', 'en', 'ar']).optional(),
+    friendsDiscoverable: z.boolean().optional(),
   })
   .strict()
   .refine((o) => Object.keys(o).length > 0, { message: 'No fields to update' });

@@ -17,5 +17,8 @@ export const cursorQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20).optional(),
 }).strict();
 
-export type SendRequestInput = z.infer<typeof sendRequestSchema>;
-export type CursorQuery = z.infer<typeof cursorQuerySchema>;
+export const inviteTokenParamsSchema = z.object({
+  token: z.string().min(1),
+}).strict();
+
+export type InviteTokenParams = z.infer<typeof inviteTokenParamsSchema>;
