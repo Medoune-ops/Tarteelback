@@ -545,7 +545,7 @@ export const friendsService = {
     };
   },
 
-  async updateSettings(meId: string, input: any) {
+  async updateSettings(meId: string, input: { friendsDiscoverable?: boolean; friendsVisibility?: 'friends' | 'private'; notifFriends?: boolean }) {
     requireFriendsEnabled(meId);
     if (input.friendsDiscoverable === false) {
       await this.revokeLinksForUser(meId);
@@ -562,7 +562,28 @@ export const friendsService = {
     };
   },
 
-  async createReport(meId: any, input: any) {
-    return { reported: true, id: "temp" };
+  async createReport(meId: string, input: {
+    targetUserId: string;
+    targetKind: 'user' | 'message' | 'achievement';
+    targetRef: string;
+    reason: 'spam' | 'harassment' | 'inappropriate' | 'other';
+    details?: string;
+  }) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+    const { start } = dayWindow(me, new Date());
+    const count = await friendsRepository.countReportsToday(meId, start);
+    if (count >= 10) throw new AppError('QUOTA_EXCEEDED', 'Daily report quota exceeded');
+    const target = await userRepository.getOrThrow(input.targetUserId);
+    if (target.bannedAt) throw new AppError('NOT_FOUND', 'User not found');
+    const report = await friendsRepository.createReport({
+      reporterId: meId,
+      targetUserId: input.targetUserId,
+      targetKind: input.targetKind,
+      targetRef: input.targetRef,
+      reason: input.reason,
+      details: input.details,
+    });
+    return { reported: true, id: report.id };
   },
-}
+};
