@@ -1,20 +1,30 @@
 import type { FastifyInstance } from 'fastify';
-import { requireFriendsEnabled } from '../../core/friends.js';
+import { friendsController } from './friends.controller.js';
 
-/**
- * Amis (ticket 0.B4) �?" routes prot?g?es. Mont?es sous /me/friends.
- * Quand FRIENDS_ENABLED est coup?, la garde r?pond 503 FRIENDS_DISABLED.
- */
 export async function friendsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
   const sec = { tags: ['friends'] as const, security: [{ bearerAuth: [] }] };
 
-  app.get(
-    '/',
-    { schema: { ...sec, summary: 'Sant? de la fonctionnalit? amis (garde)' } },
-    async (req, reply) => {
-      requireFriendsEnabled(req.auth!.sub);
-      return reply.send({ ok: true, friendsEnabled: true });
-    },
+  app.get('/', { schema: { ...sec, summary: 'Liste des amis (curseur, racine)' } }, (req, reply) =>
+    friendsController.listFriends(req, reply),
+  );
+
+  app.post('/requests', { schema: { ...sec, summary: 'Envoyer une demande par code' } }, (req, reply) =>
+    friendsController.sendRequest(req, reply),
+  );
+  app.get('/requests', { schema: { ...sec, summary: 'Demandes reçues et envoyées' } }, (req, reply) =>
+    friendsController.listRequests(req, reply),
+  );
+  app.post('/requests/:id/accept', { schema: { ...sec, summary: 'Accepter une demande' } }, (req, reply) =>
+    friendsController.accept(req, reply),
+  );
+  app.post('/requests/:id/decline', { schema: { ...sec, summary: 'Refuser une demande' } }, (req, reply) =>
+    friendsController.decline(req, reply),
+  );
+  app.delete('/requests/:id', { schema: { ...sec, summary: 'Annuler une demande envoyée' } }, (req, reply) =>
+    friendsController.cancel(req, reply),
+  );
+  app.delete('/:userId', { schema: { ...sec, summary: 'Retirer un ami' } }, (req, reply) =>
+    friendsController.removeFriend(req, reply),
   );
 }

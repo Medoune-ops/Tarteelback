@@ -1,3 +1,5 @@
+import { localDayKey } from './streak.js';
+
 /**
  * Logique pure des amis (ticket 1.B2) — aucune dépendance DB / env.
  */
@@ -40,3 +42,14 @@ export function canBecomeFriends(
 ): boolean {
   return canAddFriend(countA, premiumA) && canAddFriend(countB, premiumB);
 }
+
+
+export interface DayWindow { start: Date; end: Date; }
+
+export function dayWindow(user: { timezone?: string | null }, now: Date = new Date()): DayWindow {
+  const key = localDayKey(now, user.timezone ?? 'UTC');
+  const start = new Date('' + key + 'T00:00:00.000Z');
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
