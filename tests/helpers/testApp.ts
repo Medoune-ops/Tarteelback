@@ -83,3 +83,8 @@ export async function registerUser(
 export function authHeader(token: string) {
   return { authorization: `Bearer ${token}` };
 }
+
+// Aides de test du module amis (ticket 0.B8).
+export * from './friends.js';
+export * from './clock.js';
+
