@@ -22,6 +22,7 @@ export const notificationController = {
     return reply.send({
       notifDailyReminder: u.notifDailyReminder,
       notifStreakAlert: u.notifStreakAlert,
+      notifFriends: u.notifFriends,
       reminderHour: u.reminderHour,
     });
   },
@@ -32,6 +33,7 @@ export const notificationController = {
     return reply.send({
       notifDailyReminder: u.notifDailyReminder,
       notifStreakAlert: u.notifStreakAlert,
+      notifFriends: u.notifFriends,
       reminderHour: u.reminderHour,
     });
   },

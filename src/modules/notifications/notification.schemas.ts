@@ -17,6 +17,7 @@ export const prefsSchema = z
   .object({
     notifDailyReminder: z.boolean().optional(),
     notifStreakAlert: z.boolean().optional(),
+    notifFriends: z.boolean().optional(),
     reminderHour: z.number().int().min(0).max(23).optional(),
   })
   .strict()
