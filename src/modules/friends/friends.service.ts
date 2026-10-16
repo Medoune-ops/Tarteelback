@@ -1,0 +1,277 @@
+import { AppError } from '../../core/errors.js';
+import { isPremiumActive } from '../../core/premium.js';
+import { orderPair, canAddFriend, canBecomeFriends, dayWindow } from '../../core/friendship.js';
+import { requireFriendsEnabled } from './friends.guard.js';
+import { friendsRepository } from './friends.repository.js';
+import { userRepository } from '../me/user.repository.js';
+import { getLearnedSourates } from '../me/learnedSourates.js';
+import { leagueRepository } from '../leagues/league.repository.js';
+import { serializePublicProfile } from '../../core/friends.js';
+import { prisma } from '../../config/prisma.js';
+
+const MAX_FRIEND_REQUESTS_PER_DAY = 30;
+const MAX_PENDING_REQUESTS = 50;
+const CODE_SEARCH_PER_MINUTE = 20;
+const CODE_SEARCH_PER_DAY = 100;
+
+type RateBucket = { count: number; resetAt: number };
+const codeSearchMinute = new Map<string, RateBucket>();
+const codeSearchDay = new Map<string, RateBucket>();
+
+function consumeRateLimit(buckets: Map<string, RateBucket>, key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const b = buckets.get(key);
+  if (!b || now >= b.resetAt) {
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (b.count >= limit) return false;
+  b.count += 1;
+  return true;
+}
+
+async function toPublicProfile(user: {
+  id: string;
+  displayName: string;
+  username: string | null;
+  avatarInitials: string;
+  streak: number;
+  weeklyXp: number;
+}) {
+  const learned = await getLearnedSourates(user.id);
+  const week = await leagueRepository.currentWeekForUser(user.id, new Date());
+  return serializePublicProfile({
+    id: user.id,
+    displayName: user.displayName,
+    username: user.username,
+    avatarInitials: user.avatarInitials,
+    streak: user.streak,
+    learnedSouratesCount: learned.length,
+    leagueTier: week?.league?.nom ?? '',
+    weeklyXp: user.weeklyXp,
+  });
+}
+
+export const friendsService = {
+  async ensureFriendsEnabled(userId?: string | null) {
+    requireFriendsEnabled(userId);
+  },
+
+  async sendRequest(meId: string, code: string) {
+    requireFriendsEnabled(meId);
+    const me = await userRepository.getOrThrow(meId);
+
+    // quotas "recherche de code" (par minute et par jour)
+    if (!consumeRateLimit(codeSearchMinute, meId, CODE_SEARCH_PER_MINUTE, 60_000)) {
+      throw new AppError('QUOTA_EXCEEDED', 'Too many code searches per minute');
+    }
+    if (!consumeRateLimit(codeSearchDay, meId, CODE_SEARCH_PER_DAY, 24 * 60 * 60 * 1000)) {
+      throw new AppError('QUOTA_EXCEEDED', 'Too many code searches per day');
+    }
+
+    const target = await friendsRepository.findUserByReferralCode(code);
+    // Anti-énumération : code inexistant / non découvrable / bloqué / banni = même réponse.
+    const invalid =
+      !target ||
+      !!target.bannedAt ||
+      !target.friendsDiscoverable ||
+      (await friendsRepository.isBlockedEither(meId, target.id));
+    if (target?.id === meId) {
+      throw new AppError('CANNOT_ADD_SELF', 'Cannot add yourself');
+    }
+    if (invalid) {
+      throw new AppError('INVITE_INVALID', 'Invalid invite code');
+    }
+
+    // Limites des deux personnes.
+    const targetUser = await userRepository.getOrThrow(target.id);
+    const [meFriends, targetFriends] = await Promise.all([
+      friendsRepository.countAcceptedFriends(meId),
+      friendsRepository.countAcceptedFriends(target.id),
+    ]);
+    const mePremium = isPremiumActive(me, new Date());
+    const targetPremium = isPremiumActive(targetUser, new Date());
+    if (!canBecomeFriends(meFriends, mePremium, targetFriends, targetPremium)) {
+      throw new AppError('FRIEND_LIMIT', 'Friend limit reached');
+    }
+
+    // Quotas quotidiens / en attente pour l'expéditeur
+    const { start } = dayWindow(me, new Date());
+    const recent = await friendsRepository.countRecentRequests(meId, start);
+    if (recent >= MAX_FRIEND_REQUESTS_PER_DAY) {
+      throw new AppError('QUOTA_EXCEEDED', 'Daily friend request quota exceeded');
+    }
+    const pendingSent = await friendsRepository.countPendingSent(meId);
+    if (pendingSent >= MAX_PENDING_REQUESTS) {
+      throw new AppError('QUOTA_EXCEEDED', 'Too many pending requests');
+    }
+
+    const { low, high } = orderPair(meId, target.id);
+    const pair = await friendsRepository.findPair(low, high);
+    if (pair?.status === 'accepted') {
+      throw new AppError('ALREADY_FRIENDS', 'Already friends');
+    }
+    if (pair?.status === 'pending' && pair.requestedById === meId) {
+      throw new AppError('FRIEND_REQUEST_PENDING', 'Friend request already pending');
+    }
+
+    // Acceptation directe si l'autre avait déjà envoyé une demande.
+    if (pair?.status === 'pending' && pair.requestedById === target.id) {
+      const updated = await prisma.$transaction(async (tx) => {
+        const fresh = await tx.friendship.findUnique({ where: { id: pair.id } });
+        if (!fresh || fresh.status !== 'pending') {
+          // concurrence : re-vérifier
+          if (fresh?.status === 'accepted') throw new AppError('ALREADY_FRIENDS', 'Already friends');
+        }
+        return tx.friendship.update({
+          where: { id: pair.id },
+          data: { status: 'accepted', acceptedAt: new Date() },
+        });
+      });
+      return { accepted: true, friendshipId: updated.id };
+    }
+
+    // Création pending (transaction + contrainte unique).
+    try {
+      const created = await prisma.$transaction(async (tx) => {
+        return tx.friendship.create({
+          data: {
+            userLowId: low,
+            userHighId: high,
+            requestedById: meId,
+            status: 'pending',
+            source: 'code',
+          },
+        });
+      });
+      return { accepted: false, friendshipId: created.id };
+    } catch (e) {
+      // P2002 = course concurrente ; relire et adapter.
+      if (e && typeof e === 'object' && (e as { code?: string }).code === 'P2002') {
+        const again = await friendsRepository.findPair(low, high);
+        if (again?.status === 'accepted') throw new AppError('ALREADY_FRIENDS', 'Already friends');
+        if (again?.status === 'pending' && again.requestedById === target.id) {
+          const updated = await prisma.friendship.update({
+            where: { id: again.id },
+            data: { status: 'accepted', acceptedAt: new Date() },
+          });
+          return { accepted: true, friendshipId: updated.id };
+        }
+        if (again?.status === 'pending' && again.requestedById === meId) {
+          throw new AppError('FRIEND_REQUEST_PENDING', 'Friend request already pending');
+        }
+      }
+      throw e;
+    }
+  },
+
+  async listRequests(meId: string) {
+    requireFriendsEnabled(meId);
+    const [receivedRows, sentRows] = await Promise.all([
+      friendsRepository.listPendingReceived(meId),
+      friendsRepository.listPendingSent(meId),
+    ]);
+
+    const received = await Promise.all(
+      receivedRows.map(async (f) => {
+        const otherId = f.requestedById === meId ? (f.userLowId === meId ? f.userHighId : f.userLowId) : f.requestedById;
+        const u = await userRepository.getOrThrow(otherId);
+        return { id: f.id, user: await toPublicProfile(u), createdAt: f.createdAt };
+      }),
+    );
+    const sent = await Promise.all(
+      sentRows.map(async (f) => {
+        const otherId = f.userLowId === meId ? f.userHighId : f.userLowId;
+        const u = await userRepository.getOrThrow(otherId);
+        return { id: f.id, user: await toPublicProfile(u), createdAt: f.createdAt };
+      }),
+    );
+    return { received, sent };
+  },
+
+  async accept(meId: string, requestId: string) {
+    requireFriendsEnabled(meId);
+    const fri = await prisma.friendship.findUnique({ where: { id: requestId } });
+    if (!fri || fri.status !== 'pending') {
+      throw new AppError('NOT_FOUND', 'Request not found');
+    }
+    if (fri.requestedById === meId) {
+      throw new AppError('FORBIDDEN', 'Not the recipient');
+    }
+    if (fri.userLowId !== meId && fri.userHighId !== meId) {
+      throw new AppError('FORBIDDEN', 'Not the recipient');
+    }
+
+    const otherId = fri.userLowId === meId ? fri.userHighId : fri.userLowId;
+    const [me, other] = await Promise.all([
+      userRepository.getOrThrow(meId),
+      userRepository.getOrThrow(otherId),
+    ]);
+    const [meFriends, otherFriends] = await Promise.all([
+      friendsRepository.countAcceptedFriends(meId),
+      friendsRepository.countAcceptedFriends(otherId),
+    ]);
+    if (!canBecomeFriends(meFriends, isPremiumActive(me, new Date()), otherFriends, isPremiumActive(other, new Date()))) {
+      throw new AppError('FRIEND_LIMIT', 'Friend limit reached');
+    }
+
+    const updated = await prisma.friendship.update({
+      where: { id: requestId },
+      data: { status: 'accepted', acceptedAt: new Date() },
+    });
+    return { accepted: true, friendshipId: updated.id };
+  },
+
+  async decline(meId: string, requestId: string) {
+    requireFriendsEnabled(meId);
+    const fri = await prisma.friendship.findUnique({ where: { id: requestId } });
+    if (!fri || fri.status !== 'pending') throw new AppError('NOT_FOUND', 'Request not found');
+    if (fri.requestedById === meId) throw new AppError('FORBIDDEN', 'Not the recipient');
+    if (fri.userLowId !== meId && fri.userHighId !== meId) throw new AppError('FORBIDDEN', 'Not the recipient');
+    await prisma.friendship.delete({ where: { id: requestId } });
+    return { declined: true };
+  },
+
+  async cancel(meId: string, requestId: string) {
+    requireFriendsEnabled(meId);
+    const fri = await prisma.friendship.findUnique({ where: { id: requestId } });
+    if (!fri || fri.status !== 'pending') throw new AppError('NOT_FOUND', 'Request not found');
+    if (fri.requestedById !== meId) throw new AppError('FORBIDDEN', 'Not the sender');
+    await prisma.friendship.delete({ where: { id: requestId } });
+    return { cancelled: true };
+  },
+
+  async removeFriend(meId: string, otherId: string) {
+    requireFriendsEnabled(meId);
+    if (meId === otherId) throw new AppError('CANNOT_ADD_SELF', 'Cannot remove yourself');
+    const { low, high } = orderPair(meId, otherId);
+    const fri = await prisma.friendship.findUnique({
+      where: { userLowId_userHighId: { userLowId: low, userHighId: high } },
+    });
+    if (!fri || fri.status !== 'accepted') throw new AppError('NOT_FRIENDS', 'Not friends');
+    await prisma.friendship.delete({ where: { id: fri.id } });
+    return { removed: true };
+  },
+
+  async listFriends(meId: string, cursor?: string | null, limit = 20) {
+    requireFriendsEnabled(meId);
+    const safeLimit = Math.min(Math.max(1, limit), 50);
+    const rows = await friendsRepository.listAccepted(meId, cursor, safeLimit);
+    const hasMore = rows.length > safeLimit;
+    const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
+    const items = await Promise.all(
+      pageRows.map(async (f) => {
+        const otherId = f.userLowId === meId ? f.userHighId : f.userLowId;
+        const user = await userRepository.getOrThrow(otherId);
+        const publicProfile = await toPublicProfile(user);
+        return {
+          user: publicProfile,
+          friendsSince: (f.acceptedAt ?? f.createdAt).toISOString(),
+        };
+      }),
+    );
+    const last = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && last ? last.id : null;
+    return { items, nextCursor };
+  },
+};
