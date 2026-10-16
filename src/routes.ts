@@ -6,6 +6,7 @@ import { audioRoutes } from './modules/audio/audio.routes.js';
 import { adminRoutes } from './modules/content/admin.routes.js';
 import { lessonRoutes, lessonFlatRoutes } from './modules/lessons/lesson.routes.js';
 import { leagueRoutes } from './modules/leagues/league.routes.js';
+import { challengeRoutes } from './modules/challenges/challenges.routes.js';
 import { billingRoutes } from './modules/billing/billing.routes.js';
 import { dexpayWebhookRoutes } from './modules/billing/dexpay.webhook.js';
 import { stripeWebhookRoutes } from './modules/billing/stripe.webhook.js';
@@ -49,6 +50,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(lessonRoutes, { prefix: '/lessons' });
   await app.register(lessonFlatRoutes, { prefix: '/lesson' });
   await app.register(leagueRoutes, { prefix: '/leagues' });
+  await app.register(challengeRoutes, { prefix: '/me/challenges' });
   await app.register(billingRoutes, { prefix: '/billing' });
   // Webhooks DexPay/Stripe — PAS de Bearer token (signature vérifiée à la
   // place), montés séparément de billingRoutes pour ne pas hériter de son

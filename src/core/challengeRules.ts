@@ -194,7 +194,7 @@ export interface RegistryEntry {
 export const CHALLENGE_TYPES: Record<ChallengeType, RegistryEntry> = {
   streak: {
     goalSchema: streakGoalSchema,
-    computeProgress: (...args: any[]) => streakProgress(...args),
+    computeProgress: (...args: any[]) => (streakProgress as ( ...a: any[]) => number)(...args),
     isReached: (progress, goal) => {
       const n = normalizeStreakGoal(goal);
       return Number.isFinite(n) && progress >= n;
@@ -335,3 +335,8 @@ export const resolveWinners = determineWinners;
 export const getWinners = determineWinners;
 export const pickWinner = (participants: ParticipantForWinner[] = []) => determineWinners(participants)[0] ?? null;
 export const winnerOf = pickWinner;
+
+
+
+export const streakLongestConsecutive = streakProgress;
+
