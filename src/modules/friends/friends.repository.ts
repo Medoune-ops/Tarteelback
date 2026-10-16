@@ -98,18 +98,6 @@ export const friendsRepository = {
     return prisma.userBlock.create({ data: { blockerId, blockedId } });
   },
 
-  async isBlockedEither(a: string, b: string) {
-    const count = await prisma.userBlock.count({
-      where: {
-        OR: [
-          { blockerId: a, blockedId: b },
-          { blockerId: b, blockedId: a },
-        ],
-      },
-    });
-    return count > 0;
-  },
-
   async createInvite(data: {
     tokenHash: string;
     userId: string;
@@ -146,6 +134,52 @@ export const friendsRepository = {
       where: { userId, kind: 'link', revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  },
+
+  async createBlock(blockerId: string, blockedId: string) {
+    const exists = await prisma.userBlock.findUnique({
+      where: { blockerId_blockedId: { blockerId, blockedId } },
+    });
+    if (!exists) {
+      await prisma.userBlock.create({ data: { blockerId, blockedId } });
+    }
+    // retina l'amitie si elle existait
+    await prisma.friendship.deleteMany({
+      where: { OR: [{ userLowId: blockerId, userHighId: blockedId }, { userLowId: blockedId, userHighId: blockerId }] },
+    });
+  },
+
+  async deleteBlock(blockerId: string, blockedId: string) {
+    await prisma.userBlock.deleteMany({ where: { blockerId, blockedId } });
+  },
+
+  async listBlocks(blockerId: string) {
+    return prisma.userBlock.findMany({
+      where: { blockerId },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  async isBlockedEither(a: string, b: string) {
+    const count = await prisma.userBlock.count({
+      where: { OR: [{ blockerId: a, blockedId: b }, { blockerId: b, blockedId: a }] },
+    });
+    return count > 0;
+  },
+
+  async createReport(data: {
+    reporterId: string;
+    targetUserId: string;
+    targetKind: 'user' | 'message' | 'achievement';
+    targetRef: string;
+    reason: 'spam' | 'harassment' | 'inappropriate' | 'other';
+    details?: string;
+  }) {
+    return prisma.report.create({ data });
+  },
+
+  async countReportsToday(reporterId: string, since: Date) {
+    return prisma.report.count({ where: { reporterId, createdAt: { gte: since } } });
   },
 };
 
