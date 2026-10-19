@@ -8,6 +8,8 @@ export type FriendPushType =
   | 'friend_accepted'
   | 'challenge_invite'
   | 'challenge_update'
+  | 'challenge_win'
+  | 'challenge_complete'
   | 'friend_cheer';
 
 export interface FriendPushMessage {
@@ -21,6 +23,8 @@ export const friendsMessages = {
     friend_accepted: { title: 'Tarteel Friends', body: 'Your friend request was accepted.' },
     challenge_invite: { title: 'Tarteel Challenge', body: 'A friend challenged you to a Surah.' },
     challenge_update: { title: 'Tarteel Challenge', body: 'A challenge has been updated.' },
+    challenge_win: { title: 'Challenge Won!', body: 'You won a friends challenge.' },
+    challenge_complete: { title: 'Challenge Completed', body: 'You completed a friends challenge.' },
     friend_cheer: { title: 'Tarteel Friends', body: 'A friend cheered you on.' },
   },
   fr: {
@@ -28,6 +32,8 @@ export const friendsMessages = {
     friend_accepted: { title: 'Amis Tarteel', body: 'Votre demande d\'amitié a été acceptée.' },
     challenge_invite: { title: 'Défi Tarteel', body: 'Un ami vous a lancé un défi sur une Sourate.' },
     challenge_update: { title: 'Défi Tarteel', body: 'Un défi a été mis à jour.' },
+    challenge_win: { title: 'Défi gagné !', body: 'Vous avez gagné un défi entre amis.' },
+    challenge_complete: { title: 'Défi terminé', body: 'Vous avez terminé un défi entre amis.' },
     friend_cheer: { title: 'Amis Tarteel', body: 'Un ami vous a encouragé.' },
   },
 };

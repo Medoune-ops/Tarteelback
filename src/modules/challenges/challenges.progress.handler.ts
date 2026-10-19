@@ -1,10 +1,7 @@
 import { registerOutboxHandler } from '../../core/outbox.js';
 import { prisma } from '../../config/prisma.js';
-import { challengeRepository } from './challenges.repository.js';
-import {
-  recalculateParticipantProgress,
-  tryCompleteChallenge,
-} from './challenges.progress.js';
+import { recalculateParticipantProgress } from './challenges.progress.js';
+import { finishChallenge } from './challenges.progress.js';
 
 /**
  * Quand une leçon est complétée (événement outbox `lesson.completed`), on
@@ -12,11 +9,10 @@ import {
  * participant "accepted" :
  *  - recalcul depuis la source de vérité (jamais "+1" incrémental)
  *  - mise à jour de progress + reachedAt (une seule fois)
- *  - tentative de terminaison du défi (3.B7)
+ *  - tentative de terminaison du défi (3.B7) via finishChallenge (sous verrou,
+ *    idempotent)
  *
- * Idempotent : un événement perdu ou rejoué donne le même résultat, car le
- * recalcul part de la source de vérité et la terminaison est conditionnée
- * par UPDATE ... WHERE status = 'active'.
+ * Idempotent : un événement perdu ou rejoué donne le même résultat.
  */
 registerOutboxHandler('lesson.completed', async (event) => {
   const userId = event.userId;
@@ -64,35 +60,8 @@ registerOutboxHandler('lesson.completed', async (event) => {
       },
     });
 
-    // Recharge les participants à jour pour la décision de terminaison.
-    const updated = await challengeRepository.findByIdWithParticipants(
-      challenge.id,
-    );
-    if (!updated) continue;
-
-    await tryCompleteChallenge({
-      tx: prisma,
-      challenge: {
-        id: updated.id,
-        status: updated.status,
-        type: updated.type,
-        participants: updated.participants.map((p) => ({
-          userId: p.userId,
-          status: p.status,
-          progress: p.progress,
-          target: p.target,
-          reachedAt: p.reachedAt,
-        })),
-      },
-      participants: updated.participants.map((p) => ({
-        userId: p.userId,
-        status: p.status,
-        progress: p.progress,
-        target: p.target,
-        reachedAt: p.reachedAt,
-      })),
-      now,
-    });
+    // Tenter de terminer le défi (sous verrou, idempotent).
+    await finishChallenge({ tx: prisma, challengeId: challenge.id, now });
   }
 });
 

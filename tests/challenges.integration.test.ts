@@ -11,6 +11,7 @@ import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
 import { prisma } from '../src/config/prisma.js';
 import { activateChallenges } from '../src/jobs/maintenance.js';
+import { finishChallenge } from '../src/modules/challenges/challenges.progress.js';
 
 const d = DB_TESTS ? describe : describe.skip;
 
@@ -577,5 +578,241 @@ d('challenges : job activateChallenges (ticket 3.B5)', () => {
 
     const challenge = await prisma.challenge.findUnique({ where: { id } });
     expect(challenge!.status).toBe('cancelled');
+  });
+});
+
+d('challenges : fin, rangs, récompenses (ticket 3.B7)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  /** Amitié acceptée avec une date d'acceptation contrôlée. */
+  async function befriendAt(aId: string, bId: string, acceptedAt: Date) {
+    const low = aId < bId ? aId : bId;
+    const high = aId < bId ? bId : aId;
+    await prisma.friendship.create({
+      data: {
+        userLowId: low,
+        userHighId: high,
+        requestedById: aId,
+        status: 'accepted',
+        source: 'qr',
+        createdAt: acceptedAt,
+        acceptedAt,
+      },
+    });
+  }
+
+  /** Crée un défi "active" avec 2 participants "accepted" qui ont déjà atteint. */
+  async function makeReachedChallenge(
+    me: { userId: string },
+    friend: { userId: string },
+    opts: { startDaysAgo?: number; endDaysFromNow?: number } = {},
+  ) {
+    const now = new Date();
+    const startDay = new Date(
+      now.getTime() - (opts.startDaysAgo ?? 2) * 24 * 60 * 60 * 1000,
+    ).toISOString().slice(0, 10);
+    const endDay = new Date(
+      now.getTime() + (opts.endDaysFromNow ?? 5) * 24 * 60 * 60 * 1000,
+    ).toISOString().slice(0, 10);
+
+    const challenge = await prisma.challenge.create({
+      data: {
+        creatorId: me.userId,
+        type: 'sourates',
+        title: 'Défi test',
+        goal: { sourateNumeros: [1] },
+        timezone: 'UTC',
+        startDay,
+        endDay,
+        startsAt: new Date(`${startDay}T00:00:00.000Z`),
+        endsAt: new Date(`${endDay}T23:59:59.999Z`),
+        status: 'active',
+        winnerIds: [],
+      },
+    });
+
+    await prisma.challengeParticipant.create({
+      data: {
+        challengeId: challenge.id,
+        userId: me.userId,
+        status: 'accepted',
+        baseline: 0,
+        progress: 1,
+        target: 1,
+        reachedAt: now,
+      },
+    });
+    await prisma.challengeParticipant.create({
+      data: {
+        challengeId: challenge.id,
+        userId: friend.userId,
+        status: 'accepted',
+        baseline: 0,
+        progress: 1,
+        target: 1,
+        reachedAt: now,
+      },
+    });
+
+    return challenge;
+  }
+
+  it('deux participants finissent en même temps => un gagnant, pas de double paiement', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriendAt(me.userId, friend.userId, new Date(Date.now() - 48 * 60 * 60 * 1000));
+
+    const challenge = await makeReachedChallenge(me, friend);
+
+    const r1 = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(r1.finished).toBe(true);
+
+    const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
+    expect(updated!.status).toBe('completed');
+    expect(updated!.winnerIds.length).toBeGreaterThan(0);
+
+    // Un seul paiement par participant
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    const winnerGem = gems.find((g) => g.amount === 50);
+    const loserGem = gems.find((g) => g.amount === 20);
+    expect(winnerGem).toBeTruthy();
+    expect(loserGem).toBeTruthy();
+    expect(gems.length).toBe(2);
+
+    // Idempotence : relancer, pas de nouveau paiement
+    const r2 = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(r2.finished).toBe(false);
+
+    const gems2 = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems2.length).toBe(2);
+  });
+
+  it('règle D-G : amitié < 24 h => aucune gemme', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriendAt(me.userId, friend.userId, new Date(Date.now() - 60 * 60 * 1000)); // il y a 1h
+
+    const challenge = await makeReachedChallenge(me, friend);
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(true);
+
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(0);
+  });
+
+  it('règle D-G : amitié >= 24 h => gemmes versées', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriendAt(me.userId, friend.userId, new Date(Date.now() - 48 * 60 * 60 * 1000)); // il y a 48h
+
+    const challenge = await makeReachedChallenge(me, friend);
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(true);
+
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(2);
+  });
+
+  it('moins de 2 acceptés => pas de fin, pas de récompense', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriendAt(me.userId, friend.userId, new Date(Date.now() - 48 * 60 * 60 * 1000));
+
+    const now = new Date();
+    const startDay = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const endDay = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const challenge = await prisma.challenge.create({
+      data: {
+        creatorId: me.userId,
+        type: 'sourates',
+        title: 'Défi solo',
+        goal: { sourateNumeros: [1] },
+        timezone: 'UTC',
+        startDay,
+        endDay,
+        startsAt: new Date(`${startDay}T00:00:00.000Z`),
+        endsAt: new Date(`${endDay}T23:59:59.999Z`),
+        status: 'active',
+        winnerIds: [],
+      },
+    });
+
+    await prisma.challengeParticipant.create({
+      data: {
+        challengeId: challenge.id,
+        userId: me.userId,
+        status: 'accepted',
+        baseline: 0,
+        progress: 1,
+        target: 1,
+        reachedAt: now,
+      },
+    });
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(false);
+
+    const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
+    expect(updated!.status).toBe('active');
+
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(0);
+  });
+
+  it('durée < 3 jours => défi terminé mais aucune récompense', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriendAt(me.userId, friend.userId, new Date(Date.now() - 48 * 60 * 60 * 1000));
+
+    const now = new Date();
+    const startDay = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10); // 1 jour
+    const endDay = new Date(now.getTime()).toISOString().slice(0, 10);
+
+    const challenge = await prisma.challenge.create({
+      data: {
+        creatorId: me.userId,
+        type: 'sourates',
+        title: 'Défi court',
+        goal: { sourateNumeros: [1] },
+        timezone: 'UTC',
+        startDay,
+        endDay,
+        startsAt: new Date(`${startDay}T00:00:00.000Z`),
+        endsAt: new Date(`${endDay}T23:59:59.999Z`),
+        status: 'active',
+        winnerIds: [],
+      },
+    });
+
+    await prisma.challengeParticipant.create({
+      data: { challengeId: challenge.id, userId: me.userId, status: 'accepted', baseline: 0, progress: 1, target: 1, reachedAt: now },
+    });
+    await prisma.challengeParticipant.create({
+      data: { challengeId: challenge.id, userId: friend.userId, status: 'accepted', baseline: 0, progress: 1, target: 1, reachedAt: now },
+    });
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(true);
+
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(0);
   });
 });

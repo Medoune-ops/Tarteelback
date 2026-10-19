@@ -45,6 +45,20 @@ export const DOUBLE_XP_MULTIPLIER = 2;
 /** Max streak-freeze items a free user can hold (Plus = unlimited, none held). */
 export const MAX_STREAK_FREEZES = 2;
 
+// ─── Challenges ──────────────────────────────────────────────────────────────
+
+/** Gems credited for winning a friends challenge (first to reach the goal). */
+export const GEM_CHALLENGE_WIN = 50;
+/** Gems credited for completing a friends challenge without winning. */
+export const GEM_CHALLENGE_COMPLETE = 20;
+
+/** Max rewarded challenges per person per rolling week (anti-farm). */
+export const MAX_CHALLENGE_REWARDS_PER_WEEK = 3;
+
+/** Minimum age of a friendship (in ms) for a participant to be eligible for
+ *  challenge rewards (rule D-G). */
+export const MIN_FRIENDSHIP_AGE_MS = 24 * 60 * 60 * 1000;
+
 // ─── "Réviser pour regagner" gate (hearts = 0, exit #1) ─────────────────────
 
 /** Max hearts regainable through completed review sessions per local day. */
