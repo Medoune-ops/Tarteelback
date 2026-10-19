@@ -38,6 +38,8 @@ export async function resetDb() {
     'PodiumReward',
     'PasswordResetToken',
     'RefreshToken',
+    'ChallengeParticipant',
+    'Challenge',
     'User',
   ];
   await prisma.$executeRawUnsafe(
