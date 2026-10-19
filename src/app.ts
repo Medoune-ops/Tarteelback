@@ -12,7 +12,7 @@ import adminAuthPlugin from './plugins/adminAuth.js';
 import errorHandler from './plugins/errorHandler.js';
 import requestCounter from './plugins/requestCounter.js';
 import { registerRoutes } from './routes.js';
-import '../modules/notifications/friendsPushHandler.js';
+import './modules/notifications/friendsPushHandler.js';
 
 /**
  * Build (but do not start) the Fastify app. Reusable by tests via app.inject().

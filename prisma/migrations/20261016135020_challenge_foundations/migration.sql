@@ -12,18 +12,17 @@ CREATE TABLE "Challenge" (
     "id" TEXT NOT NULL,
     "creatorId" TEXT NOT NULL,
     "type" "ChallengeType" NOT NULL,
-    "title" VARCHAR(60) NOT NULL,
-    "goal" JSONB NOT NULL,
+    "title" TEXT NOT NULL,
+    "goal" jsonb NOT NULL,
     "timezone" TEXT NOT NULL,
     "startDay" TEXT NOT NULL,
     "endDay" TEXT NOT NULL,
     "startsAt" TIMESTAMP(3) NOT NULL,
     "endsAt" TIMESTAMP(3) NOT NULL,
     "status" "ChallengeStatus" NOT NULL DEFAULT 'pending',
-    "winnerIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "winnerIds" TEXT[],
     "finishedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
     CONSTRAINT "Challenge_pkey" PRIMARY KEY ("id")
 );
 
@@ -42,21 +41,20 @@ CREATE TABLE "ChallengeParticipant" (
     "lastNudgedAt" TIMESTAMP(3),
     "invitedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "respondedAt" TIMESTAMP(3),
-
     CONSTRAINT "ChallengeParticipant_pkey" PRIMARY KEY ("id")
 );
-
--- CreateIndex
-CREATE INDEX "Challenge_status_startsAt_idx" ON "Challenge"("status", "startsAt");
-
--- CreateIndex
-CREATE INDEX "Challenge_status_endsAt_idx" ON "Challenge"("status", "endsAt");
 
 -- CreateIndex
 CREATE INDEX "Challenge_creatorId_idx" ON "Challenge"("creatorId");
 
 -- CreateIndex
-CREATE INDEX "ChallengeParticipant_userId_status_idx" ON "ChallengeParticipant"("userId", "status");
+CREATE INDEX "Challenge_status_endsAt_idx" ON "Challenge"("status", "endsAt");
+
+-- CreateIndex
+CREATE INDEX "Challenge_status_startsAt_idx" ON "Challenge"("status", "startsAt");
+
+-- CreateIndex
+CREATE INDEX "ChallengeParticipant_userId_status_idx" ON "ChallengeParticipant"("userId", status);
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ChallengeParticipant_challengeId_userId_key" ON "ChallengeParticipant"("challengeId", "userId");

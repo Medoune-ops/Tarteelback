@@ -263,10 +263,6 @@ model User {
   reportsSent        Report[]      @relation("Reporter")
   reportsReceived    Report[]      @relation("ReportTarget")
 
-  // Défis (3.B1)
-  challengesCreated Challenge[] @relation("ChallengeCreator")
-  challengeEntries  ChallengeParticipant[]
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -291,6 +287,10 @@ model User {
   sentInvitations HouseholdInvitation[] @relation("InvitedBy")
   pendingGifts    PendingGift[]
   supportMessages SupportMessage[]
+
+  // Défis (ticket 3.B3)
+  createdChallenges         Challenge[]             @relation("ChallengeCreator")
+  challengeParticipations   ChallengeParticipant[]  @relation("ChallengeParticipantUser")
 
   @@index([weeklyXp])
   @@index([bannedAt])
@@ -1117,7 +1117,7 @@ model Report {
   @@index([targetUserId])
 }
 
-
+/// Défis entre amis (ticket 3.B3) : aperçu, création, liste, détail.
 enum ChallengeType {
   streak
   sourates
@@ -1139,45 +1139,45 @@ enum ParticipantStatus {
 }
 
 model Challenge {
-  id          String                 @id @default(cuid())
+  id          String            @id @default(cuid())
   creatorId   String
-  creator     User                   @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  creator     User              @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   type        ChallengeType
-  title       String                 @db.VarChar(60)
+  title       String
   goal        Json
-  timezone    String
-  startDay    String
-  endDay      String
+  timezone    String            // fuseau du créateur, ex. "Africa/Dakar"
+  startDay    String            // jour de début (YYYY-MM-DD, heure locale du créateur)
+  endDay      String            // jour de fin (inclus)
   startsAt    DateTime
   endsAt      DateTime
-  status      ChallengeStatus        @default(pending)
-  winnerIds   String[]               @default([])
+  status      ChallengeStatus   @default(pending)
+  winnerIds   String[]          @default([])
   finishedAt  DateTime?
-  createdAt   DateTime               @default(now())
+  createdAt   DateTime          @default(now())
 
-  participants ChallengeParticipant[]
+  participants ChallengeParticipant[] @relation("ChallengeParticipants")
 
-  @@index([status, startsAt])
-  @@index([status, endsAt])
   @@index([creatorId])
+  @@index([status, endsAt])
+  @@index([status, startsAt])
 }
 
 model ChallengeParticipant {
-  id          String            @id @default(cuid())
-  challengeId String
-  challenge   Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status      ParticipantStatus @default(invited)
-  baseline    Int               @default(0)
-  progress    Int               @default(0)
-  target      Int
-  reachedAt   DateTime?
-  rank        Int?
-  rewardGems  Int               @default(0)
-  lastNudgedAt DateTime?
-  invitedAt   DateTime          @default(now())
-  respondedAt DateTime?
+  id             String              @id @default(cuid())
+  challengeId    String
+  challenge      Challenge           @relation("ChallengeParticipants", fields: [challengeId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User                @relation("ChallengeParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+  status         ParticipantStatus   @default(invited)
+  baseline       Int                 @default(0)
+  progress         Int                 @default(0)
+  target           Int
+  reachedAt      DateTime?
+  rank           Int?
+  rewardGems       Int               @default(0)
+  lastNudgedAt   DateTime?
+  invitedAt      DateTime            @default(now())
+  respondedAt    DateTime?
 
   @@unique([challengeId, userId])
   @@index([userId, status])
