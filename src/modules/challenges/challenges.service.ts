@@ -12,6 +12,7 @@ import { leagueRepository } from '../leagues/league.repository.js';
 import { serializePublicProfile } from '../../core/friends.js';
 import { prisma } from '../../config/prisma.js';
 import { localDayKey } from '../../core/streak.js';
+import { enqueue } from '../../core/outbox.js';
 
 function addDaysKey(key: string, days: number): string {
   const d = new Date(`${key}T00:00:00.000Z`);
@@ -198,6 +199,11 @@ export const challengesService = {
             invitedAt: new Date(),
           },
         });
+        await enqueue(tx, {
+          type: 'challenge_invite',
+          userId: otherId,
+          payload: { type, id: c.id },
+        });
       }
       return c;
     });
@@ -211,6 +217,79 @@ export const challengesService = {
       endsAt,
       participants: allIds.length,
     };
+  },
+
+  async accept(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    const meParticipant = challenge.participants.find((p) => p.userId === meId);
+    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
+    }
+    if (meParticipant.status !== 'invited') {
+      return { status: meParticipant.status };
+    }
+    const acceptedCount = challenge.participants.filter(
+      (p) => p.status === 'accepted',
+    ).length;
+    if (acceptedCount >= 10) throw new AppError('CHALLENGE_FULL', 'Challenge is full');
+    await prisma.challengeParticipant.update({
+      where: { id: meParticipant.id },
+      data: { status: 'accepted', respondedAt: new Date() },
+    });
+    return { status: 'accepted' };
+  },
+
+  async decline(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    const meParticipant = challenge.participants.find((p) => p.userId === meId);
+    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
+    }
+    if (meParticipant.status !== 'invited') {
+      return { status: meParticipant.status };
+    }
+    await prisma.challengeParticipant.update({
+      where: { id: meParticipant.id },
+      data: { status: 'declined', respondedAt: new Date() },
+    });
+    return { status: 'declined' };
+  },
+
+  async leave(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    const meParticipant = challenge.participants.find((p) => p.userId === meId);
+    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+    if (meParticipant.status === 'left') {
+      return { status: 'left' };
+    }
+    await prisma.challengeParticipant.update({
+      where: { id: meParticipant.id },
+      data: { status: 'left', respondedAt: new Date() },
+    });
+    return { status: 'left' };
+  },
+
+  async cancel(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    if (challenge.creatorId !== meId) throw new AppError('FORBIDDEN', 'Only creator can cancel');
+    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
+    }
+    await prisma.challenge.update({
+      where: { id },
+      data: { status: 'cancelled' },
+    });
+    return { status: 'cancelled' };
   },
 
   async list(meId: string, status?: 'active' | 'pending' | 'completed', cursor?: string | null, limit = 20) {

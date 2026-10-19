@@ -40,6 +40,7 @@ export async function resetDb() {
     'RefreshToken',
     'ChallengeParticipant',
     'Challenge',
+    'DomainEvent',
     'User',
   ];
   await prisma.$executeRawUnsafe(

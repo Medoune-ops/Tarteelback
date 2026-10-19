@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import type { FastifyInstance } from 'fastify';
 import { DB_TESTS, makeApp, resetDb, registerUser, authHeader } from './helpers/testApp.js';
 import { prisma } from '../src/config/prisma.js';
+import { activateChallenges } from '../src/jobs/maintenance.js';
 
 const d = DB_TESTS ? describe : describe.skip;
 
@@ -294,5 +295,287 @@ d('challenges : aperçu, création, lecture (ticket 3.B3)', () => {
       headers: authHeader(me.accessToken),
     });
     expect(unknown.statusCode).toBe(404);
+  });
+});
+
+async function accept(app: FastifyInstance, token: string, id: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/me/challenges/${id}/accept`,
+    headers: authHeader(token),
+  });
+}
+async function decline(app: FastifyInstance, token: string, id: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/me/challenges/${id}/decline`,
+    headers: authHeader(token),
+  });
+}
+async function leave(app: FastifyInstance, token: string, id: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/me/challenges/${id}/leave`,
+    headers: authHeader(token),
+  });
+}
+async function cancel(app: FastifyInstance, token: string, id: string) {
+  return app.inject({
+    method: 'POST',
+    url: `/me/challenges/${id}/cancel`,
+    headers: authHeader(token),
+  });
+}
+
+d('challenges : accepter / refuser / quitter / annuler (ticket 3.B4)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  it('POST /me/challenges/:id/accept : invité accepte, passe "accepted"', async () => {
+    const me = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    const res = await accept(app, friend.accessToken, id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('accepted');
+
+    const challenge = await prisma.challenge.findUnique({
+      where: { id },
+      include: { participants: true },
+    });
+    const part = challenge!.participants.find((p) => p.userId === friend.userId);
+    expect(part!.status).toBe('accepted');
+    expect(part!.respondedAt).not.toBeNull();
+  });
+
+  it('POST /me/challenges/:id/accept : après le début => CHALLENGE_CLOSED', async () => {
+    const me = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { startsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const res = await accept(app, friend.accessToken, id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('CHALLENGE_CLOSED');
+  });
+
+  it('POST /me/challenges/:id/decline : invité décline, passe "declined"', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    const res = await decline(app, friend.accessToken, id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('declined');
+
+    const challenge = await prisma.challenge.findUnique({
+      where: { id },
+      include: { participants: true },
+    });
+    const part = challenge!.participants.find((p) => p.userId === friend.userId);
+    expect(part!.status).toBe('declined');
+    expect(part!.respondedAt).not.toBeNull();
+  });
+
+  it('POST /me/challenges/:id/leave : participant quitte, passe "left"', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    const res = await leave(app, me.accessToken, id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('left');
+
+    const challenge = await prisma.challenge.findUnique({
+      where: { id },
+      include: { participants: true },
+    });
+    const part = challenge!.participants.find((p) => p.userId === me.userId);
+    expect(part!.status).toBe('left');
+  });
+
+  it('POST /me/challenges/:id/cancel : créateur annule avant le début', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    const res = await cancel(app, me.accessToken, id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('cancelled');
+
+    const challenge = await prisma.challenge.findUnique({ where: { id } });
+    expect(challenge!.status).toBe('cancelled');
+  });
+
+  it('POST /me/challenges/:id/cancel : non-créateur reçoit 403', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    const res = await cancel(app, friend.accessToken, id);
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('FORBIDDEN');
+  });
+
+  it('POST /me/challenges/:id/cancel : après le début => CHALLENGE_CLOSED', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { startsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const res = await cancel(app, me.accessToken, id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('CHALLENGE_CLOSED');
+  });
+
+  it('POST /me/challenges/:id/* : non-participant reçoit 404', async () => {
+    const me = await makeUser(app);
+    const friend = await makeUser(app);
+    const stranger = await registerUser(app);
+    await befriend(me.userId, friend.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [friend]);
+    const id = created.json().id;
+
+    for (const method of ['accept', 'decline', 'leave', 'cancel'] as const) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/me/challenges/${id}/${method}`,
+        headers: authHeader(stranger.accessToken),
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('NOT_FOUND');
+    }
+  });
+});
+
+d('challenges : job activateChallenges (ticket 3.B5)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  it('>= 2 acceptés : passe "active", baseline enregistrée, invited → expired', async () => {
+    const me = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const f1 = await makeUser(app);
+    const f2 = await makeUser(app);
+    await befriend(me.userId, f1.userId);
+    await befriend(me.userId, f2.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [f1, f2]);
+    const id = created.json().id;
+
+    await accept(app, f1.accessToken, id);
+    await accept(app, f2.accessToken, id);
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { startsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const result = await activateChallenges(new Date());
+    expect(result!.activated).toBe(1);
+    expect(result!.cancelled).toBe(0);
+
+    const challenge = await prisma.challenge.findUnique({
+      where: { id },
+      include: { participants: true },
+    });
+    expect(challenge!.status).toBe('active');
+
+    for (const p of challenge!.participants) {
+      expect(p.baseline).toBeGreaterThanOrEqual(0);
+    }
+
+    const invited = challenge!.participants.filter((p) => p.status === 'invited');
+    expect(invited).toHaveLength(0);
+  });
+
+  it('< 2 acceptés : passe "cancelled"', async () => {
+    const me = await makeUser(app);
+    const f1 = await makeUser(app);
+    await befriend(me.userId, f1.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [f1]);
+    const id = created.json().id;
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { startsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const result = await activateChallenges(new Date());
+    expect(result!.activated).toBe(0);
+    expect(result!.cancelled).toBe(1);
+
+    const challenge = await prisma.challenge.findUnique({ where: { id } });
+    expect(challenge!.status).toBe('cancelled');
+  });
+
+  it('le job est relançable sans effet (idempotent)', async () => {
+    const me = await makeUser(app);
+    const f1 = await makeUser(app);
+    await befriend(me.userId, f1.userId);
+    learned.mockImplementation(() => Promise.resolve([]));
+
+    const created = await createChallenge(app, me, [f1]);
+    const id = created.json().id;
+
+    await prisma.challenge.update({
+      where: { id },
+      data: { startsAt: new Date(Date.now() - 60_000) },
+    });
+
+    const r1 = await activateChallenges(new Date());
+    expect(r1!.cancelled).toBe(1);
+
+    const r2 = await activateChallenges(new Date());
+    expect(r2!.cancelled).toBe(0);
+    expect(r2!.activated).toBe(0);
+
+    const challenge = await prisma.challenge.findUnique({ where: { id } });
+    expect(challenge!.status).toBe('cancelled');
   });
 });
