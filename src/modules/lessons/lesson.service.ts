@@ -25,6 +25,7 @@ import { leagueService } from '../leagues/league.service.js';
 import { lessonRepository } from './lesson.repository.js';
 import { computeUserStats } from '../me/user.stats.js';
 import { serializeUserFlat } from '../me/user.serializer.js';
+import { enqueue } from '../../core/outbox.js';
 
 /**
  * Lesson XP formula — mirrors the front (`play.tsx`): a flat base plus a bonus
@@ -321,6 +322,13 @@ export const lessonService = {
         where: { userId_day: { userId, day: dayKey } },
         create: { userId, day: dayKey },
         update: {},
+      });
+
+      // Événement pour les défis actifs de l'utilisateur (idempotent côté handler).
+      await enqueue(tx, {
+        type: 'lesson.completed',
+        userId,
+        payload: { lessonId, completedAt: now },
       });
 
       return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
