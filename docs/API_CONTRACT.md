@@ -308,6 +308,69 @@ POST /billing/repair-streak
 
 ---
 
+## 9. Réussites et fil d'activité (ticket 2.B2, 2.B3, 2.B4)
+
+```
+GET  /me/achievements?since=
+POST /me/achievements/:id/reaction { kind }
+DELETE /me/achievements/:id/reaction
+GET  /me/achievements/feed?since=
+```
+
+`GET /me/achievements` → `{ "items": [{ "id", "type": "sourate_mastered", "refKey": "67", "payload": { "sourateId", "sourateNumero", "nom", "nombreVersets" }, "createdAt" }] }`
+
+`GET /me/achievements/feed` → `{ "items": [{ "id", "type", "refKey", "payload", "createdAt", "user": { "id", "displayName", "username", "avatarInitials" }, "myReaction": null | "mashaallah" | "barakallah" | "dua" | "bravo" }] }`
+
+- `since` : filtre les réussites créées après cette date (ISO).
+- `PUT /me/achievements/:id/reaction` → ajoute une réaction (`mashaallah`, `barakallah`, `dua`, `bravo`). 409 si déjà réagi.
+- `DELETE /me/achievements/:id/reaction` → retire la réaction de l'utilisateur connecté.
+- Le fil ne montre que les réussites des amis (respecte les blocages).
+
+---
+
+## 10. Boîte de réception — messages entre amis (ticket 4.B1, 4.B2)
+
+```
+POST   /me/messages          { recipientIds[1..10], kind, payload, note? }
+GET    /me/messages          # reçus, non masqués, curseur
+POST   /me/messages/:id/read # marquer comme lu
+DELETE /me/messages/:id      # masquer (destinataire seulement)
+```
+
+- `kind` : `hadith` | `achievement` | `encouragement`
+- `payload` : `hadith` → `{ collection: 'nawawi'|'qudsi'|'bukhari'|'muslim', n: int }` ; `achievement` → `{ achievementId }` ; `encouragement` → `{ key: 'keep_going'|'proud_of_you'|'dua_for_you' }`
+- `note` : max 140 caractères (`Zod .trim().max(140)`)
+- Quotas : 3 envois/jour en gratuit (toutes natures confondues, relances de défi comprises), 30 en premium ; 5 par jour vers une même personne
+- "Tout ou rien" : si le quota restant est inférieur au nombre de destinataires, toute la requête est refusée (429 `QUOTA_EXCEEDED`), rien n'est envoyé
+- Seuls les amis acceptés peuvent recevoir un message ; les utilisateurs bloqués sont refusés
+
+`GET /me/messages` → `{ "items": [{ "id", "sender": { "id", "displayName", "username", "avatarInitials" }, "kind", "payload", "note", "readAt", "createdAt" }], "nextCursor" }`
+
+- `POST /me/messages/:id/read` → `{ "read": true }`
+- `DELETE /me/messages/:id` → `{ "removed": true }` (marque `hiddenAt`, destinataire seulement)
+
+Push type `message` : `"Awa t'a envoyé un hadith"` — jamais le contenu de la note.
+
+---
+
+## 11. Config publique (ticket 0.B3)
+
+```
+GET /config
+```
+
+Retourne les réglages produits globaux (lecture publique, pas d'auth) :
+```json
+{
+  "paymentsEnabled": true,
+  "emailVerificationEnabled": false,
+  "pricing": { ... },
+  "friendsEnabled": true  // true pour tout le monde si FRIENDS_ENABLED=1 sans BETA_USER_IDS, sinon uniquement pour les IDs de la liste bêta
+}
+```
+
+---
+
 ## 9. Suggested RN API client sketch
 
 ```ts
