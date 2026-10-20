@@ -324,11 +324,16 @@ export const lessonService = {
         update: {},
       });
 
-      // Événement pour les défis actifs de l'utilisateur (idempotent côté handler).
+      // Événement pour les réussites et les défis (idempotent côté handlers).
       await enqueue(tx, {
         type: 'lesson.completed',
         userId,
-        payload: { lessonId, completedAt: now },
+        payload: {
+          lessonId,
+          completedAt: now,
+          firstCompletion,
+          sourateNumero: lesson.sourateNumero ?? null,
+        },
       });
 
       return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
