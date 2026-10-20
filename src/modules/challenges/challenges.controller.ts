@@ -29,4 +29,24 @@ export const challengesController = {
     const result = await challengesService.get(req.auth!.sub, params.id);
     return reply.send(result);
   },
+  async accept(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    const result = await challengesService.accept(req.auth!.sub, params.id);
+    return reply.send(result);
+  },
+  async decline(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    const result = await challengesService.decline(req.auth!.sub, params.id);
+    return reply.send(result);
+  },
+  async leave(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    const result = await challengesService.leave(req.auth!.sub, params.id);
+    return reply.send(result);
+  },
+  async cancel(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    const result = await challengesService.cancel(req.auth!.sub, params.id);
+    return reply.send(result);
+  },
 };

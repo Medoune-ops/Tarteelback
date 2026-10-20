@@ -17,4 +17,16 @@ export async function challengeRoutes(app: FastifyInstance) {
   app.get('/:id', { schema: { ...sec, summary: 'Détail d\u2019un défi' } }, (req, reply) =>
     challengesController.get(req, reply),
   );
+  app.post('/:id/accept', { schema: { ...sec, summary: 'Accepter une invitation' } }, (req, reply) =>
+    challengesController.accept(req, reply),
+  );
+  app.post('/:id/decline', { schema: { ...sec, summary: 'Décliner une invitation' } }, (req, reply) =>
+    challengesController.decline(req, reply),
+  );
+  app.post('/:id/leave', { schema: { ...sec, summary: 'Quitter un défi' } }, (req, reply) =>
+    challengesController.leave(req, reply),
+  );
+  app.post('/:id/cancel', { schema: { ...sec, summary: 'Annuler un défi (créateur)' } }, (req, reply) =>
+    challengesController.cancel(req, reply),
+  );
 }

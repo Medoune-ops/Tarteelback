@@ -13,6 +13,8 @@ import errorHandler from './plugins/errorHandler.js';
 import requestCounter from './plugins/requestCounter.js';
 import { registerRoutes } from './routes.js';
 import './modules/notifications/friendsPushHandler.js';
+import './modules/challenges/challengesPushHandler.js';
+import './modules/challenges/challenges.progress.handler.js';
 
 /**
  * Build (but do not start) the Fastify app. Reusable by tests via app.inject().
