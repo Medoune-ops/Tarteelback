@@ -14,8 +14,8 @@ import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
 import { sendDueInactivityReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
 import { householdService } from '../modules/household/household.service.js';
 import { drainOutbox as runOutboxDrain, enqueue } from '../core/outbox.js';
-import { getLearnedSourates } from '../modules/me/learnedSourates.js';
-import { streakLongestConsecutive } from '../core/challengeRules.js';
+import { finishChallenge } from '../modules/challenges/challenges.progress.js';
+import { determineWinners } from '../core/challengeRules.js';
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
 
@@ -71,113 +71,85 @@ export async function processOutbox(now: Date = new Date()) {
     return runOutboxDrain();
   });
 }
-
 /**
- * Passe les défis "pending" dont startsAt est atteint à "active" (si >= 2
- * participants acceptés) ou "cancelled" (sinon). Enregistre la photo de
- * départ (baseline) de chaque participant et passe les "invited" restants à
- * "expired". Idempotent via UPDATE ... WHERE status = 'pending'.
+ * Termine tout défi "active" dont endsAt est passé. Passe le défi en
+ * "completed" avec winnerIds et finishedAt. Idempotent via
+ * UPDATE ... WHERE status = 'active'.
  */
-export async function activateChallenges(now: Date = new Date()) {
-  return withLock('job:activate-challenges', LOCK_TTL_MS, async () => {
-    const pending = await prisma.challenge.findMany({
-      where: { status: 'pending', startsAt: { lte: now } },
+export async function finalizeChallenges(now: Date = new Date()) {
+  return withLock('job:finalize-challenges', LOCK_TTL_MS, async () => {
+    const challenges = await prisma.challenge.findMany({
+      where: { status: 'active', endsAt: { lte: now } },
       include: { participants: true },
     });
 
-    let activated = 0;
-    let cancelled = 0;
+    let finalized = 0;
 
-    for (const challenge of pending) {
-      const acceptedCount = challenge.participants.filter(
+    for (const challenge of challenges) {
+      const accepted = challenge.participants.filter(
         (p) => p.status === 'accepted',
-      ).length;
+      );
+      const reached = accepted.filter(
+        (p) => p.target > 0 && p.progress >= p.target,
+      );
 
-      if (acceptedCount >= 2) {
-        const updated = await prisma.challenge.update({
-          where: { id: challenge.id, status: 'pending' },
-          data: { status: 'active' },
-        });
-        if (!updated) continue; // déjà traité par une autre instance
-
-        // Photo de départ (baseline) de chaque participant + invited → expired.
-        for (const p of challenge.participants) {
-          let baseline = 0;
-          if (challenge.type === 'streak') {
-            const days = await prisma.activityDay.findMany({
-              where: {
+      const winnerIds =
+        reached.length > 0
+          ? determineWinners(
+              reached.map((p) => ({
                 userId: p.userId,
-                day: { gte: challenge.startDay, lte: challenge.endDay },
-              },
-              select: { day: true },
-            });
-            baseline = streakLongestConsecutive(
-              days.map((d) => d.day),
-              challenge.startDay,
-              challenge.endDay,
-            );
-          } else {
-            try {
-              const learned = await getLearnedSourates(p.userId);
-              const mastered = new Set(learned.map((s) => s.numero));
-              const wanted =
-                (challenge.goal as { sourateNumeros?: number[] })?.sourateNumeros ??
-                [];
-              baseline = wanted.filter((n) => mastered.has(n)).length;
-            } catch {
-              baseline = 0;
-            }
-          }
+                progress: p.progress,
+                target: p.target,
+                reached: true,
+                reachedAt: p.reachedAt,
+              })),
+            )
+          : [];
 
-          await prisma.challengeParticipant.update({
-            where: { id: p.id },
-            data: { baseline, progress: 0 },
+      const updated = await prisma.challenge.update({
+        where: { id: challenge.id, status: 'active' },
+        data: {
+          status: 'completed',
+          finishedAt: now,
+          winnerIds,
+        },
+      });
+      if (!updated) continue; // déjà traité par une autre instance
+
+      // Push challenge.finished à chaque participant.
+      await prisma.$transaction(async (tx) => {
+        for (const p of challenge.participants) {
+          await enqueue(tx, {
+            type: 'challenge.finished',
+            userId: p.userId,
+            payload: {
+              challengeId: challenge.id,
+              winnerIds,
+              participantIds: challenge.participants.map((p) => p.userId),
+            },
           });
-
-          if (p.status === 'invited') {
-            await prisma.challengeParticipant.update({
-              where: { id: p.id },
-              data: { status: 'expired' },
-            });
-          }
         }
+      });
 
-        // Push challenge_started à chaque participant.
-        await prisma.$transaction(async (tx) => {
-          for (const p of challenge.participants) {
-            await enqueue(tx, {
-              type: 'challenge_started',
-              userId: p.userId,
-              payload: { type: challenge.type, id: challenge.id },
-            });
-          }
-        });
-
-        activated++;
-      } else {
-        await prisma.challenge.update({
-          where: { id: challenge.id, status: 'pending' },
-          data: { status: 'cancelled' },
-        });
-        cancelled++;
-      }
+      finalized++;
     }
 
-    return { activated, cancelled };
+    return { finalized };
   });
 }
+
 export async function runAllMaintenance(now: Date = new Date()) {
   // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
   // avant le downgrade global.
   const households = await expireHouseholds(now);
-  const [tokens, premium, rollover, reminders, outbox, activated] =
+  const [tokens, premium, rollover, reminders, outbox, finalized] =
     await Promise.all([
       purgeRefreshTokens(now),
       downgradeExpiredPremium(now),
       runWeeklyRollover(now),
       runReminders(now),
       processOutbox(now),
-      activateChallenges(now),
+      finalizeChallenges(now),
     ]);
   return {
     households,
@@ -186,7 +158,7 @@ export async function runAllMaintenance(now: Date = new Date()) {
     rollover,
     reminders,
     outbox,
-    activated,
+    finalized,
   };
 }
 
@@ -228,8 +200,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case 'process-outbox':
       case 'outbox':
         return processOutbox();
-      case 'activate-challenges':
-        return activateChallenges();
+      case 'finalize-challenges':
+        return finalizeChallenges();
       default:
         return runAllMaintenance();
     }

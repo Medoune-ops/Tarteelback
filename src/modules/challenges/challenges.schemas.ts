@@ -53,3 +53,7 @@ export const challengeListQuerySchema = z
   .strict();
 
 export const challengeParamsSchema = z.object({ id: z.string().min(1) }).strict();
+
+export const challengeNudgeBodySchema = z
+  .object({ userId: z.string().min(1) })
+  .strict();
