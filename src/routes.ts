@@ -12,6 +12,7 @@ import { dexpayWebhookRoutes } from './modules/billing/dexpay.webhook.js';
 import { stripeWebhookRoutes } from './modules/billing/stripe.webhook.js';
 import { dexpayPagesRoutes } from './modules/billing/dexpay.pages.js';
 import { notificationRoutes } from './modules/notifications/notification.routes.js';
+import { messagesRoutes } from './modules/messages/messages.routes.js';
 import { rewardRoutes } from './modules/rewards/reward.routes.js';
 import { gemRoutes } from './modules/gems/gem.routes.js';
 import { revisionRoutes } from './modules/revision/revision.routes.js';
@@ -70,6 +71,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(referralRoutes, { prefix: '/me' });
   // Amis (flag FRIENDS_ENABLED) �?" garde + routes communes.
   await app.register(friendsRoutes, { prefix: '/me/friends' });
+  // Messages entre amis (ticket 4.B2) : envoi, lecture, masquage.
+  await app.register(messagesRoutes, { prefix: '/me/messages' });
   // Page publique /f/:token (aucune auth).
   await app.register(friendsShareRoutes, { prefix: '/f' });
   await app.register(blockRoutes, { prefix: '/me' });
