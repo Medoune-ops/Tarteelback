@@ -8,8 +8,8 @@
  * QUE dans ce texte, pas techniquement dans le flux d'inscription).
  */
 
-const LAST_UPDATED = '28 juillet 2026';
-const LAST_UPDATED_EN = 'July 28, 2026';
+const LAST_UPDATED = '20 octobre 2026';
+const LAST_UPDATED_EN = 'October 20, 2026';
 
 export const termsFr = `
 <h1>Conditions d'utilisation</h1>
@@ -36,13 +36,25 @@ export const termsFr = `
 <h2>7. Règles de bonne conduite</h2>
 <p>Vous vous engagez à ne pas usurper l'identité d'autrui, ne pas utiliser l'application à des fins illégales, et ne pas tenter de perturber son fonctionnement (piratage, extraction automatisée de données, etc.).</p>
 
-<h2>8. Suppression de compte</h2>
-<p>Vous pouvez supprimer votre compte à tout moment depuis l'application. La suppression est définitive et irréversible : toutes vos données (progression, préférences, historique) sont supprimées de nos serveurs.</p>
+<h2>8. Amis et interactions entre utilisateurs</h2>
+<p>Vous pouvez ajouter d'autres utilisateurs comme amis, accepter ou refuser des invitations d'amitié, et bloquer ou signaler un utilisateur. L'amitié est réciproque : deux utilisateurs deviennent amis seulement lorsque l'invitation est acceptée par les deux parties. Vous pouvez contrôler qui peut vous voir et vous contacter depuis les réglages de confidentialité de l'application (visibilité : amis uniquement ou privé).</p>
 
-<h2>9. Évolution du service</h2>
+<h2>9. Visibilité des réussites</h2>
+<p>Vos réussites (sourates mémorisées, séries, objectifs) peuvent être visibles par vos amis et dans les classements de ligue si vous y participez. Vous pouvez masquer votre profil et vos réussites depuis les réglages de confidentialité de l'application.</p>
+
+<h2>10. Invitations</h2>
+<p>Vous pouvez inviter d'autres personnes à rejoindre Tarteel via un lien ou un code de partage. Les invitations expirent après un certain délai et peuvent être révoquées à tout moment par l'expéditeur. Le destinataire est libre d'accepter ou de refuser l'invitation.</p>
+
+<h2>11. Signalements</h2>
+<p>Si vous constatez un comportement inapproprié (spam, harcèlement, contenu inapproprié), vous pouvez signaler l'utilisateur ou le contenu concerné depuis l'application. Les signalements sont examinés par notre équipe de modération, qui peut prendre des mesures allant de l'avertissement à la suppression du compte.</p>
+
+<h2>12. Suppression de compte</h2>
+<p>Vous pouvez supprimer votre compte à tout moment depuis l'application. La suppression est définitive et irréversible : toutes vos données (progression, préférences, historique, amis, messages, signalements) sont supprimées de nos serveurs.</p>
+
+<h2>13. Évolution du service</h2>
 <p>Tarteel peut faire évoluer, ajouter ou retirer des fonctionnalités. Ces conditions seront mises à jour si des fonctionnalités significatives sont ajoutées (par exemple des offres payantes), avec une date de mise à jour visible en haut de cette page.</p>
 
-<h2>10. Contact</h2>
+<h2>14. Contact</h2>
 <p>Pour toute question sur ces conditions, contactez-nous depuis la section Support de l'application.</p>
 `;
 
@@ -77,22 +89,33 @@ export const privacyFr = `
 <h2>5. Visibilité entre utilisateurs</h2>
 <p>Si vous rejoignez une ligue, votre nom d'utilisateur (ou nom affiché) et votre score hebdomadaire sont visibles par les autres membres de la même ligue. Vous pouvez désactiver la visibilité de votre profil et d'autres options depuis les réglages de confidentialité de l'application.</p>
 
-<h2>6. Conservation des données</h2>
+<h2>6. Amis, invitations et signalements</h2>
+<ul>
+  <li><strong>Amis</strong> : si vous ajoutez un ami, votre nom d'utilisateur et votre profil deviennent visibles pour cet ami. Vous pouvez accepter, refuser ou bloquer des utilisateurs à tout moment.</li>
+  <li><strong>Invitations</strong> : vous pouvez envoyer des invitations pour rejoindre Tarteel. Le destinataire peut les accepter ou les refuser. Les invitations expirent après un certain délai.</li>
+  <li><strong>Signalements</strong> : si vous signalez un utilisateur ou un contenu, notre équipe de modération examine le signalement et peut prendre des mesures (avertissement, suppression de compte).</li>
+</ul>
+<p>Vous pouvez contrôler qui peut vous voir et vous contacter depuis les réglages de confidentialité de l'application (visibilité : amis uniquement ou privé).</p>
+
+<h2>7. Visibilité des réussites</h2>
+<p>Vos réussites (sourates mémorisées, séries, objectifs) peuvent être visibles par vos amis et dans les classements de ligue si vous y participez. Vous pouvez masquer votre profil et vos réussites depuis les réglages de confidentialité de l'application.</p>
+
+<h2>8. Conservation des données</h2>
 <p>Vos données sont conservées tant que votre compte existe. Lorsque vous supprimez votre compte, toutes vos données personnelles sont supprimées définitivement de nos serveurs.</p>
 
-<h2>7. Vos droits</h2>
+<h2>9. Vos droits</h2>
 <p>Vous pouvez à tout moment : consulter vos données depuis l'application, modifier vos préférences de confidentialité, désactiver les notifications, et supprimer définitivement votre compte et toutes les données associées.</p>
 
-<h2>8. Enfants et comptes familiaux</h2>
+<h2>10. Enfants et comptes familiaux</h2>
 <p>Tarteel s'adresse aux apprenants dès 4 ans. Pour les utilisateurs mineurs, le compte doit être créé et géré par un parent ou tuteur légal, qui reste responsable des données saisies dans l'application au nom de l'enfant.</p>
 
-<h2>9. Sécurité</h2>
+<h2>11. Sécurité</h2>
 <p>Les mots de passe sont stockés sous forme chiffrée (hachage argon2), jamais en clair. Les communications entre l'application et nos serveurs sont chiffrées.</p>
 
-<h2>10. Modifications de cette politique</h2>
+<h2>12. Modifications de cette politique</h2>
 <p>Cette politique peut évoluer, notamment si de nouvelles fonctionnalités sont ajoutées à l'application. La date de mise à jour en haut de cette page reflète la dernière version.</p>
 
-<h2>11. Contact</h2>
+<h2>13. Contact</h2>
 <p>Pour toute question sur vos données, contactez-nous depuis la section Support de l'application.</p>
 `;
 
@@ -121,13 +144,25 @@ export const termsEn = `
 <h2>7. Acceptable use</h2>
 <p>You agree not to impersonate others, use the app for unlawful purposes, or attempt to disrupt its operation (hacking, automated data scraping, etc.).</p>
 
-<h2>8. Account deletion</h2>
-<p>You may delete your account at any time from within the app. Deletion is permanent and irreversible: all your data (progress, preferences, history) is removed from our servers.</p>
+<h2>8. Friends and interactions between users</h2>
+<p>You can add other users as friends, accept or decline friendship invitations, and block or report a user. Friendship is reciprocal: two users become friends only when the invitation is accepted by both parties. You can control who can see you and contact you from the app's privacy settings (visibility: friends only or private).</p>
 
-<h2>9. Changes to the service</h2>
+<h2>9. Visibility of achievements</h2>
+<p>Your achievements (memorized surahs, streaks, goals) may be visible to your friends and in league rankings if you participate. You can hide your profile and achievements from the app's privacy settings.</p>
+
+<h2>10. Invitations</h2>
+<p>You can invite other people to join Tarteel via a link or share code. Invitations expire after a certain delay and can be revoked at any time by the sender. The recipient is free to accept or decline the invitation.</p>
+
+<h2>11. Reports</h2>
+<p>If you notice inappropriate behavior (spam, harassment, inappropriate content), you can report the user or content from the app. Reports are reviewed by our moderation team, who can take measures ranging from a warning to account deletion.</p>
+
+<h2>12. Account deletion</h2>
+<p>You may delete your account at any time from within the app. Deletion is permanent and irreversible: all your data (progress, preferences, history, friends, messages, reports) is removed from our servers.</p>
+
+<h2>13. Changes to the service</h2>
 <p>Tarteel may evolve, add, or remove features. These terms will be updated if significant features are added (for example paid offerings), with an updated date shown at the top of this page.</p>
 
-<h2>10. Contact</h2>
+<h2>14. Contact</h2>
 <p>For any questions about these terms, contact us from the Support section of the app.</p>
 `;
 
@@ -162,21 +197,32 @@ export const privacyEn = `
 <h2>5. Visibility between users</h2>
 <p>If you join a league, your username (or display name) and weekly score are visible to other members of the same league. You can turn off profile visibility and other options from the app's privacy settings.</p>
 
-<h2>6. Data retention</h2>
+<h2>6. Friends, invitations and reports</h2>
+<ul>
+  <li><strong>Friends</strong>: if you add a friend, your username and profile become visible to that friend. You can accept, decline or block users at any time.</li>
+  <li><strong>Invitations</strong>: you can invite other people to join Tarteel. The recipient can accept or decline the invitation. Invitations expire after a certain delay.</li>
+  <li><strong>Reports</strong>: if you report a user or content, our moderation team reviews the report and may take measures (warning, account deletion).</li>
+</ul>
+<p>You can control who can see you and contact you from the app's privacy settings (visibility: friends only or private).</p>
+
+<h2>7. Visibility of achievements</h2>
+<p>Your achievements (memorized surahs, streaks, goals) may be visible to your friends and in league rankings if you participate. You can hide your profile and achievements from the app's privacy settings.</p>
+
+<h2>8. Data retention</h2>
 <p>Your data is kept for as long as your account exists. When you delete your account, all your personal data is permanently removed from our servers.</p>
 
-<h2>7. Your rights</h2>
+<h2>9. Your rights</h2>
 <p>At any time you can: view your data from within the app, change your privacy preferences, turn off notifications, and permanently delete your account and all associated data.</p>
 
-<h2>8. Children and family accounts</h2>
+<h2>10. Children and family accounts</h2>
 <p>Tarteel is designed for learners from age 4 and up. For minor users, the account must be created and managed by a parent or legal guardian, who remains responsible for the data entered into the app on the child's behalf.</p>
 
-<h2>9. Security</h2>
+<h2>11. Security</h2>
 <p>Passwords are stored encrypted (argon2 hashing), never in plain text. Communications between the app and our servers are encrypted.</p>
 
-<h2>10. Changes to this policy</h2>
+<h2>12. Changes to this policy</h2>
 <p>This policy may change, particularly if new features are added to the app. The "last updated" date at the top of this page reflects the latest version.</p>
 
-<h2>11. Contact</h2>
+<h2>13. Contact</h2>
 <p>For any questions about your data, contact us from the Support section of the app.</p>
 `;
