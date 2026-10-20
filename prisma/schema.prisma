@@ -272,6 +272,10 @@ model User {
   dailyRecipientQuotasSent   DailyRecipientQuota[] @relation("DailyRecipientQuotaSender")
   dailyRecipientQuotasReceived DailyRecipientQuota[] @relation("DailyRecipientQuotaReceiver")
 
+  // Réussites (2.B2)
+  achievements      Achievement[]
+  achievementReactions  AchievementReaction[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1243,4 +1247,46 @@ model DailyRecipientQuota {
 
   @@unique([userId, recipientId, day])
   @@index([userId, recipientId, day])
+}
+
+/// Réussites d'un utilisateur (ticket 2.B2) : une réussite = avoir terminé
+/// TOUTES les leçons d'une sourate. Une seule leçon n'est pas une réussite.
+enum AchievementType {
+  sourate_mastered
+}
+
+model Achievement {
+  id        String   @id @default(cuid())
+  userId    String
+  type      AchievementType
+  refKey    String   // ex. "67" (numéro de sourate)
+  payload   Json     // données brutes, l'app traduit
+  createdAt DateTime @default(now())
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions        AchievementReaction[]
+
+  @@unique([userId, type, refKey])
+  @@index([userId, createdAt])
+}
+
+/// Réaction à une réussite d'un ami (ticket 2.B4).
+enum AchievementReactionKind {
+  mashaallah
+  barakallah
+  dua
+  bravo
+}
+
+model AchievementReaction {
+  achievementId String
+  userId        String
+  kind          AchievementReactionKind
+  createdAt     DateTime @default(now())
+
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([achievementId, userId])
+  @@index([achievementId, createdAt])
 }
