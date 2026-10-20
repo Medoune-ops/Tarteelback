@@ -263,6 +263,10 @@ model User {
   reportsSent        Report[]      @relation("Reporter")
   reportsReceived    Report[]      @relation("ReportTarget")
 
+  // Messages entre amis (4.B1)
+  friendMessagesSent      FriendMessage[]  @relation("FriendMessageSender")
+  friendMessagesReceived  FriendMessage[]  @relation("FriendMessageRecipient")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1181,4 +1185,30 @@ model ChallengeParticipant {
 
   @@unique([challengeId, userId])
   @@index([userId, status])
+}
+
+/// Messages entre amis et hadiths (ticket 4.B1) : boîte de réception.
+enum FriendMessageKind {
+  hadith
+  achievement
+  encouragement
+}
+
+model FriendMessage {
+  id          String        @id @default(cuid())
+  senderId    String
+  recipientId String
+  kind        FriendMessageKind
+  payload     Json
+  note        String?       @db.VarChar(140)
+  createdAt   DateTime      @default(now())
+  readAt      DateTime?
+  hiddenAt    DateTime?
+
+  sender    User     @relation("FriendMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User     @relation("FriendMessageRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, readAt])
+  @@index([senderId, createdAt])
 }
