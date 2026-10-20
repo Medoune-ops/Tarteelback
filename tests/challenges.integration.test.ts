@@ -734,3 +734,196 @@ d('challenges : fin à l\'échéance, fin paresseuse, relance (ticket 3.B8)', ()
     expect(r2.statusCode).toBe(200);
   });
 });
+
+d('challenges : scénarios complets (ticket 3.B9)', () => {
+  let app: FastifyInstance;
+  beforeAll(async () => { app = await makeApp(); });
+  afterAll(async () => { await app.close(); });
+  beforeEach(async () => { await resetDb(); });
+
+  /** Amitié acceptée (modèle Friendship : userLowId / userHighId). */
+  async function befriend(aId: string, bId: string) {
+    const low = aId < bId ? aId : bId;
+    const high = aId < bId ? bId : aId;
+    await prisma.friendship.create({
+      data: { userLowId: low, userHighId: high, requestedById: aId, status: 'accepted', source: 'qr', createdAt: new Date(), acceptedAt: new Date() },
+    });
+  }
+
+  /** Crée un défi actif avec 3 participants "accepted" qui ont atteint leur cible. */
+  async function makeReachedChallenge3(
+    a: { userId: string },
+    b: { userId: string },
+    c: { userId: string },
+    opts: { type: 'streak' | 'sourates'; startDaysAgo?: number; durationDays?: number } = { type: 'sourates', startDaysAgo: 2, durationDays: 7 },
+  ) {
+    const now = new Date();
+    const startDay = new Date(now.getTime() - (opts.startDaysAgo ?? 2) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const endDay = new Date(now.getTime() + ((opts.durationDays ?? 7) - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const challenge = await prisma.challenge.create({
+      data: {
+        creatorId: a.userId,
+        type: opts.type,
+        title: 'Défi test 3 amis',
+        goal: opts.type === 'sourates' ? { sourateNumeros: [108, 109, 110] } : { days: 3 },
+        timezone: 'UTC',
+        startDay,
+        endDay,
+        startsAt: new Date(`${startDay}T00:00:00.000Z`),
+        endsAt: new Date(`${endDay}T23:59:59.999Z`),
+        status: 'active',
+        winnerIds: [],
+      },
+    });
+
+    // Tous les 3 ont atteint leur cible
+    const baseProgress = opts.type === 'sourates' ? 3 : 3;
+    const baseReached = now;
+    for (const u of [a, b, c]) {
+      await prisma.challengeParticipant.create({
+        data: {
+          challengeId: challenge.id,
+          userId: u.userId,
+          status: 'accepted',
+          baseline: 0,
+          progress: baseProgress,
+          target: baseProgress,
+          reachedAt: baseReached,
+        },
+      });
+    }
+
+    return challenge;
+  }
+
+  it('3 amis, sourates 108/109/110 : A gagne, B et C complètent', async () => {
+    const a = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const b = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const c = await makeUser(app, { timezone: 'Africa/Dakar' });
+    await befriend(a.userId, b.userId);
+    await befriend(a.userId, c.userId);
+    await befriend(b.userId, c.userId);
+
+    const challenge = await makeReachedChallenge3(a, b, c, { type: 'sourates', startDaysAgo: 2, durationDays: 7 });
+
+    // A a terminé en premier (reachedAt le plus tôt)
+    await prisma.challengeParticipant.update({
+      where: { challengeId: challenge.id, userId: a.userId },
+      data: { reachedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
+    });
+    // B a terminé 2e
+    await prisma.challengeParticipant.update({
+      where: { challengeId: challenge.id, userId: b.userId },
+      data: { reachedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) },
+    });
+    // C a terminé 3e (maintenant)
+    await prisma.challengeParticipant.update({
+      where: { challengeId: challenge.id, userId: c.userId },
+      data: { reachedAt: new Date() },
+    });
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(true);
+
+    const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
+    expect(updated!.status).toBe('completed');
+    expect(updated!.winnerIds).toContain(a.userId);
+    expect(updated!.winnerIds.length).toBe(1);
+
+    // Vérifier les gemmes : A=50 (win), B=20 (complete), C=20 (complete)
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(3);
+
+    const aGem = gems.find((g) => g.userId === a.userId);
+    const bGem = gems.find((g) => g.userId === b.userId);
+    const cGem = gems.find((g) => g.userId === c.userId);
+    expect(aGem!.amount).toBe(50);
+    expect(aGem!.reason).toBe('challenge_win');
+    expect(bGem!.amount).toBe(20);
+    expect(bGem!.reason).toBe('challenge_complete');
+    expect(cGem!.amount).toBe(20);
+    expect(cGem!.reason).toBe('challenge_complete');
+
+    // Vérifier les rangs
+    const participants = await prisma.challengeParticipant.findMany({
+      where: { challengeId: challenge.id },
+    });
+    const aPart = participants.find((p) => p.userId === a.userId);
+    const bPart = participants.find((p) => p.userId === b.userId);
+    const cPart = participants.find((p) => p.userId === c.userId);
+    expect(aPart!.rank).toBe(1);
+    expect(bPart!.rank).toBe(2);
+    expect(cPart!.rank).toBe(3);
+  });
+
+  it('Streak de 3 jours : Dakar / Paris / Auckland', async () => {
+    const a = await makeUser(app, { timezone: 'Africa/Dakar' });
+    const b = await makeUser(app, { timezone: 'Europe/Paris' });
+    const c = await makeUser(app, { timezone: 'Pacific/Auckland' });
+    await befriend(a.userId, b.userId);
+    await befriend(a.userId, c.userId);
+    await befriend(b.userId, c.userId);
+
+    const now = new Date();
+    const startDay = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const endDay = new Date(now.getTime()).toISOString().slice(0, 10);
+
+    const challenge = await prisma.challenge.create({
+      data: {
+        creatorId: a.userId,
+        type: 'streak',
+        title: 'Défi streak 3 jours',
+        goal: { days: 3 },
+        timezone: 'UTC',
+        startDay,
+        endDay,
+        startsAt: new Date(`${startDay}T00:00:00.000Z`),
+        endsAt: new Date(`${endDay}T23:59:59.999Z`),
+        status: 'active',
+        winnerIds: [],
+      },
+    });
+
+    // Chaque utilisateur a 3 jours d'activité consécutifs dans son fuseau
+    for (const u of [a, b, c]) {
+      for (let i = 0; i < 3; i++) {
+        const day = new Date(now.getTime() - (2 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        await prisma.activityDay.create({
+          data: { userId: u.userId, day },
+        });
+      }
+      await prisma.challengeParticipant.create({
+        data: {
+          challengeId: challenge.id,
+          userId: u.userId,
+          status: 'accepted',
+          baseline: 0,
+          progress: 3,
+          target: 3,
+          reachedAt: now,
+        },
+      });
+    }
+
+    const result = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
+    expect(result.finished).toBe(true);
+
+    const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
+    expect(updated!.status).toBe('completed');
+    expect(updated!.winnerIds.length).toBeGreaterThan(0);
+
+    // Tous les 3 ont reçu des gemmes (win ou complete)
+    const gems = await prisma.gemTransaction.findMany({
+      where: { ref: challenge.id },
+    });
+    expect(gems.length).toBe(3);
+
+    const winnerGem = gems.find((g) => g.amount === 50);
+    const completeGems = gems.filter((g) => g.amount === 20);
+    expect(winnerGem).toBeTruthy();
+    expect(completeGems.length).toBe(2);
+  });
+});
