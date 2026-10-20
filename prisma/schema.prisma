@@ -267,6 +267,11 @@ model User {
   friendMessagesSent      FriendMessage[]  @relation("FriendMessageSender")
   friendMessagesReceived  FriendMessage[]  @relation("FriendMessageRecipient")
 
+  // Quotas quotidiens (4.B2)
+  dailyQuotas             DailyQuota[]
+  dailyRecipientQuotasSent   DailyRecipientQuota[] @relation("DailyRecipientQuotaSender")
+  dailyRecipientQuotasReceived DailyRecipientQuota[] @relation("DailyRecipientQuotaReceiver")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1211,4 +1216,31 @@ model FriendMessage {
   @@index([recipientId, createdAt])
   @@index([recipientId, readAt])
   @@index([senderId, createdAt])
+}
+
+/// Quotas quotidiens d'envoi (tickets D-A, D-E, 4.B2) :
+/// - messageCount : tous les envois de messages et nudges (3/jour gratuit, 30/jour premium)
+model DailyQuota {
+  userId   String
+  day      DateTime @default(now())
+  count    Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([userId, day])
+}
+
+/// Quota par destinataire (5 messages/jour vers une même personne)
+model DailyRecipientQuota {
+  userId      String
+  recipientId String
+  day         DateTime @default(now())
+  count       Int      @default(0)
+
+  user        User     @relation("DailyRecipientQuotaSender", fields: [userId], references: [id], onDelete: Cascade)
+  recipient   User     @relation("DailyRecipientQuotaReceiver", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipientId, day])
+  @@index([userId, recipientId, day])
 }

@@ -526,9 +526,12 @@ export const friendsService = {
     const pendingRequests = await prisma.friendship.count({
       where: { status: 'pending', OR: [{ userLowId: meId }, { userHighId: meId }], NOT: { requestedById: meId } },
     });
+    const unreadMessages = await prisma.friendMessage.count({
+      where: { recipientId: meId, readAt: null, hiddenAt: null },
+    });
     return {
       pendingRequests,
-      unreadMessages: 0,
+      unreadMessages,
       challengeInvites: 0,
       activeChallenges: 0,
       unseenFeed: 0,

@@ -15,6 +15,7 @@ import { registerRoutes } from './routes.js';
 import './modules/notifications/friendsPushHandler.js';
 import './modules/challenges/challengesPushHandler.js';
 import './modules/challenges/challenges.progress.handler.js';
+import './modules/messages/messages.push.js';
 
 /**
  * Build (but do not start) the Fastify app. Reusable by tests via app.inject().
