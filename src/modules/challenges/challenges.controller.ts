@@ -6,6 +6,7 @@ import {
   challengeCreateSchema,
   challengeListQuerySchema,
   challengeParamsSchema,
+  challengeNudgeBodySchema,
 } from './challenges.schemas.js';
 
 export const challengesController = {
@@ -29,24 +30,10 @@ export const challengesController = {
     const result = await challengesService.get(req.auth!.sub, params.id);
     return reply.send(result);
   },
-  async accept(req: FastifyRequest, reply: FastifyReply) {
+  async nudge(req: FastifyRequest, reply: FastifyReply) {
     const params = parse(challengeParamsSchema, req.params);
-    const result = await challengesService.accept(req.auth!.sub, params.id);
-    return reply.send(result);
-  },
-  async decline(req: FastifyRequest, reply: FastifyReply) {
-    const params = parse(challengeParamsSchema, req.params);
-    const result = await challengesService.decline(req.auth!.sub, params.id);
-    return reply.send(result);
-  },
-  async leave(req: FastifyRequest, reply: FastifyReply) {
-    const params = parse(challengeParamsSchema, req.params);
-    const result = await challengesService.leave(req.auth!.sub, params.id);
-    return reply.send(result);
-  },
-  async cancel(req: FastifyRequest, reply: FastifyReply) {
-    const params = parse(challengeParamsSchema, req.params);
-    const result = await challengesService.cancel(req.auth!.sub, params.id);
+    const body = parse(challengeNudgeBodySchema, req.body);
+    const result = await challengesService.nudge(req.auth!.sub, params.id, body);
     return reply.send(result);
   },
 };

@@ -63,6 +63,37 @@ registerOutboxHandler('challenge.finished', async (event) => {
   }
 });
 
+registerOutboxHandler('challenge_nudge', async (event) => {
+  const payload = (event.payload ?? {}) as {
+    challengeId?: string;
+    nudgedBy?: string;
+  };
+  const challengeId = payload.challengeId;
+  if (!challengeId) return;
+
+  const challenge = await prisma.challenge.findUnique({
+    where: { id: challengeId },
+  });
+  if (!challenge) return;
+
+  const nudgedUser = await userRepository.findById(event.userId);
+  if (!nudgedUser || !nudgedUser.notifFriends) return;
+
+  const nudger = await userRepository.findById(payload.nudgedBy ?? '');
+
+  await notificationService.sendFriendPush(event.userId, {
+    type: 'challenge_nudge',
+    id: challengeId,
+    lang: nudgedUser.language,
+    data: {
+      type: 'challenge_nudge',
+      id: challengeId,
+      challenger: nudger?.displayName ?? nudger?.username ?? 'Un ami',
+      title: challenge.title,
+    },
+  });
+});
+
 export function registerChallengePushHandlers(): void {
   // no-op: registration happens on import
 }

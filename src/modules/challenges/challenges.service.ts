@@ -13,6 +13,33 @@ import { serializePublicProfile } from '../../core/friends.js';
 import { prisma } from '../../config/prisma.js';
 import { localDayKey } from '../../core/streak.js';
 import { enqueue } from '../../core/outbox.js';
+import { finishChallenge } from './challenges.progress.js';
+
+/**
+ * Fin paresseuse : termine tous les défis "active" de l'utilisateur dont
+ * endsAt est passé.
+ */
+async function finalizeExpiredUserChallenges(meId: string) {
+  const now = new Date();
+  const challenges = await prisma.challenge.findMany({
+    where: {
+      participants: { some: { userId: meId } },
+      status: 'active',
+      endsAt: { lte: now },
+    },
+    select: { id: true },
+  });
+  for (const c of challenges) {
+    await finishChallenge({ tx: prisma, challengeId: c.id, now });
+  }
+}
+
+/**
+ * Termine un défi spécifique (fin paresseuse ou job).
+ */
+async function finalizeChallenge(challengeId: string, now: Date) {
+  await finishChallenge({ tx: prisma, challengeId, now });
+}
 
 function addDaysKey(key: string, days: number): string {
   const d = new Date(`${key}T00:00:00.000Z`);
@@ -199,11 +226,6 @@ export const challengesService = {
             invitedAt: new Date(),
           },
         });
-        await enqueue(tx, {
-          type: 'challenge_invite',
-          userId: otherId,
-          payload: { type, id: c.id },
-        });
       }
       return c;
     });
@@ -219,81 +241,10 @@ export const challengesService = {
     };
   },
 
-  async accept(meId: string, id: string) {
-    requireFriendsEnabled(meId);
-    const challenge = await challengeRepository.findByIdWithParticipants(id);
-    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    const meParticipant = challenge.participants.find((p) => p.userId === meId);
-    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
-    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
-      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
-    }
-    if (meParticipant.status !== 'invited') {
-      return { status: meParticipant.status };
-    }
-    const acceptedCount = challenge.participants.filter(
-      (p) => p.status === 'accepted',
-    ).length;
-    if (acceptedCount >= 10) throw new AppError('CHALLENGE_FULL', 'Challenge is full');
-    await prisma.challengeParticipant.update({
-      where: { id: meParticipant.id },
-      data: { status: 'accepted', respondedAt: new Date() },
-    });
-    return { status: 'accepted' };
-  },
-
-  async decline(meId: string, id: string) {
-    requireFriendsEnabled(meId);
-    const challenge = await challengeRepository.findByIdWithParticipants(id);
-    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    const meParticipant = challenge.participants.find((p) => p.userId === meId);
-    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
-    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
-      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
-    }
-    if (meParticipant.status !== 'invited') {
-      return { status: meParticipant.status };
-    }
-    await prisma.challengeParticipant.update({
-      where: { id: meParticipant.id },
-      data: { status: 'declined', respondedAt: new Date() },
-    });
-    return { status: 'declined' };
-  },
-
-  async leave(meId: string, id: string) {
-    requireFriendsEnabled(meId);
-    const challenge = await challengeRepository.findByIdWithParticipants(id);
-    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    const meParticipant = challenge.participants.find((p) => p.userId === meId);
-    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
-    if (meParticipant.status === 'left') {
-      return { status: 'left' };
-    }
-    await prisma.challengeParticipant.update({
-      where: { id: meParticipant.id },
-      data: { status: 'left', respondedAt: new Date() },
-    });
-    return { status: 'left' };
-  },
-
-  async cancel(meId: string, id: string) {
-    requireFriendsEnabled(meId);
-    const challenge = await challengeRepository.findByIdWithParticipants(id);
-    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    if (challenge.creatorId !== meId) throw new AppError('FORBIDDEN', 'Only creator can cancel');
-    if (challenge.status !== 'pending' || new Date() >= challenge.startsAt) {
-      throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
-    }
-    await prisma.challenge.update({
-      where: { id },
-      data: { status: 'cancelled' },
-    });
-    return { status: 'cancelled' };
-  },
-
   async list(meId: string, status?: 'active' | 'pending' | 'completed', cursor?: string | null, limit = 20) {
     requireFriendsEnabled(meId);
+    // Fin paresseuse : terminer les défis actifs échus de l'utilisateur avant de répondre
+    await finalizeExpiredUserChallenges(meId);
     const rows = await challengeRepository.listForUser(meId, status, Math.min(Math.max(1, limit), 50) + 1);
     const safeLimit = Math.min(Math.max(1, limit), 50);
     const hasMore = rows.length > safeLimit;
@@ -314,8 +265,14 @@ export const challengesService = {
 
   async get(meId: string, id: string) {
     requireFriendsEnabled(meId);
-    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    let challenge = await challengeRepository.findByIdWithParticipants(id);
     if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    // Fin paresseuse : terminer le défi échu avant de répondre
+    if (challenge.status === 'active' && new Date() >= challenge.endsAt) {
+      await finalizeChallenge(id, new Date());
+      challenge = await challengeRepository.findByIdWithParticipants(id);
+      if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+    }
     const meParticipant = challenge.participants.find((p) => p.userId === meId);
     if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
 
@@ -384,6 +341,55 @@ export const challengesService = {
       endsAt: challenge.endsAt,
       participants: valid.map((p, idx) => ({ ...p, rank: idx + 1 })),
     };
+  },
+
+  /**
+   * Relance un participant en retard (une fois par ami, par défi et par 24 h
+   * via lastNudgedAt). Émet un push challenge_nudge.
+   * Le quota global (3 gratuit / 30 premium, ticket D-A) doit être vérifié
+   * côté appelant une fois que le ticket D-A sera implémenté.
+   */
+  async nudge(meId: string, id: string, body: { userId: string }) {
+    requireFriendsEnabled(meId);
+    const challenge = await challengeRepository.findByIdWithParticipants(id);
+    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
+
+    const meParticipant = challenge.participants.find((p) => p.userId === meId);
+    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+
+    const targetParticipant = challenge.participants.find(
+      (p) => p.userId === body.userId,
+    );
+    if (!targetParticipant || targetParticipant.status !== 'accepted') {
+      throw new AppError('NOT_FOUND', 'Participant not found');
+    }
+
+    const now = new Date();
+    if (
+      targetParticipant.lastNudgedAt &&
+      now.getTime() - targetParticipant.lastNudgedAt.getTime() <
+        24 * 60 * 60 * 1000
+    ) {
+      throw new AppError('QUOTA_EXCEEDED', 'Nudge cooldown not elapsed (24h)');
+    }
+
+    await prisma.challengeParticipant.update({
+      where: { id: targetParticipant.id },
+      data: { lastNudgedAt: now },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await enqueue(tx, {
+        type: 'challenge_nudge',
+        userId: body.userId,
+        payload: {
+          challengeId: id,
+          nudgedBy: meId,
+        },
+      });
+    });
+
+    return { nudged: true };
   },
 };
 

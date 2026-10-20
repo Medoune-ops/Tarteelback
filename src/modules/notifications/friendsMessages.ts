@@ -10,6 +10,7 @@ export type FriendPushType =
   | 'challenge_update'
   | 'challenge_win'
   | 'challenge_complete'
+  | 'challenge_nudge'
   | 'friend_cheer';
 
 export interface FriendPushMessage {
@@ -25,6 +26,7 @@ export const friendsMessages = {
     challenge_update: { title: 'Tarteel Challenge', body: 'A challenge has been updated.' },
     challenge_win: { title: 'Challenge Won!', body: 'You won a friends challenge.' },
     challenge_complete: { title: 'Challenge Completed', body: 'You completed a friends challenge.' },
+    challenge_nudge: { title: 'Challenge nudge', body: 'A friend reminded you about a challenge.' },
     friend_cheer: { title: 'Tarteel Friends', body: 'A friend cheered you on.' },
   },
   fr: {
@@ -34,6 +36,7 @@ export const friendsMessages = {
     challenge_update: { title: 'Défi Tarteel', body: 'Un défi a été mis à jour.' },
     challenge_win: { title: 'Défi gagné !', body: 'Vous avez gagné un défi entre amis.' },
     challenge_complete: { title: 'Défi terminé', body: 'Vous avez terminé un défi entre amis.' },
+    challenge_nudge: { title: 'Rappel défi', body: 'Un ami vous rappelle un défi.' },
     friend_cheer: { title: 'Amis Tarteel', body: 'Un ami vous a encouragé.' },
   },
 };
