@@ -138,11 +138,52 @@ export async function finalizeChallenges(now: Date = new Date()) {
   });
 }
 
+/**
+ * Purge les données liées aux amis (ticket 5.1) :
+ * - événements traités depuis plus de 14 jours (DomainEvent)
+ * - invitations expirées (FriendInvite)
+ * - messages masqués depuis plus de 90 jours (FriendMessage)
+ * Idempotent : relançable sans effet.
+ */
+export async function purgeFriendsData(now: Date = new Date()) {
+  return withLock('job:purge-friends-data', LOCK_TTL_MS, async () => {
+    const cutoff14d = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const cutoff90d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    // Événements traités depuis plus de 14 jours.
+    const deletedEvents = await prisma.domainEvent.deleteMany({
+      where: {
+        processedAt: { not: null, lt: cutoff14d },
+      },
+    });
+
+    // Invitations expirées.
+    const deletedInvites = await prisma.friendInvite.deleteMany({
+      where: {
+        expiresAt: { lt: now },
+      },
+    });
+
+    // Messages masqués depuis plus de 90 jours.
+    const deletedMessages = await prisma.friendMessage.deleteMany({
+      where: {
+        hiddenAt: { not: null, lt: cutoff90d },
+      },
+    });
+
+    return {
+      deletedEvents: deletedEvents.count,
+      deletedInvites: deletedInvites.count,
+      deletedMessages: deletedMessages.count,
+    };
+  });
+}
+
 export async function runAllMaintenance(now: Date = new Date()) {
   // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
   // avant le downgrade global.
   const households = await expireHouseholds(now);
-  const [tokens, premium, rollover, reminders, outbox, finalized] =
+  const [tokens, premium, rollover, reminders, outbox, finalized, purged] =
     await Promise.all([
       purgeRefreshTokens(now),
       downgradeExpiredPremium(now),
@@ -150,6 +191,7 @@ export async function runAllMaintenance(now: Date = new Date()) {
       runReminders(now),
       processOutbox(now),
       finalizeChallenges(now),
+      purgeFriendsData(now),
     ]);
   return {
     households,
@@ -159,6 +201,7 @@ export async function runAllMaintenance(now: Date = new Date()) {
     reminders,
     outbox,
     finalized,
+    purged,
   };
 }
 
@@ -202,6 +245,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         return processOutbox();
       case 'finalize-challenges':
         return finalizeChallenges();
+      case 'purge-friends-data':
+        return purgeFriendsData();
       default:
         return runAllMaintenance();
     }
