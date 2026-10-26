@@ -1,6 +1,7 @@
 import { AppError } from './errors.js';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
+import { friendsConfig } from './friendsConfig.js';
 
 /**
  * Ticket 0.B4 — socle commun des amis.
@@ -9,9 +10,25 @@ import { prisma } from '../config/prisma.js';
  */
 
 // --------------------------------------------------------------------------- guard
+/**
+ * Deux sources, dans cet ordre :
+ *  1. FRIENDS_ENABLED=true (env) : forçage pour le dev et les tests, avec sa
+ *     propre liste bêta FRIENDS_BETA_USER_IDS ;
+ *  2. sinon, l'interrupteur du back-office (AppConfig.friendsEnabled + liste
+ *     bêta), lu dans le cache de core/friendsConfig.ts.
+ */
 export function isFriendsEnabled(userId?: string | null): boolean {
-  if (!env.FRIENDS_ENABLED) return false;
-  const beta = env.FRIENDS_BETA_USER_IDS;
+  let enabled: boolean;
+  let beta: string[];
+  if (env.FRIENDS_ENABLED) {
+    enabled = true;
+    beta = env.FRIENDS_BETA_USER_IDS;
+  } else {
+    const cfg = friendsConfig();
+    enabled = cfg.friendsEnabled;
+    beta = cfg.friendsBetaUserIds;
+  }
+  if (!enabled) return false;
   if (!Array.isArray(beta) || beta.length === 0) return true;
   if (userId == null) return false;
   return beta.includes(userId);

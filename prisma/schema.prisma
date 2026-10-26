@@ -68,6 +68,8 @@ enum AdminModule {
   analytics
   push_announcements
   team
+  // File des signalements (fonctions entre amis) : traiter, couper l'accès, bannir.
+  moderation
 }
 
 enum UserLevel {
@@ -206,6 +208,9 @@ model User {
   friendsDiscoverable Boolean           @default(true)
   friendsVisibility  FriendsVisibility  @default(friends)
   notifFriends       Boolean           @default(true)
+  // Coupure de l'accès aux fonctions entre amis par la modération (back-office).
+  // null = accès normal. Le reste de l'app (apprentissage) n'est pas touché.
+  friendsDisabledAt  DateTime?
   // Optional preferred local hour (0–23) for the daily learning reminder.
   reminderHour        Int     @default(19)
   // Marks the last local-day a daily reminder was sent, to avoid duplicates.
@@ -995,6 +1000,19 @@ model AppConfig {
   gemCostStreakFreeze          Int   @default(200)
   gemCostDoubleXp              Int   @default(100)
 
+  // ─── Fonctions entre amis (back-office → Configuration) ───────────────────
+  // Interrupteur sans redéploiement. La variable d'env FRIENDS_ENABLED=true
+  // reste un forçage (dev/tests) ; sinon c'est ce champ qui décide.
+  friendsEnabled           Boolean  @default(false)
+  // Non vide : la fonctionnalité n'est ouverte qu'à ces comptes (bêta).
+  friendsBetaUserIds       String[] @default([])
+  challengeRewardsEnabled  Boolean  @default(true)
+  challengeWinGems         Int      @default(50)
+  challengeCompleteGems    Int      @default(20)
+  challengeRewardedPerWeek Int      @default(3)
+  messagesPerDayFree       Int      @default(3)
+  messagesPerDayPremium    Int      @default(30)
+
   updatedAt DateTime @updatedAt
 }
 
@@ -1022,6 +1040,9 @@ model DomainEvent {
   processedAt DateTime?
   attempts    Int       @default(0)
   lastError   String?
+  // Bail du traitement en cours : un événement pris par un traitement n'est
+  // repris par un autre qu'après expiration du bail (traitement planté).
+  claimedAt   DateTime?
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([processedAt, createdAt])
@@ -1189,6 +1210,9 @@ model ChallengeParticipant {
   rank           Int?
   rewardGems       Int               @default(0)
   lastNudgedAt   DateTime?
+  // Photo de départ (défi sourates) : sourates de l'objectif déjà maîtrisées
+  // au démarrage du défi. Elles ne comptent pas pour ce participant.
+  baselineSourates Int[]           @default([])
   invitedAt      DateTime            @default(now())
   respondedAt    DateTime?
 
@@ -1253,6 +1277,10 @@ model DailyRecipientQuota {
 /// TOUTES les leçons d'une sourate. Une seule leçon n'est pas une réussite.
 enum AchievementType {
   sourate_mastered
+  streak_milestone
+  section_completed
+  challenge_won
+  league_promoted
 }
 
 model Achievement {

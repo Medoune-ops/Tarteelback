@@ -1,13 +1,12 @@
 import { AppError } from '../../core/errors.js';
 import { requireFriendsEnabled } from '../friends/friends.guard.js';
 import { isPremiumActive } from '../../core/premium.js';
+import { friendsConfig } from '../../core/friendsConfig.js';
 import { enqueue } from '../../core/outbox.js';
 import { prisma } from '../../config/prisma.js';
 import { challengeRepository } from '../challenges/challenges.repository.js';
 import { MessageSendInput } from './messages.schemas.js';
 
-const FREE_DAILY_QUOTA = 3;
-const PREMIUM_DAILY_QUOTA = 30;
 const DAILY_RECIPIENT_QUOTA = 5;
 
 const MAX_RECIPIENTS = 10;
@@ -97,7 +96,9 @@ export const messagesService = {
 
     const now = new Date();
     const premium = isPremiumActive(me, now);
-    const dailyLimit = premium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA;
+    // Plafonds réglables au back-office (AppConfig, cache de 10 s).
+    const cfg = friendsConfig();
+    const dailyLimit = premium ? cfg.messagesPerDayPremium : cfg.messagesPerDayFree;
 
     const recipientIds = Array.from(new Set(body.recipientIds || [])).filter(
       (id) => id !== meId,
@@ -111,6 +112,11 @@ export const messagesService = {
 
     // Vérifier amis + pas bloqués pour chaque destinataire
     for (const otherId of recipientIds) {
+      // Le blocage d'abord : bloquer retire l'amitié, sans quoi on répondrait
+      // « pas amis » au lieu de « bloqué ».
+      if (await isBlockedEither(meId, otherId)) {
+        throw new AppError('BLOCKED', 'Blocked');
+      }
       const fri = await getAcceptedFriendship(meId, otherId);
       if (!fri || fri.status !== 'accepted') {
         throw new AppError('NOT_FRIENDS', 'Not friends');
@@ -121,9 +127,6 @@ export const messagesService = {
       });
       if (!other || other.bannedAt) {
         throw new AppError('NOT_FOUND', 'User not found');
-      }
-      if (await isBlockedEither(meId, otherId)) {
-        throw new AppError('BLOCKED', 'Blocked');
       }
     }
 
@@ -216,7 +219,7 @@ export const messagesService = {
       },
       orderBy: { createdAt: 'desc' },
       take: safeLimit + 1,
-      ...(cursor ? { cursor, skip: 1 } : {}),
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: {
         sender: {
           select: {

@@ -58,13 +58,32 @@ const EnvSchema = z.object({
   DEFAULT_LANG: z.string().default('en'),
 
   // Amis (ticket 0.B3) �?" interrupteur global et allowlist beta.
-  FRIENDS_ENABLED: z.coerce.boolean().default(false),
+  // Forçage (dev/tests). En prod, l'interrupteur est dans le back-office
+  // (AppConfig.friendsEnabled). Seuls "true" et "1" activent : z.coerce.boolean
+  // transformait la chaîne "false" en true.
+  FRIENDS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   FRIENDS_BETA_USER_IDS: z
     .string()
     .default('')
     .transform((v) =>
       v.split(',').map((s) => s.trim()).filter((s) => s.length > 0),
     ),
+  // Liens universels (iOS) / App Links (Android) : un lien ou un QR
+  // d'invitation ouvre directement l'app si elle est installée. Servis sur
+  // /.well-known/* du domaine de PUBLIC_WEB_URL. Sans APPLE_TEAM_ID /
+  // ANDROID_SHA256_FINGERPRINTS, les fichiers répondent 404 (lien → page web).
+  APPLE_TEAM_ID: z.string().trim().default(''),
+  IOS_BUNDLE_ID: z.string().trim().default('com.tarteel.app'),
+  ANDROID_PACKAGE: z.string().trim().default('com.tarteel.sn'),
+  // Empreintes SHA-256 du certificat de signature (Play Console → Intégrité de
+  // l'app), séparées par des virgules.
+  ANDROID_SHA256_FINGERPRINTS: z
+    .string()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter((s) => s.length > 0)),
   PUBLIC_WEB_URL: z
     .string()
     .trim()

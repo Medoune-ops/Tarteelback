@@ -261,14 +261,14 @@ d('challenges : aperçu, création, lecture (ticket 3.B3)', () => {
     expect(body.status).toBe('pending');
     expect(body.participants).toHaveLength(2);
 
-    // classement en direct par progression (friend = 2/2 premier, me = 1/2 second)
+    // Défi pas encore commencé : personne n'a progressé. Les sourates déjà
+    // maîtrisées (mock : friend 1 et 2, me 1) ne comptent jamais (plan §4.4).
     const participants = body.participants as any[];
     const mePart = participants.find((p: any) => p.userId === me.userId);
     const frPart = participants.find((p: any) => p.userId === friend.userId);
-    expect(frPart.rank).toBe(1);
-    expect(frPart.progress).toBe(2);
+    expect(frPart.progress).toBe(0);
     expect(frPart.target).toBe(2);
-    expect(frPart.reached).toBe(true);
+    expect(frPart.reached).toBe(false);
     expect(frPart.reachedAt).toBeNull();
     expect(frPart.status).toBe('invited');
     expect(frPart.user).toMatchObject({
@@ -278,9 +278,9 @@ d('challenges : aperçu, création, lecture (ticket 3.B3)', () => {
       leagueTier: expect.any(String),
       weeklyXp: expect.any(Number),
     });
-    expect(mePart.rank).toBe(2);
-    expect(mePart.progress).toBe(1);
+    expect(mePart.progress).toBe(0);
     expect(mePart.target).toBe(2);
+    expect([mePart.rank, frPart.rank].sort()).toEqual([1, 2]);
     expect(mePart.reached).toBe(false);
     expect(mePart.status).toBe('accepted');
 
@@ -378,7 +378,7 @@ d('challenges : fin, rangs, récompenses (ticket 3.B7)', () => {
     return challenge;
   }
 
-  it('deux participants finissent en même temps => un gagnant, pas de double paiement', async () => {
+  it('deux participants finissent au même instant => ex æquo explicite, jamais deux paiements', async () => {
     const me = await makeUser(app);
     const friend = await makeUser(app);
     await befriendAt(me.userId, friend.userId, new Date(Date.now() - 48 * 60 * 60 * 1000));
@@ -390,17 +390,17 @@ d('challenges : fin, rangs, récompenses (ticket 3.B7)', () => {
 
     const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
     expect(updated!.status).toBe('completed');
-    expect(updated!.winnerIds.length).toBeGreaterThan(0);
+    // Même heure d'atteinte : égalité parfaite → vainqueurs ex æquo (plan §4.3).
+    expect([...updated!.winnerIds].sort()).toEqual([me.userId, friend.userId].sort());
 
-    // Un seul paiement par participant
+    // Un seul paiement par participant, et le solde est bien crédité.
     const gems = await prisma.gemTransaction.findMany({
       where: { ref: challenge.id },
     });
-    const winnerGem = gems.find((g) => g.amount === 50);
-    const loserGem = gems.find((g) => g.amount === 20);
-    expect(winnerGem).toBeTruthy();
-    expect(loserGem).toBeTruthy();
     expect(gems.length).toBe(2);
+    expect(gems.every((g) => g.amount === 50 && g.reason === 'challenge_win')).toBe(true);
+    const balances = await prisma.user.findMany({ where: { id: { in: [me.userId, friend.userId] } }, select: { gems: true } });
+    expect(balances.every((b) => b.gems >= 50)).toBe(true);
 
     // Idempotence : relancer, pas de nouveau paiement
     const r2 = await finishChallenge({ tx: prisma, challengeId: challenge.id, now: new Date() });
@@ -694,7 +694,7 @@ d('challenges : fin à l\'échéance, fin paresseuse, relance (ticket 3.B8)', ()
     expect(res.json().nudged).toBe(true);
 
     const participant = await prisma.challengeParticipant.findUnique({
-      where: { challengeId: challenge.id, userId: friend.userId },
+      where: { challengeId_userId: { challengeId: challenge.id, userId: friend.userId } },
     });
     expect(participant!.lastNudgedAt).not.toBeNull();
   });
@@ -726,7 +726,7 @@ d('challenges : fin à l\'échéance, fin paresseuse, relance (ticket 3.B8)', ()
 
     // Simuler le passage de 24h en mettant à jour lastNudgedAt dans le passé
     await prisma.challengeParticipant.update({
-      where: { challengeId: challenge.id, userId: friend.userId },
+      where: { challengeId_userId: { challengeId: challenge.id, userId: friend.userId } },
       data: { lastNudgedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
     });
 
@@ -741,12 +741,13 @@ d('challenges : scénarios complets (ticket 3.B9)', () => {
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(); });
 
-  /** Amitié acceptée (modèle Friendship : userLowId / userHighId). */
+  /** Amitié acceptée depuis 2 jours (règle D-G : pas de gemmes sous 24 h). */
   async function befriend(aId: string, bId: string) {
     const low = aId < bId ? aId : bId;
     const high = aId < bId ? bId : aId;
+    const at = new Date(Date.now() - 48 * 60 * 60 * 1000);
     await prisma.friendship.create({
-      data: { userLowId: low, userHighId: high, requestedById: aId, status: 'accepted', source: 'qr', createdAt: new Date(), acceptedAt: new Date() },
+      data: { userLowId: low, userHighId: high, requestedById: aId, status: 'accepted', source: 'qr', createdAt: at, acceptedAt: at },
     });
   }
 
@@ -809,17 +810,17 @@ d('challenges : scénarios complets (ticket 3.B9)', () => {
 
     // A a terminé en premier (reachedAt le plus tôt)
     await prisma.challengeParticipant.update({
-      where: { challengeId: challenge.id, userId: a.userId },
+      where: { challengeId_userId: { challengeId: challenge.id, userId: a.userId } },
       data: { reachedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
     });
     // B a terminé 2e
     await prisma.challengeParticipant.update({
-      where: { challengeId: challenge.id, userId: b.userId },
+      where: { challengeId_userId: { challengeId: challenge.id, userId: b.userId } },
       data: { reachedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) },
     });
     // C a terminé 3e (maintenant)
     await prisma.challengeParticipant.update({
-      where: { challengeId: challenge.id, userId: c.userId },
+      where: { challengeId_userId: { challengeId: challenge.id, userId: c.userId } },
       data: { reachedAt: new Date() },
     });
 
@@ -887,8 +888,9 @@ d('challenges : scénarios complets (ticket 3.B9)', () => {
       },
     });
 
-    // Chaque utilisateur a 3 jours d'activité consécutifs dans son fuseau
-    for (const u of [a, b, c]) {
+    // Chaque utilisateur a 3 jours d'activité consécutifs dans son fuseau ;
+    // A atteint l'objectif en premier, puis B, puis C.
+    for (const [rankIdx, u] of [a, b, c].entries()) {
       for (let i = 0; i < 3; i++) {
         const day = new Date(now.getTime() - (2 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
         await prisma.activityDay.create({
@@ -903,7 +905,7 @@ d('challenges : scénarios complets (ticket 3.B9)', () => {
           baseline: 0,
           progress: 3,
           target: 3,
-          reachedAt: now,
+          reachedAt: new Date(now.getTime() - (3 - rankIdx) * 60 * 1000),
         },
       });
     }
@@ -913,7 +915,7 @@ d('challenges : scénarios complets (ticket 3.B9)', () => {
 
     const updated = await prisma.challenge.findUnique({ where: { id: challenge.id } });
     expect(updated!.status).toBe('completed');
-    expect(updated!.winnerIds.length).toBeGreaterThan(0);
+    expect(updated!.winnerIds).toEqual([a.userId]);
 
     // Tous les 3 ont reçu des gemmes (win ou complete)
     const gems = await prisma.gemTransaction.findMany({

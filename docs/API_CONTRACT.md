@@ -317,14 +317,27 @@ DELETE /me/achievements/:id/reaction
 GET  /me/achievements/feed?since=
 ```
 
-`GET /me/achievements` → `{ "items": [{ "id", "type": "sourate_mastered", "refKey": "67", "payload": { "sourateId", "sourateNumero", "nom", "nombreVersets" }, "createdAt" }] }`
+`GET /me/achievements` → `{ "items": [{ "id", "type", "refKey", "payload", "createdAt", "reactionsCount" }] }`
 
-`GET /me/achievements/feed` → `{ "items": [{ "id", "type", "refKey", "payload", "createdAt", "user": { "id", "displayName", "username", "avatarInitials" }, "myReaction": null | "mashaallah" | "barakallah" | "dua" | "bravo" }] }`
+Types de réussite (`type` → `refKey` / `payload`) :
+
+| type | refKey | payload |
+|---|---|---|
+| `sourate_mastered` | numéro de sourate | `{ sourateId, sourateNumero, nom, nombreVersets }` |
+| `section_completed` | id de la section | `{ sectionId, ordre, hizb, titre }` |
+| `streak_milestone` | `d7`, `d30`, `d100`, `d365` | `{ days }` |
+| `challenge_won` | id du défi | `{ challengeId, challengeType, title, goal, participants }` |
+| `league_promoted` | id de la semaine clôturée | `{ league, ordre, semaine }` |
+
+La fin de leçon (`POST /lessons/:id/complete` et `POST /lesson/complete`) renvoie aussi `achievements: [{ id, type, refKey, payload, createdAt }]` : les réussites créées par cette leçon, quand elles sont détectées en moins de 2 s. Sinon `[]` et l'app interroge `GET /me/achievements?since=<début de la leçon>`.
+
+`GET /me/achievements/feed` → `{ "items": [{ "id", "type", "refKey", "payload", "createdAt", "user": { "id", "displayName", "username", "avatarInitials" }, "reactionsCount", "myReaction": null | "mashaallah" | "barakallah" | "dua" | "bravo" }] }`
 
 - `since` : filtre les réussites créées après cette date (ISO).
-- `PUT /me/achievements/:id/reaction` → ajoute une réaction (`mashaallah`, `barakallah`, `dua`, `bravo`). 409 si déjà réagi.
-- `DELETE /me/achievements/:id/reaction` → retire la réaction de l'utilisateur connecté.
-- Le fil ne montre que les réussites des amis (respecte les blocages).
+- `PUT /me/achievements/:id/reaction` → pose ou remplace ma réaction (`mashaallah`, `barakallah`, `dua`, `bravo`).
+- `DELETE /me/achievements/:id/reaction` → retire ma réaction (sans erreur si je n'en avais pas).
+- Réagir à une réussite que je ne peux pas voir → 404.
+- Le fil ne montre que les réussites des amis qui partagent les leurs (`friendsVisibility = friends`), hors blocages et comptes bannis.
 
 ---
 
@@ -340,7 +353,7 @@ DELETE /me/messages/:id      # masquer (destinataire seulement)
 - `kind` : `hadith` | `achievement` | `encouragement`
 - `payload` : `hadith` → `{ collection: 'nawawi'|'qudsi'|'bukhari'|'muslim', n: int }` ; `achievement` → `{ achievementId }` ; `encouragement` → `{ key: 'keep_going'|'proud_of_you'|'dua_for_you' }`
 - `note` : max 140 caractères (`Zod .trim().max(140)`)
-- Quotas : 3 envois/jour en gratuit (toutes natures confondues, relances de défi comprises), 30 en premium ; 5 par jour vers une même personne
+- Quotas : 3 envois/jour en gratuit (toutes natures confondues, relances de défi comprises), 30 en premium (réglables au back-office : `messagesPerDayFree`, `messagesPerDayPremium`) ; 5 par jour vers une même personne
 - "Tout ou rien" : si le quota restant est inférieur au nombre de destinataires, toute la requête est refusée (429 `QUOTA_EXCEEDED`), rien n'est envoyé
 - Seuls les amis acceptés peuvent recevoir un message ; les utilisateurs bloqués sont refusés
 
@@ -365,9 +378,72 @@ Retourne les réglages produits globaux (lecture publique, pas d'auth) :
   "paymentsEnabled": true,
   "emailVerificationEnabled": false,
   "pricing": { ... },
-  "friendsEnabled": true  // true pour tout le monde si FRIENDS_ENABLED=1 sans BETA_USER_IDS, sinon uniquement pour les IDs de la liste bêta
+  "friendsEnabled": true
 }
 ```
+
+`friendsEnabled` vaut `true` si la fonctionnalité est ouverte pour la personne connectée :
+- variable d'env `FRIENDS_ENABLED=true` (forçage dev/tests, avec sa liste `FRIENDS_BETA_USER_IDS`) ;
+- sinon interrupteur du back-office `AppConfig.friendsEnabled` (+ liste bêta `friendsBetaUserIds`, vide = tout le monde), appliqué en 10 s au plus ;
+- toujours `false` pour un compte coupé par la modération (`friendsDisabledAt`).
+
+Back-office : `GET/PATCH /backoffice/config` expose ces réglages dans `friends` : `friendsEnabled`, `friendsBetaUserIds`, `challengeRewardsEnabled`, `challengeWinGems` (50), `challengeCompleteGems` (20), `challengeRewardedPerWeek` (3), `messagesPerDayFree` (3), `messagesPerDayPremium` (30).
+
+---
+
+## 12. Défis entre amis
+
+```
+POST /me/challenges/preview  { type, goal, inviteeIds, durationDays? }
+POST /me/challenges          { type, goal, durationDays, title?, inviteeIds[1..9] }
+GET  /me/challenges?status=active|pending|completed
+GET  /me/challenges/:id
+POST /me/challenges/:id/accept    # invité, avant le début
+POST /me/challenges/:id/decline   # invité, avant le début
+POST /me/challenges/:id/leave     # participant ; le créateur d'un défi pas commencé annule plutôt
+POST /me/challenges/:id/cancel    # créateur, avant le début
+POST /me/challenges/:id/nudge     { userId }   # une fois par ami, par défi et par 24 h
+```
+
+Cycle de vie :
+- **pending** à la création. Début = demain 00:00 dans le fuseau du créateur ; fin = 23:59:59 du dernier jour, même fuseau. Push `challenge_invite` aux invités.
+- Au début (job `activate-challenges`, ou à la lecture de `GET /me/challenges[/:id]`) : au moins 2 acceptés → **active**, sinon **cancelled**. Les invitations restées sans réponse passent à `expired`. Photo de départ (défi sourates) : les sourates de l'objectif déjà maîtrisées ne comptent pas pour ce participant (`baselineSourates`). Push `challenge_started` ou `challenge_cancelled`.
+- Progression recalculée après chaque leçon (événement `lesson.completed`) et à la lecture du détail : streak = plus longue suite de jours consécutifs (`ActivityDay`) dans la période ; sourates = sourates de l'objectif maîtrisées après le début et avant la fin, hors photo de départ.
+- **completed** dès que tous les acceptés ont atteint l'objectif, ou à l'échéance (job `finalize-challenges`, ou à la lecture). Gagnant : le premier à avoir atteint l'objectif (égalité parfaite = ex æquo) ; si personne : la meilleure progression (> 0).
+- Récompenses : gagnant `challengeWinGems`, objectif atteint sans gagner `challengeCompleteGems`, créditées au solde. Seulement si au moins 2 acceptés, défi d'au moins 3 jours, amitié de 24 h+ avec un autre participant, et dans la limite de `challengeRewardedPerWeek` par personne sur 7 jours. Réussite `challenge_won` pour le ou les gagnants. Push `challenge_win` / `challenge_complete`.
+- Un défi en cours qui retombe sous 2 participants (quelqu'un quitte) est **cancelled**, sans récompense.
+
+Erreurs : `CHALLENGE_CLOSED` (409) pour accepter/refuser après le début ou agir sur un défi terminé ; `FORBIDDEN` (403) si un non-créateur annule ; `NOT_FOUND` (404) si je ne participe pas.
+
+`GET /me/challenges/:id` → `{ id, type, title, status, goal, creatorId, startDay, endDay, startsAt, endsAt, winnerIds, finishedAt, participants: [{ userId, user: PublicProfile, status, progress, target, reached, reachedAt, rank, rewardGems, baselineSourates }] }` (classé : rang final si terminé, sinon objectif atteint d'abord, puis progression).
+
+---
+
+## 13. Liens d'invitation et .well-known
+
+```
+GET /f/:token                                 # page web publique de l'invitation
+GET /.well-known/apple-app-site-association   # iOS universal links
+GET /.well-known/assetlinks.json              # Android App Links
+```
+
+Les deux fichiers `.well-known` répondent 404 tant que `APPLE_TEAM_ID` / `ANDROID_SHA256_FINGERPRINTS` ne sont pas définis. Ils doivent être servis sur le domaine de `PUBLIC_WEB_URL` (celui des liens d'invitation), en HTTPS, sans redirection.
+
+---
+
+## 14. Back-office : modération (permission `moderation`)
+
+```
+GET  /backoffice/moderation/reports?status=open|reviewed|actioned&targetUserId=&cursor=&limit=
+GET  /backoffice/moderation/summary                     # { open, last24h }
+POST /backoffice/moderation/reports/:id/resolve         { action: 'dismiss'|'disable_friends'|'ban', note? }
+POST /backoffice/moderation/users/:userId/friends-disable
+POST /backoffice/moderation/users/:userId/friends-enable
+```
+
+- Chaque signalement est renvoyé avec le signaleur, le compte visé, le nombre de signalements contre ce compte, et l'objet signalé (message ou réussite).
+- `dismiss` → `reviewed`. `disable_friends` (coupe l'accès aux fonctions entre amis : `503 FRIENDS_DISABLED`, l'apprentissage n'est pas touché) et `ban` (bannissement existant, sessions révoquées) → `actioned`, ainsi que tous les signalements encore ouverts contre ce compte.
+- Toutes les actions sont journalisées dans `AdminActivityLog` (`moderation.*`).
 
 ---
 

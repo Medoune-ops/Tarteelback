@@ -12,43 +12,47 @@ import { leagueRepository } from '../leagues/league.repository.js';
 import { serializePublicProfile } from '../../core/friends.js';
 import { prisma } from '../../config/prisma.js';
 import { localDayKey } from '../../core/streak.js';
-import { enqueue } from '../../core/outbox.js';
-import { finishChallenge } from './challenges.progress.js';
+import { enqueue, scheduleOutboxDrain } from '../../core/outbox.js';
+import { zonedDayStart, zonedDayEnd, addDaysToKey } from '../../core/zonedTime.js';
+import {
+  activateDueChallenges,
+  finishChallenge,
+  finishDueChallenges,
+  refreshChallengeProgress,
+} from './challenges.progress.js';
 
 /**
- * Fin paresseuse : termine tous les défis "active" de l'utilisateur dont
- * endsAt est passé.
+ * Démarrage et fin « paresseux » : avant de répondre, on démarre les défis de
+ * l'utilisateur dont la date de début est passée et on termine ceux qui sont
+ * échus, sans attendre le job périodique.
  */
-async function finalizeExpiredUserChallenges(meId: string) {
-  const now = new Date();
-  const challenges = await prisma.challenge.findMany({
-    where: {
-      participants: { some: { userId: meId } },
-      status: 'active',
-      endsAt: { lte: now },
-    },
-    select: { id: true },
-  });
-  for (const c of challenges) {
-    await finishChallenge({ tx: prisma, challengeId: c.id, now });
-  }
+async function settleUserChallenges(meId: string, now: Date) {
+  await activateDueChallenges(now, meId);
+  await finishDueChallenges(now, meId);
 }
 
-/**
- * Termine un défi spécifique (fin paresseuse ou job).
- */
-async function finalizeChallenge(challengeId: string, now: Date) {
-  await finishChallenge({ tx: prisma, challengeId, now });
+/** Bornes d'un défi : début demain 00:00 dans le fuseau du créateur. */
+function challengeWindow(timezone: string, durationDays: number, now: Date) {
+  const startDay = localDayKey(new Date(now.getTime() + 24 * 60 * 60 * 1000), timezone);
+  const endDay = addDaysToKey(startDay, Math.max(1, durationDays) - 1);
+  return {
+    startDay,
+    endDay,
+    startsAt: zonedDayStart(startDay, timezone),
+    endsAt: zonedDayEnd(endDay, timezone),
+  };
 }
 
-function addDaysKey(key: string, days: number): string {
-  const d = new Date(`${key}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
+async function loadParticipation(meId: string, id: string) {
+  const challenge = await challengeRepository.findByIdWithParticipants(id);
+  const me = challenge?.participants.find((p) => p.userId === meId);
+  // 404 plutôt que 403 : on ne révèle pas l'existence d'un défi dont on n'est pas.
+  if (!challenge || !me) throw new AppError('NOT_FOUND', 'Challenge not found');
+  return { challenge, me };
 }
 
 export const challengesService = {
-  async preview(meId: string, body: { type: 'streak' | 'sourates'; goal: any; inviteeIds: string[] }) {
+  async preview(meId: string, body: { type: 'streak' | 'sourates'; goal: any; inviteeIds: string[]; durationDays?: number }) {
     requireFriendsEnabled(meId);
     const me = await userRepository.getOrThrow(meId);
     const invitees = Array.from(new Set(body.inviteeIds || [])).filter((id) => id !== meId);
@@ -91,10 +95,12 @@ export const challengesService = {
       normalizedGoal = { type: 'sourates', sourateNumeros: nums };
     }
 
-    const now = new Date();
-    const startDay = localDayKey(new Date(now.getTime() + 24 * 60 * 60 * 1000), me.timezone);
-    const durationDays = 7; // preview par défaut
-    const endDay = addDaysKey(startDay, Math.max(1, durationDays) - 1);
+    const durationDays = body.durationDays ?? 7; // 7 jours si l'assistant n'a pas encore choisi
+    if (type === 'streak') {
+      const days = normalizeStreakGoal(goal);
+      if (Number.isFinite(days) && days > durationDays) errors.push('streak days must be <= durationDays');
+    }
+    const { startDay, endDay, startsAt, endsAt } = challengeWindow(me.timezone || 'UTC', durationDays, new Date());
 
     // alreadyMasteredBy : sourates déjà maîtrisées par chaque invitee
     const alreadyMasteredBy: Record<string, number[]> = {};
@@ -117,7 +123,7 @@ export const challengesService = {
       valid: errors.length === 0,
       errors,
       alreadyMasteredBy,
-      computed: { startDay, endDay, startsAt: `${startDay}T00:00:00.000Z`, endsAt: `${endDay}T23:59:59.999Z`, durationDays },
+      computed: { startDay, endDay, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), durationDays },
       normalizedGoal,
     };
   },
@@ -178,13 +184,9 @@ export const challengesService = {
     }
 
     const tz = me.timezone || 'UTC';
-    const startDay = localDayKey(new Date(Date.now() + 24 * 60 * 60 * 1000), tz);
-    const endDay = addDaysKey(startDay, Math.max(1, body.durationDays) - 1);
-    const startsAt = new Date(`${startDay}T00:00:00.000Z`);
-    const endsAt = new Date(`${endDay}T23:59:59.999Z`);
-
-    // baseline sourates pour le créateur
-    const creatorBaseline = type === 'sourates' ? (await getLearnedSourates(meId)).map((s) => s.numero) : [];
+    const { startDay, endDay, startsAt, endsAt } = challengeWindow(tz, body.durationDays, new Date());
+    // La photo de départ (sourates déjà maîtrisées) est prise au DÉMARRAGE du
+    // défi, pour chaque participant (activateDueChallenges), pas à la création.
 
     const challenge = await prisma.$transaction(async (tx) => {
       const c = await tx.challenge.create({
@@ -207,7 +209,7 @@ export const challengesService = {
           challengeId: c.id,
           userId: meId,
           status: 'accepted',
-          baseline: creatorBaseline.length,
+          baseline: 0,
           progress: 0,
           target,
           invitedAt: new Date(),
@@ -226,9 +228,15 @@ export const challengesService = {
             invitedAt: new Date(),
           },
         });
+        await enqueue(tx, {
+          type: 'challenge_invite',
+          userId: otherId,
+          payload: { id: c.id, type: 'challenge_invite', challengeType: type },
+        });
       }
       return c;
     });
+    scheduleOutboxDrain();
 
     return {
       id: challenge.id,
@@ -243,8 +251,7 @@ export const challengesService = {
 
   async list(meId: string, status?: 'active' | 'pending' | 'completed', cursor?: string | null, limit = 20) {
     requireFriendsEnabled(meId);
-    // Fin paresseuse : terminer les défis actifs échus de l'utilisateur avant de répondre
-    await finalizeExpiredUserChallenges(meId);
+    await settleUserChallenges(meId, new Date());
     const rows = await challengeRepository.listForUser(meId, status, Math.min(Math.max(1, limit), 50) + 1);
     const safeLimit = Math.min(Math.max(1, limit), 50);
     const hasMore = rows.length > safeLimit;
@@ -265,39 +272,19 @@ export const challengesService = {
 
   async get(meId: string, id: string) {
     requireFriendsEnabled(meId);
-    let challenge = await challengeRepository.findByIdWithParticipants(id);
-    if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    // Fin paresseuse : terminer le défi échu avant de répondre
-    if (challenge.status === 'active' && new Date() >= challenge.endsAt) {
-      await finalizeChallenge(id, new Date());
-      challenge = await challengeRepository.findByIdWithParticipants(id);
-      if (!challenge) throw new AppError('NOT_FOUND', 'Challenge not found');
-    }
-    const meParticipant = challenge.participants.find((p) => p.userId === meId);
-    if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+    await loadParticipation(meId, id); // 404 avant tout travail si je n'en suis pas
+    const now = new Date();
+    await settleUserChallenges(meId, now);
+    // Classement en direct : progression recalculée avant de répondre.
+    await refreshChallengeProgress(id, now);
+    await finishChallenge({ challengeId: id, now });
+    const { challenge } = await loadParticipation(meId, id);
 
     const participants = await Promise.all(
       challenge.participants.map(async (p) => {
         const user = await userRepository.findById(p.userId);
         if (!user || user.bannedAt) return null;
-        let progress = p.progress;
-        const startedAt = challenge.startsAt;
-        if (challenge.type === 'streak') {
-          const days = await prisma.activityDay.findMany({
-            where: { userId: p.userId, day: { gte: challenge.startDay, lte: challenge.endDay } },
-            select: { day: true },
-          });
-          progress = (await import('../../core/challengeRules.js').then((m) => m.streakLongestConsecutive(days.map((d) => d.day), challenge.startDay, challenge.endDay))) as number;
-        } else {
-          try {
-            const learned = await getLearnedSourates(p.userId);
-            const mastered = new Set(learned.map((s) => s.numero));
-            const wanted = (challenge.goal as { sourateNumeros?: number[] })?.sourateNumeros ?? [];
-            progress = wanted.filter((n) => mastered.has(n)).length;
-          } catch {
-            progress = p.progress;
-          }
-        }
+        const progress = p.progress;
         const profile = user
           ? await (async () => {
               const learned = await getLearnedSourates(user.id).catch(() => []);
@@ -323,12 +310,24 @@ export const challengesService = {
           target,
           reached: target > 0 && progress >= target,
           reachedAt: p.reachedAt,
+          finalRank: p.rank,
+          rewardGems: p.rewardGems,
+          // Défi sourates : sourates de l'objectif qui ne comptent pas pour lui
+          // (déjà maîtrisées au démarrage).
+          baselineSourates: p.baselineSourates,
         };
       }),
     );
 
     const valid = participants.filter(Boolean) as any[];
-    valid.sort((a, b) => b.progress - a.progress);
+    // Classement : rang final si le défi est terminé, sinon objectif atteint
+    // d'abord (par heure), puis progression.
+    valid.sort((a, b) => {
+      if (a.finalRank != null && b.finalRank != null) return a.finalRank - b.finalRank;
+      if (a.reached !== b.reached) return a.reached ? -1 : 1;
+      if (a.reached && b.reached) return new Date(a.reachedAt).getTime() - new Date(b.reachedAt).getTime();
+      return b.progress - a.progress;
+    });
 
     return {
       id: challenge.id,
@@ -339,8 +338,121 @@ export const challengesService = {
       endDay: challenge.endDay,
       startsAt: challenge.startsAt,
       endsAt: challenge.endsAt,
-      participants: valid.map((p, idx) => ({ ...p, rank: idx + 1 })),
+      goal: challenge.goal,
+      creatorId: challenge.creatorId,
+      winnerIds: challenge.winnerIds,
+      finishedAt: challenge.finishedAt,
+      participants: valid.map(({ finalRank, ...p }, idx) => ({ ...p, rank: finalRank ?? idx + 1 })),
     };
+  },
+
+  /**
+   * Accepter une invitation. Possible seulement avant le début du défi
+   * (sinon CHALLENGE_CLOSED). Idempotent si déjà accepté.
+   */
+  async accept(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const { challenge, me } = await loadParticipation(meId, id);
+    if (me.status === 'accepted') return { status: 'accepted' as const };
+    if (challenge.status !== 'pending' || Date.now() >= challenge.startsAt.getTime() || me.status !== 'invited') {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge is no longer open');
+    }
+    const { friendsRepository } = await import('../friends/friends.repository.js');
+    if (await friendsRepository.isBlockedEither(meId, challenge.creatorId)) throw new AppError('BLOCKED', 'Blocked');
+    const updated = await prisma.challengeParticipant.updateMany({
+      where: { id: me.id, status: 'invited' },
+      data: { status: 'accepted', respondedAt: new Date() },
+    });
+    if (updated.count === 0) throw new AppError('CHALLENGE_CLOSED', 'Challenge is no longer open');
+    return { status: 'accepted' as const };
+  },
+
+  /** Refuser une invitation (avant le début). Idempotent si déjà refusée. */
+  async decline(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const { challenge, me } = await loadParticipation(meId, id);
+    if (me.status === 'declined') return { status: 'declined' as const };
+    if (challenge.status !== 'pending' || me.status !== 'invited') {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge is no longer open');
+    }
+    await prisma.challengeParticipant.update({
+      where: { id: me.id },
+      data: { status: 'declined', respondedAt: new Date() },
+    });
+    return { status: 'declined' as const };
+  },
+
+  /**
+   * Quitter un défi accepté. Le créateur d'un défi pas encore commencé doit
+   * l'annuler. Un défi en cours qui retombe sous 2 participants est annulé
+   * (sans récompense).
+   */
+  async leave(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const { challenge, me } = await loadParticipation(meId, id);
+    if (me.status === 'left') return { status: 'left' as const };
+    if (me.status !== 'accepted' || (challenge.status !== 'pending' && challenge.status !== 'active')) {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge is no longer open');
+    }
+    if (challenge.status === 'pending' && challenge.creatorId === meId) {
+      throw new AppError('VALIDATION_ERROR', 'The creator cancels the challenge instead of leaving it');
+    }
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Challenge" WHERE id = ${id} FOR UPDATE`;
+      await tx.challengeParticipant.update({ where: { id: me.id }, data: { status: 'left', respondedAt: now } });
+      if (challenge.status !== 'active') return;
+      const stillIn = await tx.challengeParticipant.findMany({
+        where: { challengeId: id, status: 'accepted' },
+        select: { userId: true },
+      });
+      if (stillIn.length >= 2) return;
+      const cancelled = await tx.challenge.updateMany({
+        where: { id, status: 'active' },
+        data: { status: 'cancelled', finishedAt: now },
+      });
+      if (cancelled.count === 0) return;
+      for (const p of stillIn) {
+        await enqueue(tx, {
+          type: 'challenge_cancelled',
+          userId: p.userId,
+          payload: { id, type: 'challenge_cancelled', reason: 'not_enough_participants' },
+        });
+      }
+    });
+    scheduleOutboxDrain();
+    return { status: 'left' as const };
+  },
+
+  /** Annuler (créateur seulement, avant le début). */
+  async cancel(meId: string, id: string) {
+    requireFriendsEnabled(meId);
+    const { challenge } = await loadParticipation(meId, id);
+    if (challenge.creatorId !== meId) throw new AppError('FORBIDDEN', 'Only the creator can cancel');
+    if (challenge.status === 'cancelled') return { status: 'cancelled' as const };
+    if (challenge.status !== 'pending') throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      const done = await tx.challenge.updateMany({
+        where: { id, status: 'pending' },
+        data: { status: 'cancelled', finishedAt: now },
+      });
+      if (done.count === 0) throw new AppError('CHALLENGE_CLOSED', 'Challenge already started');
+      await tx.challengeParticipant.updateMany({
+        where: { challengeId: id, status: 'invited' },
+        data: { status: 'expired', respondedAt: now },
+      });
+      for (const p of challenge.participants) {
+        if (p.userId === meId || (p.status !== 'accepted' && p.status !== 'invited')) continue;
+        await enqueue(tx, {
+          type: 'challenge_cancelled',
+          userId: p.userId,
+          payload: { id, type: 'challenge_cancelled', reason: 'creator_cancelled' },
+        });
+      }
+    });
+    scheduleOutboxDrain();
+    return { status: 'cancelled' as const };
   },
 
   /**
@@ -356,6 +468,9 @@ export const challengesService = {
 
     const meParticipant = challenge.participants.find((p) => p.userId === meId);
     if (!meParticipant) throw new AppError('NOT_FOUND', 'Challenge not found');
+    if (challenge.status !== 'active' && challenge.status !== 'pending') {
+      throw new AppError('CHALLENGE_CLOSED', 'Challenge is over');
+    }
 
     const targetParticipant = challenge.participants.find(
       (p) => p.userId === body.userId,
@@ -389,6 +504,7 @@ export const challengesService = {
       });
     });
 
+    scheduleOutboxDrain();
     return { nudged: true };
   },
 };

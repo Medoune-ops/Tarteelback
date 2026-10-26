@@ -1,6 +1,8 @@
 import { adminConfigRepository } from './adminConfig.repository.js';
 import type { UpdateConfigBody } from './adminConfig.schemas.js';
-import { env } from '../../config/env.js';
+import { isFriendsEnabled } from '../../core/friends.js';
+import { prisma } from '../../config/prisma.js';
+import { ensureFriendsConfigFresh, invalidateFriendsConfig } from '../../core/friendsConfig.js';
 
 type ConfigRow = Awaited<ReturnType<typeof adminConfigRepository.get>>;
 
@@ -46,6 +48,16 @@ function serializeAdmin(row: ConfigRow) {
     globalPremiumPromoActive: row.globalPremiumPromoActive,
     emailVerificationEnabled: row.emailVerificationEnabled,
     pricing: serializePricing(row),
+    friends: {
+      friendsEnabled: row.friendsEnabled,
+      friendsBetaUserIds: row.friendsBetaUserIds,
+      challengeRewardsEnabled: row.challengeRewardsEnabled,
+      challengeWinGems: row.challengeWinGems,
+      challengeCompleteGems: row.challengeCompleteGems,
+      challengeRewardedPerWeek: row.challengeRewardedPerWeek,
+      messagesPerDayFree: row.messagesPerDayFree,
+      messagesPerDayPremium: row.messagesPerDayPremium,
+    },
     updatedAt: row.updatedAt,
   };
 }
@@ -54,9 +66,15 @@ export const adminConfigService = {
   /** GET /config (public) */
   async getPublic(userId?: string | null) {
     const row = await adminConfigRepository.get();
+    await ensureFriendsConfigFresh();
+    // Compte coupé par la modération : l'app masque la fonctionnalité.
+    const cut = userId
+      ? (await prisma.user.findUnique({ where: { id: userId }, select: { friendsDisabledAt: true } }))
+          ?.friendsDisabledAt
+      : null;
     return {
       ...serializePublic(row),
-      friendsEnabled: isFriendsEnabledFor(userId),
+      friendsEnabled: isFriendsEnabled(userId) && !cut,
     };
   },
 
@@ -67,7 +85,9 @@ export const adminConfigService = {
 
   /** PATCH /backoffice/config */
   async update(body: UpdateConfigBody) {
-    return serializeAdmin(await adminConfigRepository.update(body));
+    const row = await adminConfigRepository.update(body);
+    invalidateFriendsConfig();
+    return serializeAdmin(row);
   },
 };
 
@@ -82,10 +102,5 @@ export async function isEmailVerificationEnabled(): Promise<boolean> {
   return row.emailVerificationEnabled;
 }
 
-function isFriendsEnabledFor(userId?: string | null): boolean {
-  if (!env.FRIENDS_ENABLED) return false;
-  const beta = env.FRIENDS_BETA_USER_IDS;
-  if (beta.length === 0) return true;
-  return !!userId && beta.includes(userId);
-}
+
 

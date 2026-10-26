@@ -68,15 +68,30 @@ La fonctionnalité "amis" (création d'amitié, défis, messages, etc.) est pilo
 
 ### 2.1 Vérifier l'état actuel
 
-Le flag est lu via la configuration back-office (`AppConfig`) ou une variable d'environnement selon le déploiement. Vérifiez dans le back-office (section Config) ou dans les variables d'environnement du déploiement.
+Deux sources, dans cet ordre :
+1. la variable d'environnement `FRIENDS_ENABLED=true` (ou `1`) **force** la fonctionnalité (dev/tests). Toute autre valeur, ou son absence, ne force rien ;
+2. sinon, c'est l'interrupteur du back-office qui décide : `AppConfig.friendsEnabled` (+ `friendsBetaUserIds` : si la liste n'est pas vide, seuls ces comptes y ont accès).
 
-### 2.2 Désactiver FRIENDS_ENABLED
+```sql
+SELECT "friendsEnabled", "friendsBetaUserIds" FROM "AppConfig" WHERE id = 'singleton';
+```
 
-**Option A — Variable d'environnement (redémarrage requis) :**
-Définissez `FRIENDS_ENABLED=false` dans le fichier `.env` ou les variables d'environnement du déploiement, puis redémarrez le service.
+### 2.2 Couper la fonctionnalité
 
-**Option B — Back-office (si disponible) :**
-Dans la section Configuration du back-office, passez le flag `friendsEnabled` sur `false` et sauvegardez. Le changement est pris en compte sans redémarrage (lu à chaud).
+**Option A — Back-office (recommandé, sans redémarrage) :**
+`PATCH /backoffice/config { "friendsEnabled": false }`. Appliqué en 10 s au plus sur chaque instance.
+
+**Option B — En SQL (si le back-office est inaccessible) :**
+```sql
+UPDATE "AppConfig" SET "friendsEnabled" = false WHERE id = 'singleton';
+```
+Appliqué en 10 s au plus.
+
+⚠ Si `FRIENDS_ENABLED=true` est défini dans l'environnement du déploiement, il force la fonctionnalité quel que soit le back-office : le retirer et redémarrer.
+
+### 2.2 bis Couper un seul compte
+
+`POST /backoffice/moderation/users/:userId/friends-disable` (ou traiter un signalement avec `disable_friends`). Le compte reçoit `503 FRIENDS_DISABLED` sur toutes les routes amis ; l'apprentissage n'est pas touché. `friends-enable` rétablit l'accès.
 
 ### 2.3 Effets de la coupure
 
@@ -88,7 +103,21 @@ Quand `FRIENDS_ENABLED` est `false` :
 - `POST /me/messages`, `GET /me/messages`, `POST /me/messages/:id/read`, `DELETE /me/messages/:id` → `503 FRIENDS_DISABLED`
 - `GET /me/summary` → `challengeInvites: 0`, `activeChallenges: 0`
 
-La réactivation se fait en repassant `FRIENDS_ENABLED` sur `true`.
+La réactivation se fait en repassant `friendsEnabled` sur `true` au back-office.
+
+---
+
+## 2 bis. Défis bloqués
+
+- Un défi « pending » dont la date de début est passée démarre (ou est annulé) au prochain passage du job `activate-challenges`, ou dès qu'un participant ouvre ses défis.
+- Un défi « active » échu se termine au prochain passage de `finalize-challenges`, ou à la lecture.
+
+```bash
+npx tsx src/jobs/maintenance.ts activate-challenges
+npx tsx src/jobs/maintenance.ts finalize-challenges
+```
+
+Le job de maintenance tourne une fois par heure (DEPLOY-DOKPLOY.md). La file d'événements est aussi traitée juste après chaque action (fin de leçon, création de défi…) ; le job ne sert que de rattrapage.
 
 ---
 

@@ -14,6 +14,7 @@ const adminModuleSchema = z.enum([
   'analytics',
   'push_announcements',
   'team',
+  'moderation',
 ]);
 
 /** One row of the invite modal's permission grid. `canEdit` implies `canView`. */
