@@ -20,6 +20,7 @@ import { revisionRoutes } from './modules/revision/revision.routes.js';
 import { referralRoutes } from './modules/referral/referral.routes.js';
 import { friendsRoutes } from './modules/friends/friends.routes.js';
 import { friendsShareRoutes } from './modules/friends/friends.share.routes.js';
+import { wellKnownRoutes } from './modules/friends/wellKnown.routes.js';
 import { blockRoutes } from './modules/friends/blocks.routes.js';
 import { reportRoutes } from './modules/friends/reports.routes.js';
 import { householdRoutes } from './modules/household/household.routes.js';
@@ -32,6 +33,7 @@ import { adminAnalyticsRoutes } from './modules/adminAnalytics/adminAnalytics.ro
 import { adminGiftsRoutes } from './modules/adminGifts/adminGifts.routes.js';
 import { adminSupportRoutes } from './modules/adminSupport/adminSupport.routes.js';
 import { adminConfigRoutes } from './modules/adminConfig/adminConfig.routes.js';
+import { adminModerationRoutes } from './modules/adminModeration/adminModeration.routes.js';
 import { publicConfigRoutes } from './modules/adminConfig/publicConfig.routes.js';
 import { adminNotificationsRoutes } from './modules/adminNotifications/adminNotifications.routes.js';
 import { legalRoutes } from './modules/legal/legal.routes.js';
@@ -78,6 +80,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(achievementsRoutes, { prefix: '/me/achievements' });
   // Page publique /f/:token (aucune auth).
   await app.register(friendsShareRoutes, { prefix: '/f' });
+  // Liens universels / App Links : le lien ou le QR ouvre l'app si installée.
+  await app.register(wellKnownRoutes);
   await app.register(blockRoutes, { prefix: '/me' });
   await app.register(reportRoutes, { prefix: '/me' });
   // Plan familial (foyer : owner + jusqu'à 5 membres, premium partagé).
@@ -102,6 +106,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminSupportRoutes, { prefix: '/backoffice/support' });
   // Réglages produit globaux (ex: masquer les paiements sans redéploiement).
   await app.register(adminConfigRoutes, { prefix: '/backoffice/config' });
+  // File des signalements (fonctions entre amis) : permission « moderation ».
+  await app.register(adminModerationRoutes, { prefix: '/backoffice/moderation' });
   // Composeur d'annonces: broadcast push réel + historique persistant.
   await app.register(adminNotificationsRoutes, { prefix: '/backoffice/notifications' });
 }

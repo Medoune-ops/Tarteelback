@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { friendsGate } from './friends.gate.js';
 import { friendsController } from './friends.controller.js';
 
 export async function blockRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', friendsGate);
   const sec = { tags: ['friends'] as const, security: [{ bearerAuth: [] }] };
 
   app.get('/blocks', { schema: { ...sec, summary: 'Liste des utilisateurs bloqués' } }, (req, reply) =>

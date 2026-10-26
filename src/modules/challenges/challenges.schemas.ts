@@ -31,6 +31,7 @@ export const challengePreviewSchema = z
     type: z.enum(['streak', 'sourates']),
     goal: challengeGoalSchema,
     inviteeIds: z.array(z.string().min(1)).min(1).max(9),
+    durationDays: z.coerce.number().int().min(1).optional(),
   })
   .strict();
 

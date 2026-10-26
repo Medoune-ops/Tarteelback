@@ -20,6 +20,7 @@ import { prisma } from '../../config/prisma.js';
 import { withLock } from '../../core/lock.js';
 import { PODIUM_REWARD } from '../../core/rewards.js';
 import { promotionGems } from '../../core/gems.js';
+import { enqueue } from '../../core/outbox.js';
 
 const PODIUM_XP = PODIUM_REWARD;
 const PROMOTION = 3;
@@ -148,6 +149,14 @@ async function closeWeek(
           await tx.user.update({
             where: { id: batch[i]!.userId },
             data: { gems: { increment: gems } },
+          });
+          // Réussite « promotion de ligue » (fonctions entre amis), traitée par
+          // la file d'événements. Dans la même transaction : si la semaine
+          // n'est pas clôturée, l'événement n'existe pas non plus.
+          await enqueue(tx, {
+            type: 'league.promoted',
+            userId: batch[i]!.userId,
+            payload: { weekId: week.id, toLeagueId: higherLeague.id, semaine: week.numeroSemaine },
           });
         }
 

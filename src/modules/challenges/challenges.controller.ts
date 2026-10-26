@@ -30,6 +30,22 @@ export const challengesController = {
     const result = await challengesService.get(req.auth!.sub, params.id);
     return reply.send(result);
   },
+  async accept(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    return reply.send(await challengesService.accept(req.auth!.sub, params.id));
+  },
+  async decline(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    return reply.send(await challengesService.decline(req.auth!.sub, params.id));
+  },
+  async leave(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    return reply.send(await challengesService.leave(req.auth!.sub, params.id));
+  },
+  async cancel(req: FastifyRequest, reply: FastifyReply) {
+    const params = parse(challengeParamsSchema, req.params);
+    return reply.send(await challengesService.cancel(req.auth!.sub, params.id));
+  },
   async nudge(req: FastifyRequest, reply: FastifyReply) {
     const params = parse(challengeParamsSchema, req.params);
     const body = parse(challengeNudgeBodySchema, req.body);

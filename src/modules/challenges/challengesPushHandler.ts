@@ -11,7 +11,7 @@ registerOutboxHandler('challenge_invite', async (event) => {
     type: 'challenge_invite',
     id: payload.id ?? event.id,
     lang: user.language,
-    data: { type: payload.type, id: payload.id },
+    data: { type: payload.type ?? event.type, id: payload.id },
   });
 });
 
@@ -23,7 +23,19 @@ registerOutboxHandler('challenge_started', async (event) => {
     type: 'challenge_started',
     id: payload.id ?? event.id,
     lang: user.language,
-    data: { type: payload.type, id: payload.id },
+    data: { type: payload.type ?? event.type, id: payload.id },
+  });
+});
+
+registerOutboxHandler('challenge_cancelled', async (event) => {
+  const user = await userRepository.findById(event.userId);
+  if (!user || !user.notifFriends) return;
+  const payload = (event.payload ?? {}) as { id?: string; reason?: string };
+  await notificationService.sendFriendPush(event.userId, {
+    type: 'challenge_cancelled',
+    id: payload.id ?? event.id,
+    lang: user.language,
+    data: { type: 'challenge_cancelled', id: payload.id, reason: payload.reason },
   });
 });
 
@@ -43,8 +55,11 @@ registerOutboxHandler('challenge.finished', async (event) => {
   if (!challenge) return;
 
   const winnerSet = new Set((payload.winnerIds ?? []) as string[]);
+  // Seulement ceux qui ont joué (pas les invitations refusées ou expirées).
+  const played = new Set(payload.participantIds ?? []);
 
   for (const participant of challenge.participants) {
+    if (played.size > 0 && !played.has(participant.userId)) continue;
     const user = await userRepository.findById(participant.userId);
     if (!user || !user.notifFriends) continue;
 

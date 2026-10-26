@@ -13,9 +13,8 @@ import { withLock } from '../core/lock.js';
 import { runWeeklyRollover } from '../modules/leagues/league.cron.js';
 import { sendDueInactivityReminders, sendDueStreakAlerts } from '../modules/notifications/reminders.js';
 import { householdService } from '../modules/household/household.service.js';
-import { drainOutbox as runOutboxDrain, enqueue } from '../core/outbox.js';
-import { finishChallenge } from '../modules/challenges/challenges.progress.js';
-import { determineWinners } from '../core/challengeRules.js';
+import { drainOutbox as runOutboxDrain } from '../core/outbox.js';
+import { activateDueChallenges, finishDueChallenges } from '../modules/challenges/challenges.progress.js';
 
 const LOCK_TTL_MS = 5 * 60 * 1000;
 
@@ -72,68 +71,21 @@ export async function processOutbox(now: Date = new Date()) {
   });
 }
 /**
- * Termine tout défi "active" dont endsAt est passé. Passe le défi en
- * "completed" avec winnerIds et finishedAt. Idempotent via
- * UPDATE ... WHERE status = 'active'.
+ * Démarre les défis dont la date de début est passée (au moins 2 acceptés),
+ * annule les autres. Relançable sans effet (verrou ligne par défi).
+ */
+export async function activateChallenges(now: Date = new Date()) {
+  return withLock('job:activate-challenges', LOCK_TTL_MS, async () => activateDueChallenges(now));
+}
+
+/**
+ * Termine tout défi "active" dont endsAt est passé : progression recalculée une
+ * dernière fois, gagnants, rangs, récompenses, push. Idempotent (verrou + UPDATE
+ * conditionnel dans finishChallenge).
  */
 export async function finalizeChallenges(now: Date = new Date()) {
   return withLock('job:finalize-challenges', LOCK_TTL_MS, async () => {
-    const challenges = await prisma.challenge.findMany({
-      where: { status: 'active', endsAt: { lte: now } },
-      include: { participants: true },
-    });
-
-    let finalized = 0;
-
-    for (const challenge of challenges) {
-      const accepted = challenge.participants.filter(
-        (p) => p.status === 'accepted',
-      );
-      const reached = accepted.filter(
-        (p) => p.target > 0 && p.progress >= p.target,
-      );
-
-      const winnerIds =
-        reached.length > 0
-          ? determineWinners(
-              reached.map((p) => ({
-                userId: p.userId,
-                progress: p.progress,
-                target: p.target,
-                reached: true,
-                reachedAt: p.reachedAt,
-              })),
-            )
-          : [];
-
-      const updated = await prisma.challenge.update({
-        where: { id: challenge.id, status: 'active' },
-        data: {
-          status: 'completed',
-          finishedAt: now,
-          winnerIds,
-        },
-      });
-      if (!updated) continue; // déjà traité par une autre instance
-
-      // Push challenge.finished à chaque participant.
-      await prisma.$transaction(async (tx) => {
-        for (const p of challenge.participants) {
-          await enqueue(tx, {
-            type: 'challenge.finished',
-            userId: p.userId,
-            payload: {
-              challengeId: challenge.id,
-              winnerIds,
-              participantIds: challenge.participants.map((p) => p.userId),
-            },
-          });
-        }
-      });
-
-      finalized++;
-    }
-
+    const finalized = await finishDueChallenges(now);
     return { finalized };
   });
 }
@@ -183,24 +135,29 @@ export async function runAllMaintenance(now: Date = new Date()) {
   // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
   // avant le downgrade global.
   const households = await expireHouseholds(now);
-  const [tokens, premium, rollover, reminders, outbox, finalized, purged] =
+  const [tokens, premium, rollover, reminders, purged] =
     await Promise.all([
       purgeRefreshTokens(now),
       downgradeExpiredPremium(now),
       runWeeklyRollover(now),
       runReminders(now),
-      processOutbox(now),
-      finalizeChallenges(now),
       purgeFriendsData(now),
     ]);
+  // Défis puis file d'événements, dans cet ordre : démarrer/terminer un défi
+  // émet des événements (push, réussites) que le passage suivant traite tout
+  // de suite, au lieu d'attendre la prochaine exécution du job.
+  const activated = await activateChallenges(now);
+  const finalized = await finalizeChallenges(now);
+  const outbox = await processOutbox(now);
   return {
     households,
     tokens,
     premium,
     rollover,
     reminders,
-    outbox,
+    activated,
     finalized,
+    outbox,
     purged,
   };
 }
@@ -243,6 +200,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       case 'process-outbox':
       case 'outbox':
         return processOutbox();
+      case 'activate-challenges':
+        return activateChallenges();
       case 'finalize-challenges':
         return finalizeChallenges();
       case 'purge-friends-data':

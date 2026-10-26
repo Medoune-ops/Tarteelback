@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { friendsGate } from '../friends/friends.gate.js';
 import { messagesController } from './messages.controller.js';
 
 export async function messagesRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', friendsGate);
   const sec = { tags: ['messages'] as const, security: [{ bearerAuth: [] }] };
 
   app.post(

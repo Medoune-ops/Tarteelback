@@ -90,9 +90,10 @@ async function createFullUserData(app: FastifyInstance, token: string, userId: s
       uses: 0,
     },
   });
+  const household = await prisma.household.create({ data: { ownerId: userId } });
   await prisma.householdInvitation.create({
     data: {
-      householdId: 'household-1',
+      householdId: household.id,
       email: 'invite@example.com',
       token: 'household-invite-token',
       status: 'pending',
@@ -104,8 +105,7 @@ async function createFullUserData(app: FastifyInstance, token: string, userId: s
 
   // Blocages
   await prisma.userBlock.create({
-    data: { blockerId: userId, blockedId: friend.userId },
-    createdAt: new Date(),
+    data: { blockerId: userId, blockedId: friend.userId, createdAt: new Date() },
   });
 
   // Signalements
@@ -122,14 +122,19 @@ async function createFullUserData(app: FastifyInstance, token: string, userId: s
     },
   });
 
-  // Progression
+  // Progression (sur une vraie leçon et une vraie sourate : clés étrangères)
+  const section = await prisma.section.create({
+    data: { ordre: 900, kicker: 'S', titre: { fr: 'S', en: 'S' }, sousTitre: { fr: '', en: '' }, couleur: '#000', degradeStart: '#000', degradeEnd: '#111', headerIcon: 'x' },
+  });
+  const lesson = await prisma.lesson.create({ data: { sectionId: section.id, ordre: 1, titre: { fr: 'L', en: 'L' } } });
+  const sourate = await prisma.sourate.create({ data: { numero: 114, nom: 'An-Nas', nomArabe: 'الناس', nombreVersets: 6, hizb: 60 } });
   await prisma.activityDay.create({
     data: { userId, day: new Date().toISOString().slice(0, 10) },
   });
   await prisma.lessonProgress.create({
     data: {
       userId,
-      lessonId: 'lesson-1',
+      lessonId: lesson.id,
       etat: 'completed',
       score: 100,
       completedAt: new Date(),
@@ -138,7 +143,7 @@ async function createFullUserData(app: FastifyInstance, token: string, userId: s
   await prisma.sourateRevision.create({
     data: {
       userId,
-      sourateId: 'sourate-1',
+      sourateId: sourate.id,
       segmentIndex: 0,
       score: 80,
       etat: 'maitrise',
@@ -149,7 +154,7 @@ async function createFullUserData(app: FastifyInstance, token: string, userId: s
   await prisma.lettreRevision.create({
     data: {
       userId,
-      lessonId: 'lesson-1',
+      lessonId: lesson.id,
       score: 90,
       etat: 'maitrise',
       prochaineRevision: new Date(Date.now() + 24 * 60 * 60 * 1000),

@@ -29,6 +29,17 @@ export const updateConfigBodySchema = z.object({
   gemCostHeartRefill: gemCost.optional(),
   gemCostStreakFreeze: gemCost.optional(),
   gemCostDoubleXp: gemCost.optional(),
+
+  // Fonctions entre amis — interrupteur sans redéploiement (appliqué en 10 s).
+  friendsEnabled: z.boolean().optional(),
+  // Non vide : la fonctionnalité n'est ouverte qu'à ces comptes. [] = tout le monde.
+  friendsBetaUserIds: z.array(z.string().trim().min(1)).max(1000).optional(),
+  challengeRewardsEnabled: z.boolean().optional(),
+  challengeWinGems: z.number().int().min(0).max(10_000).optional(),
+  challengeCompleteGems: z.number().int().min(0).max(10_000).optional(),
+  challengeRewardedPerWeek: z.number().int().min(0).max(100).optional(),
+  messagesPerDayFree: z.number().int().min(0).max(1000).optional(),
+  messagesPerDayPremium: z.number().int().min(0).max(1000).optional(),
 });
 
 export type UpdateConfigBody = z.infer<typeof updateConfigBodySchema>;

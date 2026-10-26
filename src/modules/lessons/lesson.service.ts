@@ -25,7 +25,7 @@ import { leagueService } from '../leagues/league.service.js';
 import { lessonRepository } from './lesson.repository.js';
 import { computeUserStats } from '../me/user.stats.js';
 import { serializeUserFlat } from '../me/user.serializer.js';
-import { enqueue } from '../../core/outbox.js';
+import { enqueue, processEventNow, scheduleOutboxDrain } from '../../core/outbox.js';
 
 /**
  * Lesson XP formula — mirrors the front (`play.tsx`): a flat base plus a bonus
@@ -325,7 +325,7 @@ export const lessonService = {
       });
 
       // Événement pour les réussites et les défis (idempotent côté handlers).
-      await enqueue(tx, {
+      const event = await enqueue(tx, {
         type: 'lesson.completed',
         userId,
         payload: {
@@ -336,7 +336,7 @@ export const lessonService = {
         },
       });
 
-      return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp };
+      return { u, gained, gemsGained, premium, firstCompletion, league, doubleXp, eventId: event.id };
     });
 
     // Mirror the league XP into Redis AFTER the DB commit (best-effort; the DB
@@ -345,6 +345,8 @@ export const lessonService = {
     if (result.league) {
       await leagueService.mirrorRankXp(result.league.weekId, userId, result.league.amount);
     }
+
+    const achievements = await achievementsAfterLesson(userId, result.eventId, now);
 
     return {
       xpGained: result.gained,
@@ -358,6 +360,10 @@ export const lessonService = {
       premium: result.premium,
       doubleXpWasActive: result.doubleXp,
       nextLessonId: nextLesson?.id ?? null,
+      // Réussites créées par cette leçon (sourate maîtrisée, section, palier de
+      // streak, défi gagné…) quand elles sont détectées à temps ; sinon l'app
+      // interroge GET /me/achievements?since= (§7.5 du plan).
+      achievements,
     };
   },
 
@@ -379,6 +385,38 @@ export const lessonService = {
       xpGained: result.xpGained,
       doubleXpWasActive: result.doubleXpWasActive,
       nextLessonId: result.nextLessonId,
+      achievements: result.achievements,
     };
   },
 };
+
+/** Temps maximal ajouté à la fin de leçon pour détecter les réussites. */
+const ACHIEVEMENTS_WAIT_MS = 2_000;
+
+/**
+ * Juste après la validation de la leçon : traite son événement tout de suite
+ * (réussites + défis), dans la limite de 2 s, puis renvoie les réussites
+ * créées depuis le début de la requête. Une erreur ou un dépassement ne fait
+ * JAMAIS échouer la leçon : l'événement reste dans la file et le job le traite.
+ */
+async function achievementsAfterLesson(userId: string, eventId: string, since: Date) {
+  try {
+    const processed = processEventNow(eventId);
+    const timedOut = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), ACHIEVEMENTS_WAIT_MS));
+    if ((await Promise.race([processed, timedOut])) === 'timeout') {
+      scheduleOutboxDrain();
+      return [];
+    }
+    const rows = await prisma.achievement.findMany({
+      where: { userId, createdAt: { gte: since } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, type: true, refKey: true, payload: true, createdAt: true },
+    });
+    return rows;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[lesson] achievements after completion failed', error);
+    scheduleOutboxDrain();
+    return [];
+  }
+}

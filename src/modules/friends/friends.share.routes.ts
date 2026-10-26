@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { env } from '../../config/env.js';
+import { friendsConfigGate } from './friends.gate.js';
 import { friendsRepository } from './friends.repository.js';
 import { userRepository } from '../me/user.repository.js';
 
@@ -23,6 +24,7 @@ function hashToken(raw: string): string {
  * Toute valeur dynamique est échappée (sécurité XSS).
  */
 export async function friendsShareRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', friendsConfigGate);
   app.get('/:token', async (req, reply) => {
     const token = String((req.params as { token?: string })?.token ?? '').trim();
     const invite = token ? await friendsRepository.findInviteByTokenHash(hashToken(token)) : null;

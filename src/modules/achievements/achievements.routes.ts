@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { friendsGate } from '../friends/friends.gate.js';
 import { achievementsController } from './achievements.controller.js';
 
 export async function achievementsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', friendsGate);
   const sec = { tags: ['achievements'] as const, security: [{ bearerAuth: [] }] };
 
   app.get(
