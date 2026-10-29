@@ -1,6 +1,7 @@
 import { AppError } from './errors.js';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
+import { readAvatarStyle, type AvatarStyle } from './avatar.js';
 import { friendsConfig } from './friendsConfig.js';
 
 /**
@@ -46,6 +47,7 @@ export interface PublicProfile {
   displayName: string;
   username: string | null;
   avatarInitials: string;
+  avatarStyle: AvatarStyle | null;
   streak: number;
   learnedSouratesCount: number;
   leagueTier: string;
@@ -57,19 +59,21 @@ export interface PublicProfileInput {
   displayName: unknown;
   username?: unknown;
   avatarInitials?: unknown;
+  avatarStyle?: unknown;
   streak?: unknown;
   learnedSouratesCount?: unknown;
   leagueTier?: unknown;
   weeklyXp?: unknown;
 }
 
-/** LECTURE SEULE — ne recopie QUE les 8 clés de la liste blanche. */
+/** LECTURE SEULE — ne recopie QUE les 9 clés de la liste blanche. */
 export function serializePublicProfile(row: PublicProfileInput): PublicProfile {
   return {
     id: String(row.id ?? ''),
     displayName: String(row.displayName ?? ''),
     username: row.username == null ? null : String(row.username),
     avatarInitials: String(row.avatarInitials ?? ''),
+    avatarStyle: readAvatarStyle(row.avatarStyle),
     streak: Number(row.streak ?? 0),
     learnedSouratesCount: Number(row.learnedSouratesCount ?? 0),
     leagueTier: String(row.leagueTier ?? ''),

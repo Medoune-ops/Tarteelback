@@ -10,6 +10,7 @@ import {
   top as topMembers,
   range as rangeMembers,
 } from './league.ranking.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 const PROMOTION_ZONE = 3; // top 3 promote
 const RELEGATION_ZONE = 5; // bottom 5 relegate
@@ -19,7 +20,7 @@ const WINDOW_AFTER = 3; // members shown below the user
 type Member = {
   userId: string;
   weeklyXp: number;
-  user: { displayName: string; avatarInitials: string; username: string | null };
+  user: { displayName: string; avatarInitials: string; avatarStyle?: unknown; username: string | null };
 };
 
 function shape(m: Member, rang: number, meId: string, total: number) {
@@ -30,6 +31,7 @@ function shape(m: Member, rang: number, meId: string, total: number) {
     // reste privé (fallback pour les comptes créés avant le champ username).
     name: m.user.username ?? m.user.displayName,
     initials: m.user.avatarInitials,
+    avatarStyle: readAvatarStyle(m.user.avatarStyle),
     weeklyXp: m.weeklyXp,
     me: m.userId === meId,
     promotion: rang <= PROMOTION_ZONE,

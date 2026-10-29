@@ -100,7 +100,7 @@ export const leagueRepository = {
       where: { leagueWeekId },
       orderBy: [{ weeklyXp: 'desc' }, { joinedAt: 'asc' }],
       take,
-      include: { user: { select: { id: true, displayName: true, avatarInitials: true, username: true } } },
+      include: { user: { select: { id: true, displayName: true, avatarInitials: true, avatarStyle: true, username: true } } },
     });
   },
 
@@ -114,7 +114,7 @@ export const leagueRepository = {
       orderBy: [{ weeklyXp: 'desc' }, { joinedAt: 'asc' }],
       skip: Math.max(0, skip),
       take,
-      include: { user: { select: { id: true, displayName: true, avatarInitials: true, username: true } } },
+      include: { user: { select: { id: true, displayName: true, avatarInitials: true, avatarStyle: true, username: true } } },
     });
   },
 
@@ -130,7 +130,7 @@ export const leagueRepository = {
   usersOf(userIds: string[]) {
     return prisma.user.findMany({
       where: { id: { in: userIds } },
-      select: { id: true, displayName: true, avatarInitials: true, username: true },
+      select: { id: true, displayName: true, avatarInitials: true, avatarStyle: true, username: true },
     });
   },
 

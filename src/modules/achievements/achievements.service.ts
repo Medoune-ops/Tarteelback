@@ -2,6 +2,7 @@ import type { AchievementReactionKind } from '@prisma/client';
 import { AppError } from '../../core/errors.js';
 import { requireFriendsEnabled } from '../friends/friends.guard.js';
 import { prisma } from '../../config/prisma.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 /** Amis acceptés de `userId`, sans les comptes bannis ni les blocages (dans un sens ou l'autre). */
 async function visibleFriendIds(userId: string): Promise<string[]> {
@@ -84,7 +85,7 @@ export const achievementsService = {
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {
-        user: { select: { id: true, displayName: true, username: true, avatarInitials: true } },
+        user: { select: { id: true, displayName: true, username: true, avatarInitials: true, avatarStyle: true } },
         _count: { select: { reactions: true } },
       },
     });
@@ -105,7 +106,7 @@ export const achievementsService = {
         refKey: a.refKey,
         payload: a.payload,
         createdAt: a.createdAt,
-        user: a.user,
+        user: { ...a.user, avatarStyle: readAvatarStyle(a.user.avatarStyle) },
         reactionsCount: a._count.reactions,
         myReaction: mine.get(a.id) ?? null,
       })),
