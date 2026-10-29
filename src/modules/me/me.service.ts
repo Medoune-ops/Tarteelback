@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 import { AppError } from '../../core/errors.js';
@@ -121,6 +122,8 @@ export const meService = {
     // `sourates` n'est pas un champ User (onboarding only) — on l'extrait.
     const { sourates, ...profile } = input;
     const data: Record<string, unknown> = { ...profile };
+    // Une colonne Json nullable s'efface avec Prisma.DbNull, pas avec null.
+    if (profile.avatarStyle === null) data.avatarStyle = Prisma.DbNull;
     if (profile.displayName) data.avatarInitials = initialsFrom(profile.displayName);
     const user = await userRepository.update(userId, data);
 

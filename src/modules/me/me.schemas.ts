@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isValidTimezone } from '../../core/streak.js';
+import { avatarStyleSchema } from '../../core/avatar.js';
 
 /** Reusable IANA-timezone validator (rejects "Mars/Phobos", prevents the
  *  500-forever bug where a bad tz breaks every streak computation). */
@@ -37,6 +38,8 @@ export const updateMeSchema = z
     onboardingDone: z.boolean().optional(),
     timezone: timezoneSchema.optional(),
     language: z.string().min(2).max(10).optional(),
+    // Avatar composé dans l'app ; null le remet par défaut.
+    avatarStyle: avatarStyleSchema.nullable().optional(),
     // Onboarding only: numéros (1–114) des sourates déjà mémorisées. Non stocké
     // sur User — sert à pré-marquer les leçons correspondantes comme acquises
     // (skip du point de départ). Extrait avant l'update User dans le service.

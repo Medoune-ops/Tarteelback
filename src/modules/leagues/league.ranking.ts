@@ -117,7 +117,7 @@ export async function rankOf(weekId: string, userId: string): Promise<number | n
 
 /** Hydrate userIds → display info from the DB, preserving order. */
 async function hydrate(weekId: string, ordered: { userId: string; weeklyXp: number }[]): Promise<
-  { userId: string; weeklyXp: number; user: { displayName: string; avatarInitials: string; username: string | null } }[]
+  { userId: string; weeklyXp: number; user: { displayName: string; avatarInitials: string; avatarStyle?: unknown; username: string | null } }[]
 > {
   if (ordered.length === 0) return [];
   const rows = await leagueRepository.usersOf(ordered.map((o) => o.userId));
@@ -128,12 +128,13 @@ async function hydrate(weekId: string, ordered: { userId: string; weeklyXp: numb
     user: {
       displayName: byId.get(o.userId)?.displayName ?? '',
       avatarInitials: byId.get(o.userId)?.avatarInitials ?? '',
+      avatarStyle: byId.get(o.userId)?.avatarStyle ?? null,
       username: byId.get(o.userId)?.username ?? null,
     },
   }));
 }
 
-type Row = { userId: string; weeklyXp: number; user: { displayName: string; avatarInitials: string; username: string | null } };
+type Row = { userId: string; weeklyXp: number; user: { displayName: string; avatarInitials: string; avatarStyle?: unknown; username: string | null } };
 
 /** Top N members (podium). */
 export async function top(weekId: string, n: number): Promise<Row[]> {

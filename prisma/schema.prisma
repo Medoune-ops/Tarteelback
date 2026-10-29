@@ -164,6 +164,9 @@ model User {
   // partager le même pseudo.
   username       String?
   avatarInitials String  @default("")
+  // Avatar composé dans l'app (écran « Mon avatar ») — choix et couleurs,
+  // validés par core/avatar.ts. null = avatar par défaut. Visible des amis.
+  avatarStyle    Json?
   role           Role    @default(user)
 
   // Profile / onboarding

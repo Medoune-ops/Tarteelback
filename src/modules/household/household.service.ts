@@ -6,6 +6,7 @@ import {
   recomputePremium,
   recomputeHouseholdPremium,
 } from '../../core/household.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -15,6 +16,7 @@ const memberUserSelect = {
   email: true,
   displayName: true,
   avatarInitials: true,
+  avatarStyle: true,
 } as const;
 
 /** Récupère l'email (minuscules) d'un utilisateur. */
@@ -71,6 +73,7 @@ export const householdService = {
             email: m.user.email,
             displayName: m.user.displayName,
             avatarInitials: m.user.avatarInitials,
+            avatarStyle: readAvatarStyle(m.user.avatarStyle),
             role: m.role,
             joinedAt: m.joinedAt,
             isMe: m.userId === userId,

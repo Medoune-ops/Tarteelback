@@ -294,6 +294,7 @@ export const challengesService = {
                 displayName: user.displayName,
                 username: user.username,
                 avatarInitials: user.avatarInitials,
+                avatarStyle: user.avatarStyle,
                 streak: user.streak,
                 learnedSouratesCount: learned.length,
                 leagueTier: week?.league?.nom ?? '',

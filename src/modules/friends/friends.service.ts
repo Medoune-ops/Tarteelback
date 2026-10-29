@@ -12,6 +12,7 @@ import { serializePublicProfile } from '../../core/friends.js';
 import { prisma } from '../../config/prisma.js';
 import { enqueue, scheduleOutboxDrain } from '../../core/outbox.js';
 import '../notifications/friendsPushHandler.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 const MAX_FRIEND_REQUESTS_PER_DAY = 30;
 const MAX_PENDING_REQUESTS = 50;
@@ -39,6 +40,7 @@ async function toPublicProfile(user: {
   displayName: string;
   username: string | null;
   avatarInitials: string;
+  avatarStyle?: unknown;
   streak: number;
   weeklyXp: number;
 }) {
@@ -49,6 +51,7 @@ async function toPublicProfile(user: {
     displayName: user.displayName,
     username: user.username,
     avatarInitials: user.avatarInitials,
+    avatarStyle: user.avatarStyle,
     streak: user.streak,
     learnedSouratesCount: learned.length,
     leagueTier: week?.league?.nom ?? '',
@@ -348,7 +351,12 @@ export const friendsService = {
     const owner = await userRepository.getOrThrow(invite.userId);
     if (owner.bannedAt) throw new AppError('INVITE_INVALID', 'Invalid invite');
     if (invite.kind === 'link' && !owner.friendsDiscoverable) throw new AppError('INVITE_INVALID', 'Invalid invite');
-    return { displayName: owner.displayName, avatarInitials: owner.avatarInitials, kind: invite.kind };
+    return {
+      displayName: owner.displayName,
+      avatarInitials: owner.avatarInitials,
+      avatarStyle: readAvatarStyle(owner.avatarStyle),
+      kind: invite.kind,
+    };
   },
 
   async acceptInvite(meId: string, token: string) {
@@ -456,7 +464,7 @@ export const friendsService = {
       blocks.map(async (b) => {
         const u = await userRepository.findById(b.blockedId);
         if (!u || u.bannedAt) return null;
-        return { id: u.id, displayName: u.displayName, avatarInitials: u.avatarInitials };
+        return { id: u.id, displayName: u.displayName, avatarInitials: u.avatarInitials, avatarStyle: readAvatarStyle(u.avatarStyle) };
       }),
     );
     return { items: items.filter(Boolean) };
@@ -496,7 +504,7 @@ export const friendsService = {
     const ids = [meId, ...otherIds];
     const users = await prisma.user.findMany({
       where: { id: { in: ids }, bannedAt: null },
-      select: { id: true, displayName: true, avatarInitials: true, username: true, streak: true, weeklyXp: true },
+      select: { id: true, displayName: true, avatarInitials: true, avatarStyle: true, username: true, streak: true, weeklyXp: true },
     });
     const blockedSet = new Set<string>();
     for (const u of users) {
@@ -511,6 +519,7 @@ export const friendsService = {
         displayName: u.displayName,
         username: u.username,
         avatarInitials: u.avatarInitials,
+        avatarStyle: readAvatarStyle(u.avatarStyle),
         streak: u.streak,
         learnedSouratesCount: 0,
         leagueTier: '',

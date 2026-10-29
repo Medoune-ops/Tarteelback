@@ -9,6 +9,7 @@ export const friendsRepository = {
         displayName: true,
         username: true,
         avatarInitials: true,
+        avatarStyle: true,
         timezone: true,
         bannedAt: true,
         friendsDiscoverable: true,

@@ -4,6 +4,7 @@ import { snapshot, MAX_HEARTS } from '../../core/hearts.js';
 import { localDayKey } from '../../core/streak.js';
 import { isDoubleXpActive, REVIEW_HEARTS_PER_DAY } from '../../core/gems.js';
 import type { UserStats } from './user.stats.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 /**
  * Public shape of the current user, matching what the RN store needs
@@ -25,6 +26,7 @@ export function serializeUser(user: User, now: Date = new Date()) {
     displayName: user.displayName,
     username: user.username,
     avatarInitials: user.avatarInitials,
+    avatarStyle: readAvatarStyle(user.avatarStyle),
     role: user.role,
 
     level: user.level,
@@ -132,6 +134,8 @@ export function serializeUserFlat(user: User, stats: UserStats, now: Date = new 
     email: user.email,
     emailVerified: user.emailVerified,
     avatar: null as string | null,
+    // Avatar composé (écran « Mon avatar ») ; null = avatar par défaut.
+    avatarStyle: readAvatarStyle(user.avatarStyle),
     // Préférence voix (Settings) — sans elle le toggle du front repart à `true`
     // à chaque ouverture au lieu de refléter le vrai réglage.
     voiceEnabled: user.voiceEnabled,

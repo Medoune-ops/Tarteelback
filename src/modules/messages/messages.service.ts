@@ -6,6 +6,7 @@ import { enqueue } from '../../core/outbox.js';
 import { prisma } from '../../config/prisma.js';
 import { challengeRepository } from '../challenges/challenges.repository.js';
 import { MessageSendInput } from './messages.schemas.js';
+import { readAvatarStyle } from '../../core/avatar.js';
 
 const DAILY_RECIPIENT_QUOTA = 5;
 
@@ -227,6 +228,7 @@ export const messagesService = {
             displayName: true,
             username: true,
             avatarInitials: true,
+            avatarStyle: true,
           },
         },
       },
@@ -240,7 +242,7 @@ export const messagesService = {
     return {
       items: pageRows.map((m: any) => ({
         id: m.id,
-        sender: m.sender,
+        sender: { ...m.sender, avatarStyle: readAvatarStyle(m.sender.avatarStyle) },
         kind: m.kind,
         payload: m.payload,
         note: m.note,
