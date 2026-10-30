@@ -12,7 +12,7 @@ export const contentRepository = {
         },
         lessons: {
           orderBy: { ordre: 'asc' },
-          select: { id: true, ordre: true, titre: true, iconType: true, sourateNumero: true },
+          select: { id: true, ordre: true, titre: true, iconType: true, sourateNumero: true, versetDebut: true, versetFin: true },
         },
       },
     });
