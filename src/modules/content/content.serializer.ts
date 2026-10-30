@@ -40,6 +40,8 @@ interface DbLessonLite {
   titre: unknown;
   iconType: string;
   sourateNumero: number | null;
+  versetDebut?: number | null;
+  versetFin?: number | null;
 }
 
 interface DbSection {
@@ -70,6 +72,7 @@ function buildNodes(
   progress: ProgressMap,
   sectionIsActive: boolean,
   lang: string,
+  defaultLang: string,
 ) {
   // First non-completed index within this section.
   let activeIndex = -1;
@@ -99,7 +102,13 @@ function buildNodes(
       // section.sourates par position de nœud (l'ancienne approche du front)
       // suppose à tort "1 nœud = 1 sourate", faux dans ce cas.
       sourateNumero: lesson.sourateNumero,
-      label: state === 'active' ? activeNodeLabel(i + 1, lang) : undefined,
+      // Numéro + contenu de la leçon, pour la bulle « Commencer » de n'importe
+      // quel nœud (et plus seulement du nœud actif).
+      label: activeNodeLabel(i + 1, lang),
+      lessonNumber: i + 1,
+      titre: resolveI18n(lesson.titre as I18nText, lang, defaultLang),
+      versetDebut: lesson.versetDebut ?? null,
+      versetFin: lesson.versetFin ?? null,
       icon,
       align: state === 'active' ? 'center' : ALIGNS[i % ALIGNS.length]!,
       state,
@@ -134,7 +143,7 @@ export function serializeSections(
       nomArabe: link.sourate.nomArabe,
       nombreVersets: link.sourate.nombreVersets,
     })),
-    nodes: buildNodes(s, progress, idx === firstUnfinished, lang),
+    nodes: buildNodes(s, progress, idx === firstUnfinished, lang, defaultLang),
   }));
 }
 
