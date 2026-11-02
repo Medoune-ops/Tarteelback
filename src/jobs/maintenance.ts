@@ -31,6 +31,20 @@ export async function purgeRefreshTokens(now: Date = new Date()) {
   });
 }
 
+/**
+ * Verdicts de leçon de plus de 7 jours. L'app abandonne une leçon en pause après
+ * 3 jours : plus aucun renvoi ne peut les réclamer.
+ */
+export async function purgeLessonAnswerReceipts(now: Date = new Date()) {
+  return withLock('job:purge-lesson-receipts', LOCK_TTL_MS, async () => {
+    const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const res = await prisma.lessonAnswerReceipt.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return { deleted: res.count };
+  });
+}
+
 /** Flip users whose premium has lapsed back to free (defensive; reads also
  *  recompute this, but a batch job keeps the column truthful for analytics). */
 export async function downgradeExpiredPremium(now: Date = new Date()) {
@@ -135,13 +149,14 @@ export async function runAllMaintenance(now: Date = new Date()) {
   // Les foyers expirés d'abord : ça recalcule le premium effectif des membres
   // avant le downgrade global.
   const households = await expireHouseholds(now);
-  const [tokens, premium, rollover, reminders, purged] =
+  const [tokens, premium, rollover, reminders, purged, lessonReceipts] =
     await Promise.all([
       purgeRefreshTokens(now),
       downgradeExpiredPremium(now),
       runWeeklyRollover(now),
       runReminders(now),
       purgeFriendsData(now),
+      purgeLessonAnswerReceipts(now),
     ]);
   // Défis puis file d'événements, dans cet ordre : démarrer/terminer un défi
   // émet des événements (push, réussites) que le passage suivant traite tout
@@ -159,6 +174,7 @@ export async function runAllMaintenance(now: Date = new Date()) {
     finalized,
     outbox,
     purged,
+    lessonReceipts,
   };
 }
 
@@ -189,6 +205,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     switch (which) {
       case 'purge-tokens':
         return purgeRefreshTokens();
+      case 'purge-lesson-receipts':
+        return purgeLessonAnswerReceipts();
       case 'downgrade-premium':
         return downgradeExpiredPremium();
       case 'expire-households':

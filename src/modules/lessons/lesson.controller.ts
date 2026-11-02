@@ -2,13 +2,17 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { parse } from '../../core/validate.js';
 import { AppError } from '../../core/errors.js';
 import { lessonService } from './lesson.service.js';
-import { answerSchema, completeSchema, completeFlatSchema } from './lesson.schemas.js';
+import { answerSchema, completeSchema, completeFlatSchema, idempotencyKeySchema } from './lesson.schemas.js';
+
+function idempotencyKey(req: FastifyRequest) {
+  return parse(idempotencyKeySchema, req.headers['idempotency-key']);
+}
 
 export const lessonController = {
   async answer(req: FastifyRequest, reply: FastifyReply) {
     const { id, stepId } = req.params as { id: string; stepId: string };
     const body = parse(answerSchema, req.body ?? {});
-    const result = await lessonService.answer(req.auth!.sub, id, stepId, body);
+    const result = await lessonService.answer(req.auth!.sub, id, stepId, body, idempotencyKey(req));
     return reply.send(result);
   },
 
@@ -18,6 +22,7 @@ export const lessonController = {
    */
   async answerVoice(req: FastifyRequest, reply: FastifyReply) {
     const { id, stepId } = req.params as { id: string; stepId: string };
+    const key = idempotencyKey(req);
     const file = await req.file();
     if (!file) {
       throw new AppError('VALIDATION_ERROR', 'Multipart field "audio" is required');
@@ -31,6 +36,7 @@ export const lessonController = {
       audio,
       file.filename || 'recording',
       file.mimetype || 'application/octet-stream',
+      key,
     );
     return reply.send(result);
   },

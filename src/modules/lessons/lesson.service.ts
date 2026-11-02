@@ -42,11 +42,8 @@ function lessonXp(correctCount: number, testStepCount: number): number {
 
 type HeartsState = { hearts: number; lastHeartLossAt: Date | null };
 
-/**
- * Settle time-based heart regeneration (idempotent write) and block a free
- * user who is already out of hearts. Shared by both answer paths.
- */
-async function settleAndGuardHearts(userId: string, now: Date) {
+/** Settle time-based heart regeneration (idempotent write). */
+async function settleHearts(userId: string, now: Date) {
   const user = await userRepository.getOrThrow(userId);
   const premium = isPremiumActive(user, now);
 
@@ -65,10 +62,19 @@ async function settleAndGuardHearts(userId: string, now: Date) {
     });
   }
 
-  if (!premium && synced.hearts <= 0) {
+  return { premium, synced };
+}
+
+/**
+ * Same, and block a free user who is already out of hearts. Shared by both
+ * answer paths.
+ */
+async function settleAndGuardHearts(userId: string, now: Date) {
+  const settled = await settleHearts(userId, now);
+  if (!settled.premium && settled.synced.hearts <= 0) {
     throw new AppError('OUT_OF_HEARTS', 'You have no hearts left');
   }
-  return { premium, synced };
+  return settled;
 }
 
 /**
@@ -93,43 +99,140 @@ async function applyHeartLoss(
   return { hearts: fresh.hearts, lastHeartLossAt: fresh.lastHeartLossAt };
 }
 
+type ReceiptVerdict = { correct: boolean; score?: number; transcription?: string };
+
+/**
+ * Enregistre le verdict et la perte de cœur dans UNE transaction, pour qu'une
+ * réponse renvoyée après une coupure ne puisse jamais coûter un 2e cœur. Renvoie
+ * false si une requête concurrente avec la même clé a déjà été comptée.
+ */
+async function claimAnswer(
+  userId: string,
+  stepId: string,
+  key: string,
+  verdict: ReceiptVerdict,
+  judgement: Judgement,
+  synced: HeartsState,
+  premium: boolean,
+  now: Date,
+): Promise<boolean> {
+  const losesHeart = !judgement.correct && judgement.heartAtStake && !premium;
+  return prisma.$transaction(async (tx) => {
+    const claim = await tx.lessonAnswerReceipt.createMany({
+      data: [{ userId, stepId, key, ...verdict }],
+      skipDuplicates: true,
+    });
+    if (claim.count === 0) return false;
+    if (losesHeart) {
+      await lessonRepository.decrementHeart(userId, synced.hearts >= MAX_HEARTS ? now : null, tx);
+    }
+    return true;
+  });
+}
+
+/**
+ * Le verdict déjà rendu pour cette clé, avec les cœurs ACTUELS. Passe avant le
+ * blocage OUT_OF_HEARTS : si la réponse perdue a coûté le dernier cœur, le
+ * renvoi doit quand même récupérer son verdict.
+ */
+async function replayReceipt(userId: string, stepId: string, key: string, now: Date) {
+  const receipt = await lessonRepository.getAnswerReceipt(userId, stepId, key);
+  if (!receipt) return null;
+  const { premium, synced } = await settleHearts(userId, now);
+  return { receipt, hearts: snapshot(synced, premium, now) };
+}
+
+/** After judging, the correct option id can be revealed — written steps only. */
+function revealedAnswer(step: { type: string; payload: unknown }) {
+  if (step.type !== 'written') return undefined;
+  const p = step.payload as { bonneReponse?: unknown };
+  return typeof p?.bonneReponse === 'string' ? p.bonneReponse : undefined;
+}
+
+async function getStepInLesson(lessonId: string, stepId: string) {
+  const step = await lessonRepository.getStep(stepId);
+  if (!step || step.lessonId !== lessonId) {
+    throw new AppError('NOT_FOUND', 'Step not found in this lesson');
+  }
+  return step;
+}
+
+function answerResult(
+  correct: boolean,
+  bonneReponse: string | undefined,
+  snap: ReturnType<typeof snapshot>,
+) {
+  return {
+    correct,
+    bonneReponse, // correct option id (written only), revealed post-answer
+    heartsLeft: snap.hearts,
+    outOfHearts: snap.outOfHearts,
+    unlimited: snap.unlimited,
+    msUntilNextHeart: snap.msUntilNextHeart,
+  };
+}
+
+function voiceResult(
+  correct: boolean,
+  score: number,
+  transcription: string,
+  snap: ReturnType<typeof snapshot>,
+) {
+  return {
+    correct,
+    score,
+    transcription,
+    heartsLeft: snap.hearts,
+    outOfHearts: snap.outOfHearts,
+    unlimited: snap.unlimited,
+    msUntilNextHeart: snap.msUntilNextHeart,
+  };
+}
+
 export const lessonService = {
   /**
    * Judge one submitted answer. Server-authoritative:
    *  - blocks a free user who is already out of hearts (OUT_OF_HEARTS);
    *  - on a wrong answer to a test step (written/voice), deducts one heart
    *    (no-op for premium);
-   *  - discovery never costs a heart.
+   *  - discovery never costs a heart;
+   *  - with an idempotency key, a resent answer replays its verdict for free.
    */
-  async answer(userId: string, lessonId: string, stepId: string, body: AnswerInput) {
+  async answer(
+    userId: string,
+    lessonId: string,
+    stepId: string,
+    body: AnswerInput,
+    idempotencyKey?: string,
+  ) {
     const now = new Date();
+
+    if (idempotencyKey) {
+      const replay = await replayReceipt(userId, stepId, idempotencyKey, now);
+      if (replay) {
+        const step = await getStepInLesson(lessonId, stepId);
+        return answerResult(replay.receipt.correct, revealedAnswer(step), replay.hearts);
+      }
+    }
+
     const { premium, synced } = await settleAndGuardHearts(userId, now);
-
-    const step = await lessonRepository.getStep(stepId);
-    if (!step || step.lessonId !== lessonId) {
-      throw new AppError('NOT_FOUND', 'Step not found in this lesson');
-    }
-
+    const step = await getStepInLesson(lessonId, stepId);
     const judgement = judgeStep(step.type as StepType, step.payload, body as AnswerInput);
-    const heartsState = await applyHeartLoss(userId, judgement, synced, premium, now);
 
-    // After judging, it's safe to reveal the correct option id so the front can
-    // highlight it (green) — the user has already answered. Only for `written`.
-    let bonneReponse: string | undefined;
-    if (step.type === 'written') {
-      const p = step.payload as { bonneReponse?: unknown };
-      if (typeof p?.bonneReponse === 'string') bonneReponse = p.bonneReponse;
+    if (idempotencyKey) {
+      const claimed = await claimAnswer(
+        userId, stepId, idempotencyKey, { correct: judgement.correct }, judgement, synced, premium, now,
+      );
+      // Lost the race against the same request: its receipt holds the verdict.
+      const correct = claimed
+        ? judgement.correct
+        : (await lessonRepository.getAnswerReceipt(userId, stepId, idempotencyKey))!.correct;
+      const fresh = await settleHearts(userId, now);
+      return answerResult(correct, revealedAnswer(step), snapshot(fresh.synced, premium, now));
     }
 
-    const snap = snapshot(heartsState, premium, now);
-    return {
-      correct: judgement.correct,
-      bonneReponse, // correct option id (written only), revealed post-answer
-      heartsLeft: snap.hearts,
-      outOfHearts: snap.outOfHearts,
-      unlimited: snap.unlimited,
-      msUntilNextHeart: snap.msUntilNextHeart,
-    };
+    const heartsState = await applyHeartLoss(userId, judgement, synced, premium, now);
+    return answerResult(judgement.correct, revealedAnswer(step), snapshot(heartsState, premium, now));
   },
 
   /**
@@ -145,14 +248,23 @@ export const lessonService = {
     audio: Buffer,
     filename: string,
     mimetype: string,
+    idempotencyKey?: string,
   ) {
     const now = new Date();
+
+    // Rejoué avant l'ASR : un renvoi ne repaie pas une transcription.
+    if (idempotencyKey) {
+      const replay = await replayReceipt(userId, stepId, idempotencyKey, now);
+      if (replay) {
+        await getStepInLesson(lessonId, stepId);
+        const { correct, score, transcription } = replay.receipt;
+        return voiceResult(correct, score ?? 0, transcription ?? '', replay.hearts);
+      }
+    }
+
     const { premium, synced } = await settleAndGuardHearts(userId, now);
 
-    const step = await lessonRepository.getStep(stepId);
-    if (!step || step.lessonId !== lessonId) {
-      throw new AppError('NOT_FOUND', 'Step not found in this lesson');
-    }
+    const step = await getStepInLesson(lessonId, stepId);
     if (step.type !== 'voice') {
       throw new AppError('VALIDATION_ERROR', 'Not a voice step');
     }
@@ -172,17 +284,23 @@ export const lessonService = {
     }
     // Malformed step content (no expected text): fail closed, no heart lost.
 
+    if (idempotencyKey) {
+      const claimed = await claimAnswer(
+        userId, stepId, idempotencyKey,
+        { correct: judgement.correct, score, transcription },
+        judgement, synced, premium, now,
+      );
+      const fresh = await settleHearts(userId, now);
+      const snap = snapshot(fresh.synced, premium, now);
+      if (!claimed) {
+        const receipt = (await lessonRepository.getAnswerReceipt(userId, stepId, idempotencyKey))!;
+        return voiceResult(receipt.correct, receipt.score ?? 0, receipt.transcription ?? '', snap);
+      }
+      return voiceResult(judgement.correct, score, transcription, snap);
+    }
+
     const heartsState = await applyHeartLoss(userId, judgement, synced, premium, now);
-    const snap = snapshot(heartsState, premium, now);
-    return {
-      correct: judgement.correct,
-      score,
-      transcription,
-      heartsLeft: snap.hearts,
-      outOfHearts: snap.outOfHearts,
-      unlimited: snap.unlimited,
-      msUntilNextHeart: snap.msUntilNextHeart,
-    };
+    return voiceResult(judgement.correct, score, transcription, snapshot(heartsState, premium, now));
   },
 
   /**

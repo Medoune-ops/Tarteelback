@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 
 /** Data access for the lesson engine (steps, progress). */
@@ -76,14 +77,24 @@ export const lessonRepository = {
    * user was full before this loss), it also sets the regen anchor; otherwise
    * an existing anchor is preserved. Returns the affected row count.
    */
-  async decrementHeart(userId: string, anchorNow: Date | null) {
+  getAnswerReceipt(userId: string, stepId: string, key: string) {
+    return prisma.lessonAnswerReceipt.findUnique({
+      where: { userId_stepId_key: { userId, stepId, key } },
+    });
+  },
+
+  async decrementHeart(
+    userId: string,
+    anchorNow: Date | null,
+    db: Prisma.TransactionClient = prisma,
+  ) {
     if (anchorNow) {
-      return prisma.user.updateMany({
+      return db.user.updateMany({
         where: { id: userId, hearts: { gt: 0 } },
         data: { hearts: { decrement: 1 }, lastHeartLossAt: anchorNow },
       });
     }
-    return prisma.user.updateMany({
+    return db.user.updateMany({
       where: { id: userId, hearts: { gt: 0 } },
       data: { hearts: { decrement: 1 } },
     });

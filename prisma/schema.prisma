@@ -289,6 +289,7 @@ model User {
 
   refreshTokens     RefreshToken[]
   lessonProgress    LessonProgress[]
+  lessonAnswerReceipts LessonAnswerReceipt[]
   sourateRevisions  SourateRevision[]
   chainProgress     SourateChainProgress[]
   lettreRevisions   LettreRevision[]
@@ -776,6 +777,22 @@ model VersetTranslitteration {
 }
 
 // ─── Progression ─────────────────────────────────────────────────────────────
+
+/// Verdict déjà rendu sur une étape : une réponse renvoyée après une coupure
+/// réseau (même Idempotency-Key) le rejoue au lieu de coûter un 2e cœur.
+model LessonAnswerReceipt {
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stepId        String
+  key           String
+  correct       Boolean
+  score         Int?
+  transcription String?
+  createdAt     DateTime @default(now())
+
+  @@id([userId, stepId, key])
+  @@index([createdAt])
+}
 
 model LessonProgress {
   id          String      @id @default(cuid())

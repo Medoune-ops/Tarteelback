@@ -13,6 +13,15 @@ export const answerSchema = z
   })
   .strict();
 
+/**
+ * Header Idempotency-Key des réponses de leçon, généré par l'app. Optionnel :
+ * les versions de l'app qui ne l'envoient pas gardent le comportement d'origine.
+ */
+export const idempotencyKeySchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{8,128}$/)
+  .optional();
+
 /** Body for POST /lessons/:id/complete. */
 export const completeSchema = z
   .object({

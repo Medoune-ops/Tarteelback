@@ -165,6 +165,15 @@ ranking. Send `{ correctCount, totalTests }` for the exact XP/score.
 farming). Note: `voice` steps answered via `.../answer` never deduct a heart
 (the recognition score is produced on-device and not trusted server-side).
 
+### Resending an answer after a network failure: `Idempotency-Key`
+
+Both answer routes accept an optional `Idempotency-Key` header
+(`[A-Za-z0-9_-]{8,128}`), scoped to the user and the step. Resending with the same
+key returns the verdict already given, without judging again or costing another
+heart, even if the lost response cost the last heart (no `OUT_OF_HEARTS`). Use a
+different key for a different answer. Keys are kept for 7 days. Without the
+header, every call is judged as a new answer.
+
 ### Voice, server-scored: `POST .../steps/:stepId/answer-voice`
 
 `multipart/form-data` with one field **`audio`** = the raw recording
