@@ -165,6 +165,26 @@ ranking. Send `{ correctCount, totalTests }` for the exact XP/score.
 farming). Note: `voice` steps answered via `.../answer` never deduct a heart
 (the recognition score is produced on-device and not trusted server-side).
 
+### Sign in with Google or Apple: `POST /auth/social`
+
+`{ provider: "google"|"apple", idToken, deviceId, displayName?, username?, timezone?, language? }`
+
+The server verifies the signature, issuer, expiry and audience of `idToken` (the
+OIDC identity token from the Google or Apple SDK, not an access token), then signs
+in or creates the account. Same response as `/auth/login`, plus `isNewUser`:
+**201** when the account was created, **200** otherwise. Identity comes only from
+the token; `displayName` etc. are read only when creating the account. Send
+Apple's name as `displayName`: Apple gives it to the app once, on first sign-in,
+and never puts it in the token.
+
+- **401 `INVALID_CREDENTIALS`**: invalid, expired, or issued for another app.
+- **409 `EMAIL_TAKEN`**: a password account already uses this email. It is never
+  linked automatically; the user must sign in with their password.
+- **400 `VALIDATION_ERROR`**: first sign-in without a verified email.
+- **403 `ACCOUNT_BANNED`**.
+- **503 `SERVICE_UNAVAILABLE`**: provider not configured (`GOOGLE_CLIENT_IDS`,
+  `APPLE_CLIENT_IDS`) or its signing keys are unreachable. Safe to retry.
+
 ### Resending an answer after a network failure: `Idempotency-Key`
 
 Both answer routes accept an optional `Idempotency-Key` header

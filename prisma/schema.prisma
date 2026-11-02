@@ -288,6 +288,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   refreshTokens     RefreshToken[]
+  socialIdentities  SocialIdentity[]
   lessonProgress    LessonProgress[]
   lessonAnswerReceipts LessonAnswerReceipt[]
   sourateRevisions  SourateRevision[]
@@ -777,6 +778,24 @@ model VersetTranslitteration {
 }
 
 // ─── Progression ─────────────────────────────────────────────────────────────
+
+enum SocialProvider {
+  google
+  apple
+}
+
+/// Compte Google ou Apple relié à un utilisateur. Retrouvé par `subject` (le
+/// `sub` du jeton), jamais par l'email : celui d'Apple peut être masqué ou absent.
+model SocialIdentity {
+  provider  SocialProvider
+  subject   String
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@id([provider, subject])
+  @@index([userId])
+}
 
 /// Verdict déjà rendu sur une étape : une réponse renvoyée après une coupure
 /// réseau (même Idempotency-Key) le rejoue au lieu de coûter un 2e cœur.

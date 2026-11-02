@@ -9,6 +9,7 @@ import {
   initialsFrom,
   generateVerificationCode,
 } from '../../core/tokens.js';
+import { verifySocialToken, type VerifiedSocialIdentity } from '../../core/socialIdentity.js';
 import { env } from '../../config/env.js';
 import { sendMail, passwordResetEmail, emailVerificationEmail } from '../../core/mailer.js';
 import { isEmailVerificationEnabled } from '../adminConfig/adminConfig.service.js';
@@ -17,6 +18,7 @@ import { authRepository } from './auth.repository.js';
 import type {
   RegisterInput,
   LoginInput,
+  SocialSignInInput,
   RefreshInput,
   ChangePasswordInput,
   ResetRequestInput,
@@ -43,6 +45,10 @@ export interface AuthResult {
   tokens?: AuthTokens;
   /** Present on register when EMAIL_VERIFICATION_ENABLED — false if Resend failed (account still created). */
   verificationEmailSent?: boolean;
+}
+
+export interface SocialSignInResult extends AuthResult {
+  isNewUser: boolean;
 }
 
 export interface VerifyEmailResult {
@@ -129,6 +135,57 @@ async function sendVerificationCode(userId: string, email: string): Promise<void
   });
 
   await sendMail(emailVerificationEmail(email, code, env.EMAIL_VERIFICATION_CODE_TTL_MINUTES));
+}
+
+/**
+ * Première connexion avec ce compte Google/Apple : crée l'utilisateur, ou le
+ * relie à un compte existant si c'est sans danger.
+ *
+ * Un compte AVEC mot de passe n'est jamais relié automatiquement : sans
+ * vérification d'email à l'inscription, n'importe qui a pu le créer avec
+ * l'adresse d'une autre personne, et garderait l'accès via son mot de passe une
+ * fois la vraie propriétaire connectée. Un compte SANS mot de passe, lui, ne
+ * s'ouvre que par un fournisseur qui a déjà prouvé cette adresse.
+ */
+async function createOrLinkSocialUser(
+  identity: VerifiedSocialIdentity,
+  input: SocialSignInInput,
+): Promise<{ user: User; isNewUser: boolean }> {
+  const { provider, subject, email } = identity;
+  if (!email || !identity.emailVerified) {
+    throw new AppError('VALIDATION_ERROR', 'A verified email is required to create an account');
+  }
+
+  try {
+    const existing = await authRepository.findUserByEmail(email);
+    if (existing) {
+      if (existing.passwordHash) throw new AppError('EMAIL_TAKEN', 'Email already registered');
+      await authRepository.createSocialIdentity({ provider, subject, userId: existing.id });
+      return { user: existing, isNewUser: false };
+    }
+
+    // Jamais de repli sur l'email : le nom peut s'afficher dans les classements.
+    const displayName = input.displayName ?? identity.name ?? 'Tarteel';
+    const user = await authRepository.createUser({
+      email,
+      passwordHash: null,
+      displayName,
+      username: input.username ?? null,
+      avatarInitials: initialsFrom(displayName),
+      timezone: input.timezone ?? 'UTC',
+      language: input.language ?? 'en',
+      emailVerified: true,
+      socialIdentities: { create: { provider, subject } },
+    });
+    return { user, isNewUser: true };
+  } catch (err) {
+    // Double appui : la requête concurrente a créé l'identité, on s'y connecte.
+    if ((err as { code?: string }).code === 'P2002') {
+      const user = await authRepository.findUserBySocialIdentity(provider, subject);
+      if (user) return { user, isNewUser: false };
+    }
+    throw err;
+  }
 }
 
 export const authService = {
@@ -260,6 +317,24 @@ export const authService = {
 
     const tokens = await issueTokens(user, input.deviceId, sign, true);
     return { user, tokens };
+  },
+
+  /**
+   * POST /auth/social — vérifie le jeton Google/Apple, puis connecte ou crée le
+   * compte. L'identité vient uniquement du jeton, jamais du corps de la requête.
+   */
+  async socialSignIn(input: SocialSignInInput, sign: AccessSigner): Promise<SocialSignInResult> {
+    const identity = await verifySocialToken(input.provider, input.idToken);
+
+    const known = await authRepository.findUserBySocialIdentity(identity.provider, identity.subject);
+    const { user, isNewUser } = known
+      ? { user: known, isNewUser: false }
+      : await createOrLinkSocialUser(identity, input);
+
+    if (user.bannedAt) throw new AppError('ACCOUNT_BANNED', 'This account has been suspended');
+
+    const tokens = await issueTokens(user, input.deviceId, sign, true);
+    return { user, tokens, isNewUser };
   },
 
   /**

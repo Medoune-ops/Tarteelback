@@ -27,6 +27,23 @@ export const loginSchema = z
   })
   .strict();
 
+/**
+ * POST /auth/social — l'identité vient UNIQUEMENT du jeton vérifié. Le nom est
+ * accepté à part car Apple ne le met jamais dans le jeton : l'app le reçoit une
+ * seule fois, à la première connexion. Lu seulement à la création du compte.
+ */
+export const socialSignInSchema = z
+  .object({
+    provider: z.enum(['google', 'apple']),
+    idToken: z.string().min(1).max(8192),
+    deviceId,
+    displayName: z.string().trim().min(1).max(80).optional(),
+    username: usernameSchema.optional(),
+    timezone: timezoneSchema.optional(),
+    language: z.string().min(2).max(10).optional(),
+  })
+  .strict();
+
 export const refreshSchema = z
   .object({
     refreshToken: z.string().min(1),
@@ -118,6 +135,7 @@ export const resendVerificationSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type SocialSignInInput = z.infer<typeof socialSignInSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

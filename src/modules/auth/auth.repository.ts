@@ -1,4 +1,4 @@
-import type { Prisma, User } from '@prisma/client';
+import type { Prisma, SocialProvider, User } from '@prisma/client';
 import { prisma } from '../../config/prisma.js';
 
 /** Data access for users and refresh tokens. No business logic here. */
@@ -13,6 +13,18 @@ export const authRepository = {
 
   createUser(data: Prisma.UserCreateInput): Promise<User> {
     return prisma.user.create({ data });
+  },
+
+  async findUserBySocialIdentity(provider: SocialProvider, subject: string): Promise<User | null> {
+    const identity = await prisma.socialIdentity.findUnique({
+      where: { provider_subject: { provider, subject } },
+      include: { user: true },
+    });
+    return identity?.user ?? null;
+  },
+
+  createSocialIdentity(data: { provider: SocialProvider; subject: string; userId: string }) {
+    return prisma.socialIdentity.create({ data });
   },
 
   createRefreshToken(data: {

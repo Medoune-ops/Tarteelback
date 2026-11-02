@@ -71,6 +71,17 @@ const EnvSchema = z.object({
     .transform((v) =>
       v.split(',').map((s) => s.trim()).filter((s) => s.length > 0),
     ),
+  // Connexion avec Google / Apple : applications autorisées (audience du jeton),
+  // séparées par des virgules. Vide = connexion désactivée pour ce fournisseur.
+  // Google : client IDs OAuth (iOS, Android, web). Apple : bundle ID de l'app.
+  GOOGLE_CLIENT_IDS: z
+    .string()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter((s) => s.length > 0)),
+  APPLE_CLIENT_IDS: z
+    .string()
+    .default('')
+    .transform((v) => v.split(',').map((s) => s.trim()).filter((s) => s.length > 0)),
   // Liens universels (iOS) / App Links (Android) : un lien ou un QR
   // d'invitation ouvre directement l'app si elle est installée. Servis sur
   // /.well-known/* du domaine de PUBLIC_WEB_URL. Sans APPLE_TEAM_ID /

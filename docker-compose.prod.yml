@@ -49,6 +49,9 @@ services:
       # Optionnels (emails de reset, prix, règles de jeu…) — voir .env.example.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       APP_RESET_URL: ${APP_RESET_URL:-https://tarteel.sn/reset-password.html}
+      # Connexion avec Google / Apple (POST /auth/social) — vide = désactivée.
+      GOOGLE_CLIENT_IDS: ${GOOGLE_CLIENT_IDS:-}
+      APPLE_CLIENT_IDS: ${APPLE_CLIENT_IDS:-}
       # Judging vocal serveur (Whisper) — le service `asr` du même compose.
       ASR_URL: http://asr:9000
       ASR_API_KEY: ${ASR_API_KEY:-}

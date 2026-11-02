@@ -25,6 +25,12 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   app.post(
+    '/social',
+    { ...authLimit, schema: { tags: ['auth'], summary: 'Sign in or sign up with a Google or Apple identity token' } },
+    authController.socialSignIn,
+  );
+
+  app.post(
     '/refresh',
     { ...authLimit, schema: { tags: ['auth'], summary: 'Rotate the refresh token (silent re-login)' } },
     authController.refresh,

@@ -6,6 +6,7 @@ import { authService, type AuthResult } from './auth.service.js';
 import {
   registerSchema,
   loginSchema,
+  socialSignInSchema,
   refreshSchema,
   logoutSchema,
   changePasswordSchema,
@@ -52,6 +53,15 @@ export const authController = {
     const sign = (c: AccessClaims) => req.server.jwt.sign(c);
     const result = await authService.login(input, sign);
     return reply.send(authResponse(result));
+  },
+
+  async socialSignIn(req: FastifyRequest, reply: FastifyReply) {
+    const input = parse(socialSignInSchema, req.body);
+    const sign = (c: AccessClaims) => req.server.jwt.sign(c);
+    const result = await authService.socialSignIn(input, sign);
+    return reply
+      .status(result.isNewUser ? 201 : 200)
+      .send({ ...authResponse(result), isNewUser: result.isNewUser });
   },
 
   async refresh(req: FastifyRequest, reply: FastifyReply) {
