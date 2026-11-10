@@ -10,12 +10,33 @@
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BATCH = 100;
 
+/**
+ * Son et canal par défaut des push Tarteel.
+ *
+ * Ils DOIVENT rester synchrones avec l'app mobile
+ * (app/lib/localNotifications.ts : NOTIF_SOUND / GENERAL_CHANNEL_ID) :
+ *
+ * - `sound` : sur iOS, c'est le NOM DU FICHIER embarque dans le bundle.
+ *   'default' ferait jouer le son systeme Apple au lieu du son Tarteel.
+ *   Le fichier est bien embarque : le plugin expo-notifications (app.json)
+ *   le copie dans le projet Xcode via `sounds`.
+ * - `channelId` : canal Android. L'app cree ce canal au demarrage avec le
+ *   son Tarteel (setNotificationChannelAsync). Sans channelId explicite, le
+ *   push atterrit sur le canal par defaut du manifeste — qui est le meme
+ *   aujourd'hui, mais rien ne le garantit demain.
+ */
+export const NOTIF_SOUND = 'tarteel_notification.wav';
+export const NOTIF_CHANNEL_ID = 'tarteel-general-v1';
+
 export interface PushMessage {
   to: string; // ExponentPushToken[...]
   title: string;
   body: string;
   data?: Record<string, unknown>;
-  sound?: 'default' | null;
+  /** 'default' | nom du fichier iOS | null (silence). */
+  sound?: string | null;
+  /** Canal Android (par defaut : NOTIF_CHANNEL_ID). */
+  channelId?: string;
   badge?: number;
 }
 
@@ -49,7 +70,15 @@ export async function sendPush(messages: PushMessage[]): Promise<PushTicket[]> {
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(group.map((m) => ({ sound: 'default', ...m }))),
+        body: JSON.stringify(
+          group.map((m) => ({
+            ...m,
+            // `sound: null` est demande explicitement (silence) : ne pas le
+            // remplacer par le son par defaut.
+            sound: m.sound === undefined ? NOTIF_SOUND : m.sound,
+            channelId: m.channelId ?? NOTIF_CHANNEL_ID,
+          })),
+        ),
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) {
